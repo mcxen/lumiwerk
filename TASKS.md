@@ -33,8 +33,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 ## Phase 4: Media Loading (no mock)
 - [x] T4.1 Thumbnail decoding: PNG, JPEG, GIF, WebP, BMP, TIFF
-- [ ] T4.2 Thumbnail caching with LRU and size key
-- [ ] T4.3 Background concurrent decode with thread limit
+- [x] T4.2 Thumbnail caching with LRU and size key
+- [x] T4.3 Background concurrent decode with thread limit
 - [x] T4.4 Full image decode for large view
 - [x] T4.5 EXIF metadata extraction (dimensions, dates, camera)
 - [x] T4.6 Video thumbnail (first frame via ffmpeg)
@@ -43,16 +43,16 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 ## Phase 5: File Operations
 - [x] T5.1 Copy/move/delete/rename with two-phase rename
 - [ ] T5.2 Undo/redo (Cmd+Z / Cmd+Shift+Z)
-- [ ] T5.3 Batch rename with preview and rule templates
+- [x] T5.3 Batch rename with preview and rule templates
 - [x] T5.4 Quick rename in current folder
 - [ ] T5.5 Copy to configured folder (shortcuts)
 - [x] T5.6 New folder (Cmd+Shift+N)
 - [x] T5.7 Move to trash (Delete)
 
 ## Phase 6: Search & Sort
-- [ ] T6.1 Filename search with pinyin support
+- [x] T6.1 Filename search with pinyin support
 - [x] T6.2 Sort by name, date, size, EXIF date, random
-- [ ] T6.3 Filter by file type (image/video/raw)
+- [x] T6.3 Filter by file type (image/video/raw)
 - [ ] T6.4 Finder tag filter
 
 ## Phase 7: Layout Modes
@@ -64,8 +64,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 ## Phase 8: Settings & Configuration
 - [ ] T8.1 Settings window with panes (general, custom, actions, tagging, advanced)
-- [ ] T8.2 9 configuration slots (Opt+1~9 switch, Cmd+Opt+1~9 save)
-- [ ] T8.3 Persist preferences to disk
+- [x] T8.2 9 configuration slots (Opt+1~9 switch, Cmd+Opt+1~9 save)
+- [x] T8.3 Persist preferences to disk
 
 ## Phase 9: Polish
 - [ ] T9.1 Window management: maximize(1), fit(2), center(5), pin top(T)
