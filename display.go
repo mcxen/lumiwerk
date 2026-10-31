@@ -35,6 +35,7 @@ func isHiddenPath(root, path string) bool {
 func (a *appState) stopAutomation() {
 	a.AutoScroll, a.AutoPlay = false, false
 	a.autoTick = time.Time{}
+	a.AutoConfig, a.AutoValue = "", ""
 }
 
 func (a *appState) refreshView() {
@@ -71,12 +72,15 @@ func (a *appState) toggleViewOption(option string) {
 
 func (a *appState) setRecursive(enabled bool) {
 	a.Recursive = enabled
+	a.Profiles.View.MediaUnit = false
 	a.MediaUnitRoot = ""
+	savePrefs(a.Profiles)
 	a.refreshView()
 }
 
 func (a *appState) setMediaUnit(enabled bool) {
 	a.Profiles.View.MediaUnit = enabled
+	a.Recursive = false
 	a.MediaUnitRoot = ""
 	if enabled && a.Root != "" {
 		a.MediaUnitRoot = a.Root
@@ -332,8 +336,8 @@ func (a *appState) fitWindowToImage(current bool) {
 	}
 	w, h := float64(item.Info.Width), float64(item.Info.Height)
 	if w <= 0 || h <= 0 {
-		pw, ph := pixelSize(item.Path)
-		w, h = float64(pw), float64(ph)
+		pixelW, pixelH := pixelSize(item.Path)
+		w, h = float64(pixelW), float64(pixelH)
 	}
 	if w <= 0 || h <= 0 {
 		a.toast("无法读取图片尺寸")
@@ -344,7 +348,7 @@ func (a *appState) fitWindowToImage(current bool) {
 	}
 	scale := 1.0
 	if current {
-		scale = float64(a.Zoom)
+		scale = float64(a.Zoom) * float64(a.fitScale(item))
 		if scale <= 0 {
 			scale = float64(a.fitScale(item))
 		}

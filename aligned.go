@@ -332,7 +332,7 @@ func (a *appState) openFolder(path string) {
 	a.stopAutomation()
 	a.mu.Lock()
 	a.Root = path
-	if a.MediaUnitRoot != "" && path != a.MediaUnitRoot {
+	if a.MediaUnitRoot != "" && path != a.MediaUnitRoot && filepath.Dir(path) != a.MediaUnitRoot {
 		a.MediaUnitRoot = ""
 	}
 	a.Query = ""
@@ -756,6 +756,9 @@ func (a *appState) applyFilterLocked() {
 	if a.Chosen >= len(a.Visible) {
 		a.Chosen = -1
 	}
+	if a.Chosen >= 0 && a.Selected.Len() == 0 {
+		a.Selected.Add(a.Items[a.Visible[a.Chosen]].Path)
+	}
 }
 
 func (a *appState) startWatcher() {
@@ -767,7 +770,7 @@ func (a *appState) startWatcher() {
 	a.watchCtx = ctx
 	a.watchStop = cancel
 	root := a.Root
-	recursive := a.Recursive
+	recursive := a.Recursive || a.MediaUnitRoot == root
 	a.mu.Unlock()
 
 	go func() {
@@ -984,16 +987,16 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyT) && !a.InLargeView {
 		a.togglePinned()
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyPeriod) {
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyPeriod) && !a.modalOpen() {
 		a.toggleViewOption("hidden")
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyComma) {
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyComma) && !a.modalOpen() {
 		a.toggleViewOption("all")
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.modalOpen() {
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.setRecursive(!a.Recursive)
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) && !a.modalOpen() {
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.toggleViewOption("folders")
 	}
 	if c.Shortcut(0, ui.Key3) && a.InLargeView {
@@ -1330,7 +1333,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 			items := strings.Split(strings.ReplaceAll(a.breadcrumbPath(), " › ", "/"), "/")
 			chosen := len(items) - 1
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
-			ui.Textf(c, "(%d 图像)", a.mediaCount()).FontSize(11).TextColor(t.TextMuted)
+			ui.Textf(c, "(%d 媒体)", a.mediaCount()).FontSize(11).TextColor(t.TextMuted)
 		}
 		if !a.InLargeView {
 			prevQuery := a.LastQuery
@@ -1365,8 +1368,8 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.anchorBrowse(oldThumb, a.Thumb, 0, 0, false, box)
 			}
 			ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
-			ui.MenuButton(c, "•••", a.viewMenu).Tooltip("显示与浏览")
 		}
+		ui.MenuButton(c, "•••", a.viewMenu).Tooltip("显示与浏览")
 	}).Padding(6, 10).Background(t.Surface)
 	_ = bar
 }
@@ -1491,7 +1494,7 @@ func (a *appState) statusBar(c *ui.Context) {
 	bar.Children(func() {
 		label := "未打开目录"
 		if a.Root != "" {
-			label = fmt.Sprintf("%s (%d 图像)", a.Root, a.mediaCount())
+			label = fmt.Sprintf("%s (%d 媒体)", a.Root, a.mediaCount())
 		}
 		ui.Text(c, label).FontSize(11).TextColor(t.TextMuted)
 	})
@@ -2046,7 +2049,7 @@ func (a *appState) ensureVideo(path string) {
 	if path == "" || (a.Video != nil && a.Video.path == path) {
 		return
 	}
-	a.openPlayback(path, 0, true)
+	a.openPlayback(path, 0, a.Profiles.View.AutoPlaySelected)
 }
 
 // seekVideo restarts the real ffmpeg stream at seconds so the control bar
@@ -2163,6 +2166,8 @@ func (a *appState) openLargeImage(index int) {
 }
 
 func (a *appState) closeLargeImage() {
+	a.AutoPlay = false
+	a.autoTick = time.Time{}
 	a.closeEditor()
 	a.clearSharp()
 	a.InLargeView = false
@@ -2195,7 +2200,7 @@ func (a *appState) prevImage() {
 func (a *appState) mediaCount() int {
 	n := 0
 	for _, index := range a.Visible {
-		if index >= 0 && index < len(a.Items) && !a.Items[index].IsDir {
+		if index >= 0 && index < len(a.Items) && isMediaFile(a.Items[index].Ext) {
 			n++
 		}
 	}
@@ -2244,10 +2249,10 @@ func (a *appState) detailView(c *ui.Context) {
 			row.Opacity(0.4)
 		}
 		if row.DoubleClicked() {
-			a.openLargeImage(i)
+			a.openItem(i)
 		}
 	})
-	list.Grow(1)
+	list.Grow(1).TrackScroll(&a.browseScroll)
 }
 
 func (a *appState) currentProfile() profile {
@@ -2277,6 +2282,7 @@ func (a *appState) applyProfile(i int) {
 	a.Thumb = p.Thumb
 	a.Sort = p.Sort
 	a.Recursive = p.Recursive
+	a.MediaUnitRoot = ""
 	savePrefs(a.Profiles)
 	if p.Root != "" && isDir(p.Root) {
 		a.openFolder(p.Root)

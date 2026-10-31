@@ -16,6 +16,7 @@ func main() {
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192, FolderFirst: true}
 	a.Profiles = loadPrefs()
+	mygo.Theme.SetSource(mygo.ThemeSource(a.Profiles.View.Theme))
 	openPath := func(path string) {
 		if a.Window != nil {
 			a.Window.Update(func() { a.openFolder(path) })

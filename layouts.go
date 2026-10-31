@@ -343,7 +343,7 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 	a.fileDragSource(card, item.Path)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 	if card.DoubleClicked() {
-		a.openLargeImage(i)
+		a.openItem(i)
 	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(root, a.Visible[i])

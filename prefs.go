@@ -70,7 +70,7 @@ func prefsPath() string {
 }
 
 func loadPrefs() prefsFile {
-	var p prefsFile
+	p := prefsFile{View: defaultViewPreferences(), ViewSet: true}
 	data, err := os.ReadFile(prefsPath())
 	if err != nil {
 		return p
@@ -84,6 +84,7 @@ func loadPrefs() prefsFile {
 	}
 	if !p.ViewSet {
 		p.View = defaultViewPreferences()
+		p.ViewSet = true
 	}
 	if p.View.AutoScrollSpeed == 0 {
 		p.View.AutoScrollSpeed = 60
@@ -110,6 +111,7 @@ func loadPrefs() prefsFile {
 }
 
 func savePrefs(p prefsFile) {
+	p.ViewSet = true
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return
