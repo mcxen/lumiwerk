@@ -362,3 +362,36 @@ func (a *appState) batchDialog(c *ui.Context) {
 		})
 	})
 }
+
+func (a *appState) currentDestination() string {
+	if a.Profiles.Active < 0 || a.Profiles.Active >= len(a.Profiles.Profiles) {
+		return ""
+	}
+	return a.Profiles.Profiles[a.Profiles.Active].Destination
+}
+
+func (a *appState) setCopyDestination() {
+	dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "设置复制目录", Directory: true})
+	if err != nil || len(dest) == 0 || a.Profiles.Active < 0 || a.Profiles.Active >= len(a.Profiles.Profiles) {
+		return
+	}
+	a.Window.Update(func() {
+		a.Profiles.Profiles[a.Profiles.Active].Destination = dest[0]
+		savePrefs(a.Profiles)
+	})
+}
+
+func (a *appState) copyToConfigured() {
+	dest := a.currentDestination()
+	if dest == "" || !isDir(dest) {
+		return
+	}
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	if err := a.performTracked(fileOperation{op: opCopy, paths: paths, dest: dest}); err != nil {
+		return
+	}
+	a.Window.Update(func() { a.refresh() })
+}

@@ -7,13 +7,14 @@ import (
 )
 
 type profile struct {
-	Root       string  `json:"root,omitempty"`
-	Sidebar    bool    `json:"sidebar"`
-	SidebarW   float32 `json:"sidebarWidth"`
-	LayoutMode int     `json:"layoutMode"`
-	Thumb      float64 `json:"thumbSize"`
-	Sort       string  `json:"sort"`
-	Recursive  bool    `json:"recursive"`
+	Root        string  `json:"root,omitempty"`
+	Sidebar     bool    `json:"sidebar"`
+	SidebarW    float32 `json:"sidebarWidth"`
+	LayoutMode  int     `json:"layoutMode"`
+	Thumb       float64 `json:"thumbSize"`
+	Sort        string  `json:"sort"`
+	Recursive   bool    `json:"recursive"`
+	Destination string  `json:"destination,omitempty"`
 }
 
 type prefsFile struct {

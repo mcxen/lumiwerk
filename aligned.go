@@ -119,6 +119,8 @@ func newAppMenu(a *appState) *mygo.Menu {
 					a.refresh()
 				})
 			}},
+			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.setCopyDestination() }},
+			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.copyToConfigured() }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
 			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.SidebarShown = !a.SidebarShown }) }},
@@ -996,13 +998,14 @@ func (a *appState) detailView(c *ui.Context) {
 
 func (a *appState) currentProfile() profile {
 	return profile{
-		Root:       a.Root,
-		Sidebar:    a.SidebarShown,
-		SidebarW:   a.SidebarWidth,
-		LayoutMode: a.LayoutMode,
-		Thumb:      a.Thumb,
-		Sort:       a.Sort,
-		Recursive:  a.Recursive,
+		Root:        a.Root,
+		Sidebar:     a.SidebarShown,
+		SidebarW:    a.SidebarWidth,
+		LayoutMode:  a.LayoutMode,
+		Thumb:       a.Thumb,
+		Sort:        a.Sort,
+		Recursive:   a.Recursive,
+		Destination: a.currentDestination(),
 	}
 }
 

@@ -45,7 +45,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T5.2 Undo/redo (Cmd+Z / Cmd+Shift+Z)
 - [x] T5.3 Batch rename with preview and rule templates
 - [x] T5.4 Quick rename in current folder
-- [ ] T5.5 Copy to configured folder (shortcuts)
+- [x] T5.5 Copy to configured folder (shortcuts)
 - [x] T5.6 New folder (Cmd+Shift+N)
 - [x] T5.7 Move to trash (Delete)
 
