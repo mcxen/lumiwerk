@@ -1,0 +1,232 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+)
+
+// infoState tracks overlays in the large view.
+type infoState struct {
+	EXIF bool
+	File bool
+}
+
+// opState tracks the current rename dialog.
+type opState struct {
+	Renaming   bool
+	RenamePath string
+	RenameVal  string
+}
+
+func (a *appState) selectedPaths() []string {
+	if a.Chosen < 0 || a.Chosen >= len(a.Visible) {
+		return nil
+	}
+	return []string{a.Items[a.Visible[a.Chosen]].Path}
+}
+
+func (a *appState) doCopy() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	go func() {
+		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "复制到目录", Directory: true})
+		if err != nil || len(dest) == 0 {
+			return
+		}
+		if err := perform(fileOperation{op: opCopy, paths: paths, dest: dest[0]}); err != nil {
+			return
+		}
+		a.Window.Update(func() { a.refresh() })
+	}()
+}
+
+func (a *appState) doMove() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	go func() {
+		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "移动到目录", Directory: true})
+		if err != nil || len(dest) == 0 {
+			return
+		}
+		if err := perform(fileOperation{op: opMove, paths: paths, dest: dest[0]}); err != nil {
+			return
+		}
+		a.Window.Update(func() { a.refresh() })
+	}()
+}
+
+func (a *appState) doTrash() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	if err := perform(fileOperation{op: opDelete, paths: paths}); err != nil {
+		return
+	}
+	a.refresh()
+}
+
+func (a *appState) startRename() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	a.Renaming = true
+	a.RenamePath = paths[0]
+	a.RenameVal = filepath.Base(paths[0])
+}
+
+func (a *appState) commitRename() {
+	if !a.Renaming || a.RenamePath == "" || a.RenameVal == "" {
+		a.Renaming = false
+		return
+	}
+	if a.RenameVal == filepath.Base(a.RenamePath) {
+		a.Renaming = false
+		return
+	}
+	if err := perform(fileOperation{op: opRename, paths: []string{a.RenamePath}, newName: a.RenameVal}); err != nil {
+		a.Renaming = false
+		return
+	}
+	a.Renaming = false
+	a.RenamePath = ""
+	a.refresh()
+}
+
+func (a *appState) newFolder() {
+	if a.Root == "" {
+		return
+	}
+	name := time.Now().Format("新建文件夹 2006-01-02 15-04-05")
+	if err := os.Mkdir(filepath.Join(a.Root, name), 0o755); err != nil {
+		return
+	}
+	a.refresh()
+}
+
+func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
+	if index >= 0 && index < len(a.Visible) {
+		a.Chosen = index
+	}
+	paths := a.selectedPaths()
+	none := len(paths) == 0
+	if m.Item("打开").Disabled(none).Chosen() {
+		a.openLargeImage(a.Chosen)
+	}
+	m.Separator()
+	if m.Item("重命名…").Disabled(none).Chosen() {
+		a.startRename()
+	}
+	if m.Item("复制到…").Disabled(none).Chosen() {
+		a.doCopy()
+	}
+	if m.Item("移动到…").Disabled(none).Chosen() {
+		a.doMove()
+	}
+	if m.Item("移到废纸篓").Disabled(none).Chosen() {
+		a.doTrash()
+	}
+	m.Separator()
+	if m.Item("新建文件夹").Disabled(a.Root == "").Chosen() {
+		a.newFolder()
+	}
+}
+
+func (a *appState) fileContextMenu(m *ui.Menu) {
+	paths := a.selectedPaths()
+	none := len(paths) == 0
+	if m.Item("重命名…").Disabled(none).Chosen() {
+		a.startRename()
+	}
+	if m.Item("复制到…").Disabled(none).Chosen() {
+		a.doCopy()
+	}
+	if m.Item("移动到…").Disabled(none).Chosen() {
+		a.doMove()
+	}
+	if m.Item("移到废纸篓").Disabled(none).Chosen() {
+		a.doTrash()
+	}
+	m.Separator()
+	if m.Item("新建文件夹").Disabled(a.Root == "").Chosen() {
+		a.newFolder()
+	}
+}
+
+// renameDialog shows a real editable field and commits on Enter.
+func (a *appState) renameDialog(c *ui.Context) {
+	if !a.Renaming {
+		return
+	}
+	t := c.Theme()
+	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(320).Padding(16).Gap(8).
+		Background(t.Surface).Border(1, t.Border).Radius(8)
+	panel.Children(func() {
+		ui.Text(c, "重命名").Bold().FontSize(14)
+		field := ui.TextInput(c, &a.RenameVal).Width(280)
+		if field.Submitted() {
+			a.commitRename()
+		}
+		row := ui.Row(c).Gap(8).Justify(ui.End)
+		row.Children(func() {
+			if ui.Button(c.Key("rename-cancel"), "取消").Clicked() {
+				a.Renaming = false
+			}
+			if ui.Button(c.Key("rename-ok"), "确定").Clicked() {
+				a.commitRename()
+			}
+		})
+	})
+}
+
+// infoOverlay shows real EXIF and file metadata in the large view.
+func (a *appState) infoOverlay(c *ui.Context, item *mediaItem) {
+	if !a.Info.EXIF && !a.Info.File {
+		return
+	}
+	if !item.InfoLoaded {
+		item.Info = loadMediaInfo(item.Path, item.IsVideo)
+		item.InfoLoaded = true
+	}
+	t := c.Theme()
+	lines := []string{}
+	if a.Info.EXIF {
+		if item.Info.Camera != "" || item.Info.Model != "" {
+			lines = append(lines, fmt.Sprintf("相机: %s %s", item.Info.Camera, item.Info.Model))
+		}
+		if item.Info.Created != "" {
+			lines = append(lines, "拍摄: "+item.Info.Created)
+		}
+		if item.Info.Width > 0 {
+			lines = append(lines, fmt.Sprintf("尺寸: %d×%d", item.Info.Width, item.Info.Height))
+		}
+		if item.Info.Duration != "" {
+			lines = append(lines, "时长: "+item.Info.Duration)
+		}
+	}
+	if a.Info.File {
+		lines = append(lines, "路径: "+item.Path)
+		lines = append(lines, fmt.Sprintf("大小: %.1f MB", float64(item.Size)/(1024*1024)))
+		lines = append(lines, "修改: "+time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05"))
+	}
+	if len(lines) == 0 {
+		return
+	}
+	panel := ui.Column(c).Attach(ui.AnchorTopRight, ui.AnchorTopRight).Width(320).Padding(12).Gap(4).
+		Background(t.Surface).Border(1, t.Border).Radius(8)
+	panel.Children(func() {
+		for _, line := range lines {
+			ui.Text(c, line).FontSize(11).MaxLines(1).SingleLine()
+		}
+	})
+}

@@ -36,18 +36,18 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [ ] T4.2 Thumbnail caching with LRU and size key
 - [ ] T4.3 Background concurrent decode with thread limit
 - [x] T4.4 Full image decode for large view
-- [ ] T4.5 EXIF metadata extraction (dimensions, dates, camera)
+- [x] T4.5 EXIF metadata extraction (dimensions, dates, camera)
 - [x] T4.6 Video thumbnail (first frame via ffmpeg)
 - [x] T4.7 Video playback (mpv or AVPlayer bridge)
 
 ## Phase 5: File Operations
-- [ ] T5.1 Copy/move/delete/rename with two-phase rename
+- [x] T5.1 Copy/move/delete/rename with two-phase rename
 - [ ] T5.2 Undo/redo (Cmd+Z / Cmd+Shift+Z)
 - [ ] T5.3 Batch rename with preview and rule templates
-- [ ] T5.4 Quick rename in current folder
+- [x] T5.4 Quick rename in current folder
 - [ ] T5.5 Copy to configured folder (shortcuts)
-- [ ] T5.6 New folder (Cmd+Shift+N)
-- [ ] T5.7 Move to trash (Delete)
+- [x] T5.6 New folder (Cmd+Shift+N)
+- [x] T5.7 Move to trash (Delete)
 
 ## Phase 6: Search & Sort
 - [ ] T6.1 Filename search with pinyin support
@@ -71,5 +71,5 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [ ] T9.1 Window management: maximize(1), fit(2), center(5), pin top(T)
 - [ ] T9.2 Tabbed browsing
 - [ ] T9.3 Finder tags and rating display
-- [ ] T9.4 EXIF info overlay (I)
-- [ ] T9.5 File info overlay (U)
+- [x] T9.4 EXIF info overlay (I)
+- [x] T9.5 File info overlay (U)

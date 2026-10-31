@@ -31,17 +31,19 @@ var (
 )
 
 type mediaItem struct {
-	Path      string
-	Name      string
-	Ext       string
-	Size      int64
-	ModTime   int64
-	Bitmap    *ui.Bitmap
-	Decoded   bool
-	Failed    bool
-	Loading   bool
-	IsVideo   bool
-	ThumbDone bool
+	Path       string
+	Name       string
+	Ext        string
+	Size       int64
+	ModTime    int64
+	Bitmap     *ui.Bitmap
+	Decoded    bool
+	Failed     bool
+	Loading    bool
+	IsVideo    bool
+	ThumbDone  bool
+	Info       mediaInfo
+	InfoLoaded bool
 }
 
 // videoView owns a real MyGo player for the video currently in large view.
@@ -88,6 +90,10 @@ type appState struct {
 	Rotation    float32
 	Mirror      bool
 	Video       *videoView
+	Info        infoState
+	Renaming    bool
+	RenamePath  string
+	RenameVal   string
 }
 
 func newAppMenu(a *appState) *mygo.Menu {
@@ -445,6 +451,24 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(0, ui.KeySpace) && !a.InLargeView && a.Chosen >= 0 {
 		a.openLargeImage(a.Chosen)
 	}
+	if c.Shortcut(0, ui.KeyI) && a.InLargeView {
+		a.Info.EXIF = !a.Info.EXIF
+	}
+	if c.Shortcut(0, ui.KeyU) && a.InLargeView {
+		a.Info.File = !a.Info.File
+	}
+	if c.Shortcut(0, ui.KeyDelete) && !a.InLargeView {
+		a.doTrash()
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) && !a.InLargeView {
+		go a.newFolder()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyC) && !a.InLargeView {
+		a.doCopy()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyX) && !a.InLargeView {
+		a.doMove()
+	}
 
 	if a.SidebarWidth == 0 {
 		a.SidebarWidth = sidebarDefaultWidth
@@ -458,6 +482,7 @@ func (a *appState) view(c *ui.Context) {
 	} else {
 		a.mainView(c)
 	}
+	a.renameDialog(c)
 }
 
 func (a *appState) sidebarView(c *ui.Context) {
@@ -635,6 +660,7 @@ func (a *appState) gridView(c *ui.Context) {
 			ui.Text(c, item.Name).FontSize(11).MaxLines(1).SingleLine().TextAlign(ui.Start)
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
+		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
 			a.loadThumb(root, a.Visible[i])
 		}
@@ -724,6 +750,7 @@ func (a *appState) largeImageView(c *ui.Context) {
 				ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1).Transform(transformFor(a.Zoom, a.Rotation, a.Mirror))
 			}
 		}
+		a.infoOverlay(c, item)
 		// Overlay controls like FlowVision's zoom and rotate buttons.
 		controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorCenter).Gap(8).Padding(8).Background(t.Surface).Radius(8)
 		controls.Children(func() {
