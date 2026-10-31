@@ -13,7 +13,7 @@ func main() {
 	mygo.App.SetName(appName)
 	mygo.App.SetVersion(appVersion)
 
-	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 512}
+	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 128}
 	a.Profiles = loadPrefs()
 	openPath := func(path string) {
 		if a.Window != nil {

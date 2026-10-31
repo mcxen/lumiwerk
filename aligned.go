@@ -530,7 +530,7 @@ func (a *appState) view(c *ui.Context) {
 
 func (a *appState) sidebarView(c *ui.Context) {
 	t := c.Theme()
-	pane := ui.Column(c).Fill().Background(t.Surface)
+	pane := ui.Column(c).Fill().Background(t.Surface).Gap(0)
 	pane.Children(func() {
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
@@ -546,6 +546,39 @@ func (a *appState) sidebarView(c *ui.Context) {
 		roots := []string{"/", a.Root}
 		roots = slices.Compact(slices.Sorted(slices.Values(roots)))
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
+		ui.Divider(c)
+		// History section: recent folders visited in this session.
+		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
+			ui.Text(c, "历史记录").FontSize(11).Bold().TextColor(t.TextMuted)
+		})
+		if len(a.History) == 0 {
+			ui.Text(c, "无").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		}
+		for i, h := range a.History {
+			hist := h
+			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
+			if i == a.Cursor {
+				row.Background(t.Accent).TextColor(t.AccentText)
+			}
+			row.Children(func() {
+				ui.Icon(c, dirIcon).FontSize(12)
+				ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1)
+			})
+			row.OnClick(func() { a.openFolder(hist) })
+		}
+		ui.Divider(c)
+		// Finder tags section (placeholder groups matching FlowVision sidebar).
+		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
+			ui.Text(c, "Finder标签").FontSize(11).Bold().TextColor(t.TextMuted)
+		})
+		ui.Text(c, "红色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		ui.Text(c, "橙色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		ui.Text(c, "黄色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		ui.Text(c, "绿色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		ui.Text(c, "蓝色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		ui.Text(c, "灰色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
 	})
 }
 
@@ -623,7 +656,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 		}
 		ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
 		ui.Segmented(c, &a.LayoutMode, "网格", "详情").Label("视图")
-		ui.Slider(c, &a.Thumb, 192, 4096).Width(90)
+		ui.Slider(c, &a.Thumb, 64, 512).Width(90)
 		ui.MenuButton(c, "排序", func(m *ui.Menu) {
 			for _, item := range []struct{ label, value string }{
 				{"名称", "name"}, {"日期", "date"}, {"大小", "size"},
@@ -695,8 +728,8 @@ func (a *appState) gridView(c *ui.Context) {
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
 	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
-	cell := int(a.Thumb/2 + 96)
-	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+28), func(i int) {
+	cell := int(a.Thumb + 64)
+	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+24), func(i int) {
 		item := &a.Items[a.Visible[i]]
 		card := ui.Column(c).Grow(1).Margin(4).Padding(4).Gap(4).Radius(6).Background(t.Surface)
 		if a.Chosen == i {
