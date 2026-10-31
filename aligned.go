@@ -101,6 +101,7 @@ type appState struct {
 	Undo        undoStack
 	TagFilter   string
 	Pinned      bool
+	Settings    settingsState
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
@@ -123,6 +124,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 				})
 			}},
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.setCopyDestination() }},
+			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.Window.Update(func() { a.openSettings(); a.settingsWindow() })
+			}},
 			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.copyToConfigured() }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{

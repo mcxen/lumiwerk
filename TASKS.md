@@ -63,7 +63,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T7.5 Thumbnail size adjust (= / - / 0)
 
 ## Phase 8: Settings & Configuration
-- [ ] T8.1 Settings window with panes (general, custom, actions, tagging, advanced)
+- [x] T8.1 Settings window with panes (general, custom, actions, tagging, advanced)
 - [x] T8.2 9 configuration slots (Opt+1~9 switch, Cmd+Opt+1~9 save)
 - [x] T8.3 Persist preferences to disk
 
