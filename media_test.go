@@ -32,3 +32,15 @@ func TestPinyinContains(t *testing.T) {
 		t.Fatalf("unexpected pinyin match")
 	}
 }
+
+func TestFormatRateAndBits(t *testing.T) {
+	if got := formatRate("30000/1001"); got != "29.97" {
+		t.Fatalf("rate = %s", got)
+	}
+	if formatRate("0/0") != "" || formatRate("30") != "" {
+		t.Fatal("bad rates should be empty")
+	}
+	if got := formatBits(2500000); got != "2.50 Mbps" {
+		t.Fatalf("bits = %s", got)
+	}
+}

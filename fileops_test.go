@@ -158,3 +158,71 @@ func TestWheelZoomAndSeek(t *testing.T) {
 		t.Fatalf("seek = %v", got)
 	}
 }
+
+func TestReplaceAndMerge(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dstDir := filepath.Join(dir, "dst")
+	if err := os.Mkdir(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dstDir, "src.txt")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasNameConflict([]string{src}, dstDir) {
+		t.Fatal("expected conflict")
+	}
+	applied, err := perform(fileOperation{op: opCopy, paths: []string{src}, dest: dstDir, replace: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.replaced {
+		t.Fatal("expected replaced")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "new" {
+		t.Fatalf("replaced content = %q err=%v", data, err)
+	}
+	if _, ok := inverseOf(applied); ok {
+		t.Fatal("replace should not be undoable")
+	}
+
+	folder := filepath.Join(dir, "folder")
+	nested := filepath.Join(dstDir, "folder")
+	if err := os.MkdirAll(filepath.Join(folder, "keep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "keep", "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "old.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := perform(fileOperation{op: opCopy, paths: []string{folder}, dest: dstDir, replace: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(nested, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(nested, "keep", "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSoundtrackArgsFollowSeek(t *testing.T) {
+	args := soundtrackArgs("/tmp/a.mp4", 1.25)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-vn") || !strings.Contains(joined, "-ss 1.250") || !strings.Contains(joined, "f32le") || !strings.HasSuffix(joined, "-") {
+		t.Fatalf("args = %s", joined)
+	}
+	if strings.Contains(strings.Join(soundtrackArgs("/tmp/a.mp4", 0), " "), "-ss") {
+		t.Fatal("zero seek should not pass -ss")
+	}
+}

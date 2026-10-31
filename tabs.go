@@ -22,6 +22,29 @@ func (a *appState) openTab(path string) {
 	a.openFolder(path)
 }
 
+// openInNewTab keeps the current folder as a tab, then opens path beside it.
+func (a *appState) openInNewTab(path string) {
+	if path == "" || !isDir(path) {
+		return
+	}
+	if len(a.Tabs.Tabs) == 0 && a.Root != "" {
+		a.Tabs.Tabs = append(a.Tabs.Tabs, tab{Root: a.Root, Name: pathName(a.Root)})
+		a.Tabs.Active = 0
+	}
+	a.openTab(path)
+}
+
+func (a *appState) noteTabRoot(path string) {
+	if len(a.Tabs.Tabs) == 0 {
+		return
+	}
+	if a.Tabs.Active < 0 || a.Tabs.Active >= len(a.Tabs.Tabs) {
+		a.Tabs.Active = 0
+	}
+	a.Tabs.Tabs[a.Tabs.Active].Root = path
+	a.Tabs.Tabs[a.Tabs.Active].Name = pathName(path)
+}
+
 func (a *appState) closeTab(i int) {
 	if i < 0 || i >= len(a.Tabs.Tabs) {
 		return

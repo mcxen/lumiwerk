@@ -19,9 +19,12 @@ type profile struct {
 }
 
 type prefsFile struct {
-	Active      int       `json:"active"`
-	Profiles    []profile `json:"profiles"`
-	QuickRename string    `json:"quickRename,omitempty"`
+	Active         int       `json:"active"`
+	Profiles       []profile `json:"profiles"`
+	QuickRename    string    `json:"quickRename,omitempty"`
+	ZipPassword    string    `json:"zipPassword,omitempty"`
+	ZipUsePassword bool      `json:"zipUsePassword,omitempty"`
+	Favorites      []string  `json:"favorites,omitempty"`
 }
 
 func prefsPath() string {

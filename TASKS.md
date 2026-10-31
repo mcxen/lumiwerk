@@ -82,3 +82,10 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T10.5 Real ffmpeg video playback, 520x67 floating controls, seek, elapsed/total time
 - [x] T10.6 Finder tag dots, rating stars, EXIF and file info overlays over media
 - [x] T10.7 MyGo v0.7.3 release build, go test/vet/build, headless and real-window acceptance
+
+## Phase 11: Finder-Style Waterfall
+- [x] T11.1 Dark Finder-like media surface with compact captions and shared sidebar chrome
+- [x] T11.2 No white card backing, padding or media gutters in grid and waterfall thumbnails
+- [x] T11.3 Thumbnail images cover their card so letterbox/pillarbox white edges cannot appear
+- [x] T11.4 Finder-sized multi-column waterfall with uneven column heights and shortest-column packing
+- [x] T11.5 Real-window acceptance on Qxpicture: uneven columns, no UI white frame, responsive thumb sizing

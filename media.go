@@ -23,6 +23,13 @@ type mediaInfo struct {
 	Created     string
 	Camera      string
 	Model       string
+	Format      string
+	DPI         string
+	Profile     string
+	Bits        string
+	Codec       string
+	FrameRate   string
+	BitRate     string
 }
 
 func loadMediaInfo(path string, isVideo bool) mediaInfo {
@@ -34,11 +41,13 @@ func loadMediaInfo(path string, isVideo bool) mediaInfo {
 
 func probeImage(path string) mediaInfo {
 	var info mediaInfo
-	cmd := exec.Command("sips", "-g", "pixelWidth", "-g", "pixelHeight", "-g", "creation", "-g", "make", "-g", "model", path)
+	cmd := exec.Command("sips", "-g", "pixelWidth", "-g", "pixelHeight", "-g", "creation", "-g", "make", "-g", "model",
+		"-g", "format", "-g", "dpiWidth", "-g", "dpiHeight", "-g", "profile", "-g", "bitsPerSample", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return info
 	}
+	var dpiW, dpiH string
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -58,7 +67,20 @@ func probeImage(path string) mediaInfo {
 			info.Camera = val
 		case "model":
 			info.Model = val
+		case "format":
+			info.Format = val
+		case "dpiWidth":
+			dpiW = val
+		case "dpiHeight":
+			dpiH = val
+		case "profile":
+			info.Profile = val
+		case "bitsPerSample":
+			info.Bits = val
 		}
+	}
+	if dpiW != "" && dpiH != "" && dpiW != "0.000" && dpiH != "0.000" {
+		info.DPI = dpiW + " × " + dpiH
 	}
 	return info
 }
@@ -67,7 +89,7 @@ func probeVideo(path string) mediaInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=width,height,codec_name,duration:format=duration",
+		"-show_entries", "stream=width,height,codec_name,avg_frame_rate,bit_rate:format=duration,bit_rate",
 		"-of", "default=noprint_wrappers=1", path)
 	out, err := cmd.Output()
 	if err != nil {
@@ -85,8 +107,16 @@ func probeVideo(path string) mediaInfo {
 			info.Width, _ = strconv.Atoi(val)
 		case "height":
 			info.Height, _ = strconv.Atoi(val)
+		case "codec_name":
+			info.Codec = val
+		case "avg_frame_rate":
+			info.FrameRate = formatRate(val)
+		case "bit_rate":
+			if n, err := strconv.ParseInt(val, 10, 64); err == nil && n > 0 {
+				info.BitRate = formatBits(n)
+			}
 		case "duration":
-			if secs, err := strconv.ParseFloat(val, 64); err == nil {
+			if secs, err := strconv.ParseFloat(val, 64); err == nil && info.DurationSec == 0 {
 				info.DurationSec = secs
 				info.Duration = formatDuration(secs)
 			}
@@ -100,6 +130,30 @@ func formatDuration(secs float64) string {
 	return fmt.Sprintf("%02d:%02d.%03d", int(d.Minutes()), int(d.Seconds())%60, d.Milliseconds()%1000)
 }
 
+func formatRate(raw string) string {
+	num, den, ok := strings.Cut(raw, "/")
+	if !ok {
+		return ""
+	}
+	n, errN := strconv.ParseFloat(num, 64)
+	d, errD := strconv.ParseFloat(den, 64)
+	if errN != nil || errD != nil || d == 0 || n == 0 {
+		return ""
+	}
+	return strconv.FormatFloat(n/d, 'f', 2, 64)
+}
+
+func formatBits(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.2f Mbps", float64(n)/1_000_000)
+	case n >= 1000:
+		return fmt.Sprintf("%.0f kbps", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%d bps", n)
+	}
+}
+
 // ============================
 // File Operations
 // ============================
@@ -111,16 +165,24 @@ const (
 	opMove
 	opDelete
 	opRename
+	opCompress
+	opExtract
 )
 
 type fileOperation struct {
-	op       fileOp
-	paths    []string
-	dest     string
-	newName  string
-	mappings []pathPair
-	created  []string
-	cut      bool
+	op         fileOp
+	paths      []string
+	dest       string
+	newName    string
+	mappings   []pathPair
+	created    []string
+	cut        bool
+	replace    bool
+	replaced   bool
+	permanent  bool
+	password   string
+	dropSource bool
+	detail     string
 }
 
 // perform applies a real file operation. Rename uses FlowVision's two-phase
@@ -128,27 +190,8 @@ type fileOperation struct {
 // operation records the paths that were actually created or moved.
 func perform(op fileOperation) (fileOperation, error) {
 	switch op.op {
-	case opCopy:
-		if err := rejectSelfCopy(op.paths, op.dest); err != nil {
-			return op, err
-		}
-		var created []string
-		for _, src := range op.paths {
-			inPlace := pathKey(filepath.Dir(src)) == pathKey(op.dest)
-			dst := filepath.Join(op.dest, filepath.Base(src))
-			if inPlace {
-				dst = flowUnique(dst, true, created)
-			} else {
-				dst = flowUnique(dst, false, created)
-			}
-			if err := copyTree(src, dst); err != nil {
-				return op, err
-			}
-			created = append(created, dst)
-		}
-		op.created = created
-	case opMove:
-		if len(op.mappings) > 0 {
+	case opCopy, opMove:
+		if len(op.mappings) > 0 && op.op == opMove {
 			for _, mapping := range op.mappings {
 				if err := movePath(mapping.From, mapping.To); err != nil {
 					return op, err
@@ -159,20 +202,42 @@ func perform(op fileOperation) (fileOperation, error) {
 		if err := rejectSelfCopy(op.paths, op.dest); err != nil {
 			return op, err
 		}
+		var created []string
 		var mappings []pathPair
 		var reserved []string
 		for _, src := range op.paths {
-			dst := flowUnique(filepath.Join(op.dest, filepath.Base(src)), false, reserved)
-			if err := movePath(src, dst); err != nil {
+			dst, replaced, err := placePath(src, op.dest, op.op == opMove, op.replace, reserved)
+			if err != nil {
 				return op, err
 			}
-			mappings = append(mappings, pathPair{From: src, To: dst})
+			if dst == "" {
+				continue
+			}
+			if replaced {
+				op.replaced = true
+			}
 			reserved = append(reserved, dst)
+			if op.op == opMove {
+				mappings = append(mappings, pathPair{From: src, To: dst})
+			} else {
+				created = append(created, dst)
+			}
 		}
+		op.created = created
 		op.mappings = mappings
 	case opDelete:
 		for _, path := range op.paths {
-			if err := trashPath(path); err != nil {
+			var err error
+			if op.permanent {
+				err = os.RemoveAll(path)
+			} else {
+				trashed, trashErr := trashItem(path)
+				err = trashErr
+				if trashErr == nil && trashed != "" {
+					op.mappings = append(op.mappings, pathPair{From: path, To: trashed})
+				}
+			}
+			if err != nil {
 				return op, err
 			}
 		}
@@ -191,6 +256,36 @@ func perform(op fileOperation) (fileOperation, error) {
 			return op, err
 		}
 		op.mappings = mappings
+	case opCompress:
+		dest, err := compressPaths(op.paths, op.password, time.Now())
+		if err != nil {
+			return op, err
+		}
+		op.created = []string{dest}
+		op.detail = "已压缩为 " + filepath.Base(dest)
+		if op.dropSource {
+			for _, path := range op.paths {
+				_ = discardPath(path)
+			}
+		}
+	case opExtract:
+		extracted, failed, err := extractArchives(op.paths, op.password)
+		if err != nil {
+			return op, err
+		}
+		for _, item := range extracted {
+			op.created = append(op.created, item.dest)
+			if op.dropSource {
+				_ = discardPath(item.archive)
+			}
+		}
+		if len(failed) > 0 {
+			op.detail = "部分压缩包解压失败：" + previewNames(failed)
+		} else if len(op.created) == 1 {
+			op.detail = "已解压到 " + filepath.Base(op.created[0])
+		} else {
+			op.detail = fmt.Sprintf("已解压 %d 个压缩包", len(op.created))
+		}
 	}
 	return op, nil
 }
@@ -242,10 +337,28 @@ func uniquePath(path string) string {
 	}
 }
 
+// trashItem moves a file to the Trash and returns its new path so undo can
+// put it back. Finder's delete is the same service FlowVision uses.
+func trashItem(path string) (string, error) {
+	script := fmt.Sprintf(`tell application "Finder"
+  set trashed to delete (POSIX file %s as alias)
+  POSIX path of (trashed as alias)
+end tell`, strconv.Quote(path))
+	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	trashed := strings.TrimSpace(string(out))
+	if trashed == "" {
+		return "", errors.New("废纸篓没有返回位置")
+	}
+	return trashed, nil
+}
+
 // trashPath moves a file to macOS Trash via Finder's native service.
 func trashPath(path string) error {
-	cmd := exec.Command("osascript", "-e", `tell application "Finder" to delete POSIX file "`+path+`"`)
-	return cmd.Run()
+	_, err := trashItem(path)
+	return err
 }
 
 func (a *appState) loadInfo(index int) {

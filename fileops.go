@@ -211,6 +211,130 @@ func isCrossDevice(err error) bool {
 	return errors.As(err, &link) && errors.Is(link.Err, syscall.EXDEV)
 }
 
+func hasNameConflict(paths []string, dest string) bool {
+	for _, src := range paths {
+		if pathKey(filepath.Dir(src)) == pathKey(dest) {
+			continue
+		}
+		target := filepath.Join(dest, filepath.Base(src))
+		if pathKey(target) == pathKey(src) {
+			continue
+		}
+		if _, err := os.Stat(target); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func sameDevice(a, b string) bool {
+	infoA, errA := os.Stat(a)
+	infoB, errB := os.Stat(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	statA, okA := infoA.Sys().(*syscall.Stat_t)
+	statB, okB := infoB.Sys().(*syscall.Stat_t)
+	if !okA || !okB {
+		return false
+	}
+	return statA.Dev == statB.Dev
+}
+
+// placePath copies or moves src into destDir. Same-folder copies become
+// name_copy. Existing names are renumbered unless replace is set, in which
+// case a file is swapped in safely and a folder is merged.
+func placePath(src, destDir string, move, replace bool, reserved []string) (string, bool, error) {
+	inPlace := pathKey(filepath.Dir(src)) == pathKey(destDir)
+	dst := filepath.Join(destDir, filepath.Base(src))
+	if pathKey(dst) == pathKey(src) {
+		return "", false, nil
+	}
+	exists := pathTaken(dst, reserved)
+	if !exists || inPlace {
+		if inPlace {
+			dst = flowUnique(dst, true, reserved)
+		}
+		if move {
+			return dst, false, movePath(src, dst)
+		}
+		return dst, false, copyTree(src, dst)
+	}
+	if replace {
+		if err := replaceItem(src, dst, move); err != nil {
+			return "", false, err
+		}
+		return dst, true, nil
+	}
+	dst = flowUnique(dst, false, reserved)
+	if move {
+		return dst, false, movePath(src, dst)
+	}
+	return dst, false, copyTree(src, dst)
+}
+
+func replaceItem(src, dst string, move bool) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	dstInfo, err := os.Stat(dst)
+	if err != nil {
+		return err
+	}
+	if srcInfo.IsDir() && dstInfo.IsDir() {
+		return mergeTree(src, dst, move)
+	}
+	if srcInfo.IsDir() != dstInfo.IsDir() {
+		return fmt.Errorf("无法覆盖不同类型：%s", filepath.Base(dst))
+	}
+	backup := dst + ".lumiwerk-replacing"
+	if err := os.Rename(dst, backup); err != nil {
+		return err
+	}
+	var putErr error
+	if move {
+		putErr = movePath(src, dst)
+	} else {
+		putErr = copyTree(src, dst)
+	}
+	if putErr != nil {
+		_ = os.RemoveAll(dst)
+		_ = os.Rename(backup, dst)
+		return putErr
+	}
+	_ = os.RemoveAll(backup)
+	return nil
+}
+
+func mergeTree(src, dst string, move bool) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		from := filepath.Join(src, entry.Name())
+		to := filepath.Join(dst, entry.Name())
+		if _, statErr := os.Stat(to); statErr == nil {
+			if err := replaceItem(from, to, move); err != nil {
+				return err
+			}
+			continue
+		}
+		if move {
+			if err := movePath(from, to); err != nil {
+				return err
+			}
+		} else if err := copyTree(from, to); err != nil {
+			return err
+		}
+	}
+	if move {
+		_ = os.Remove(src)
+	}
+	return nil
+}
+
 func movePath(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil

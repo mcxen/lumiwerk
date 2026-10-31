@@ -7,14 +7,18 @@ import (
 	"time"
 )
 
-// renameRule describes a FlowVision-style batch rename rule.
+// renameRule describes a FlowVision batch rename. The fields apply in order:
+// replace, then format, then prefix, then suffix. The extension stays unless
+// the format itself contains {ext}.
 type renameRule struct {
-	Mode        string // format, replace, add
-	Pattern     string // e.g. "IMG_{num:3}_{date}"
+	Mode        string
+	Pattern     string
 	Find        string
 	Replace     string
+	Prefix      string
+	Suffix      string
 	StartNumber int
-	AddPosition string // prefix, suffix
+	AddPosition string
 }
 
 // previewRenames maps current absolute paths to proposed new names in their dir.
@@ -28,28 +32,53 @@ func previewRenames(paths []string, rule renameRule, now time.Time) map[string]s
 		dir := filepath.Dir(path)
 		ext := filepath.Ext(path)
 		base := strings.TrimSuffix(filepath.Base(path), ext)
-		var name string
-		switch rule.Mode {
-		case "replace":
-			name = strings.ReplaceAll(base, rule.Find, rule.Replace)
-		case "add":
-			if rule.AddPosition == "suffix" {
-				name = base + rule.Pattern
-			} else {
-				name = rule.Pattern + base
-			}
-		default: // format
-			name = rule.Pattern
-			name = replaceNum(name, n)
-			name = strings.ReplaceAll(name, "{date}", now.Format("2006-01-02"))
-			name = strings.ReplaceAll(name, "{time}", now.Format("15-04-05"))
-			name = strings.ReplaceAll(name, "{name}", base)
-			name = strings.ReplaceAll(name, "{ext}", strings.TrimPrefix(ext, "."))
-			n++
+		folder := filepath.Base(dir)
+		if folder == "." || folder == "" || folder == string(filepath.Separator) {
+			folder = "Folder"
 		}
-		out[path] = filepath.Join(dir, name+ext)
+		name := composeBatchName(base, ext, folder, n, rule, now)
+		n++
+		if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+			out[path] = path
+			continue
+		}
+		out[path] = filepath.Join(dir, name)
 	}
 	return out
+}
+
+// composeBatchName applies replace, format, prefix and suffix, in that order.
+func composeBatchName(base, ext, folder string, index int, rule renameRule, now time.Time) string {
+	if rule.Mode == "add" {
+		if rule.AddPosition == "suffix" {
+			return base + rule.Pattern + ext
+		}
+		return rule.Pattern + base + ext
+	}
+	if rule.Find != "" {
+		base = strings.ReplaceAll(base, rule.Find, rule.Replace)
+	}
+	format := strings.TrimSpace(rule.Pattern)
+	if format == "" {
+		format = "{name}"
+	}
+	name := format
+	name = strings.ReplaceAll(name, "{date}", now.Format("2006-01-02"))
+	name = strings.ReplaceAll(name, "{time}", now.Format("15-04-05"))
+	name = strings.ReplaceAll(name, "{name}", base)
+	name = strings.ReplaceAll(name, "{folder}", folder)
+	name = strings.ReplaceAll(name, "{ext}", strings.TrimPrefix(ext, "."))
+	// Count tokens run after the name is substituted, as FlowVision does,
+	// so a file whose name contains {index} is numbered too.
+	name = expandCountTokens(name, index)
+	if rule.Mode != "replace" {
+		name = rule.Prefix + name + rule.Suffix
+	}
+	name = strings.TrimSpace(name)
+	if !strings.Contains(format, "{ext}") {
+		name += ext
+	}
+	return name
 }
 
 func numWidth(pattern string) int {
@@ -87,14 +116,18 @@ func applyRenames(mapping map[string]string) error {
 	return applyRenameMappings(pairs)
 }
 
-// replaceNum expands {num:N} with a zero-padded number.
-func replaceNum(s string, n int) string {
+// expandCountTokens replaces {num}, {index} and their padded forms.
+func expandCountTokens(s string, n int) string {
 	for {
-		start := strings.Index(s, "{num:")
+		start, token := earliestCountToken(s)
 		if start < 0 {
 			return s
 		}
-		rest := s[start+5:]
+		if token == "{num}" || token == "{index}" {
+			s = s[:start] + fmt.Sprintf("%d", n) + s[start+len(token):]
+			continue
+		}
+		rest := s[start+len(token):]
 		end := strings.Index(rest, "}")
 		if end < 0 {
 			return s
@@ -109,7 +142,24 @@ func replaceNum(s string, n int) string {
 		if width <= 0 {
 			width = 1
 		}
-		replacement := fmt.Sprintf("%0*d", width, n)
-		s = s[:start] + replacement + s[start+5+end+1:]
+		s = s[:start] + fmt.Sprintf("%0*d", width, n) + s[start+len(token)+end+1:]
 	}
+}
+
+func earliestCountToken(s string) (int, string) {
+	best := -1
+	kind := ""
+	for _, token := range []string{"{num:", "{index:", "{num}", "{index}"} {
+		i := strings.Index(s, token)
+		if i >= 0 && (best < 0 || i < best) {
+			best = i
+			kind = token
+		}
+	}
+	return best, kind
+}
+
+// replaceNum expands {num:N} with a zero-padded number.
+func replaceNum(s string, n int) string {
+	return expandCountTokens(s, n)
 }

@@ -4,107 +4,334 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// waterfallView packs items into N columns, each appended to the shortest.
-func (a *appState) waterfallView(c *ui.Context) {
-	root := a.Root
-	const cols = 4
-	colItems := make([][]int, cols)
-	heights := make([]float32, cols)
-	for i := range a.Visible {
-		item := &a.Items[a.Visible[i]]
-		var ar float32 = 1
-		if item.Info.Height > 0 && item.Info.Width > 0 {
-			ar = float32(item.Info.Width) / float32(item.Info.Height)
-		}
-		if ar == 0 {
+// waterfallColumns sizes columns like Finder's icon view: a thumbnail-sized
+// tile plus room for its caption, not the whole window divided by the thumb.
+func waterfallColumns(viewW, thumb float32) int {
+	if thumb < 64 {
+		thumb = 64
+	}
+	if thumb > 512 {
+		thumb = 512
+	}
+	single := thumb + 64
+	if single < 160 {
+		single = 160
+	}
+	if viewW <= flowPad*2 {
+		return 1
+	}
+	inner := viewW - flowPad*2
+	n := int((inner + flowGap) / (single + flowGap))
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+// justifiedRows packs aspects into rows of about rowH, wrapping at viewW.
+func justifiedRows(aspects []float64, viewW, rowH, gap float64) [][]int {
+	if rowH < 48 {
+		rowH = 48
+	}
+	if viewW < 100 {
+		viewW = 100
+	}
+	if gap < 0 {
+		gap = 0
+	}
+	var rows [][]int
+	var row []int
+	var used float64
+	for i, ar := range aspects {
+		if ar <= 0 {
 			ar = 1
 		}
-		// pick shortest column
+		w := ar * rowH
+		if len(row) > 0 && used+gap+w > viewW {
+			rows = append(rows, row)
+			row = nil
+			used = 0
+		}
+		if len(row) > 0 {
+			used += gap
+		}
+		row = append(row, i)
+		used += w
+	}
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// flowBox is one thumbnail card in content coordinates, before scrolling.
+type flowBox struct {
+	Index      int
+	X, Y, W, H float32
+}
+
+const (
+	flowPad    float32 = 12
+	flowGap    float32 = 12
+	flowMargin float32 = 0
+	flowLabel  float32 = 24
+)
+
+func (a *appState) visibleAspects() []float32 {
+	out := make([]float32, len(a.Visible))
+	for i, idx := range a.Visible {
+		out[i] = 1
+		if idx < 0 || idx >= len(a.Items) {
+			continue
+		}
+		item := &a.Items[idx]
+		if item.Info.Width > 0 && item.Info.Height > 0 {
+			if ar := float32(item.Info.Width) / float32(item.Info.Height); ar > 0 {
+				out[i] = ar
+			}
+		}
+	}
+	return out
+}
+
+// waterfallGroups appends each item to the current shortest column.
+// The score is 1/aspect, the same order the view paints.
+func waterfallGroups(aspects []float32, cols int) [][]int {
+	if cols < 1 {
+		cols = 1
+	}
+	groups := make([][]int, cols)
+	heights := make([]float32, cols)
+	for i, ar := range aspects {
+		if ar <= 0 {
+			ar = 1
+		}
 		best := 0
 		for j := 1; j < cols; j++ {
 			if heights[j] < heights[best] {
 				best = j
 			}
 		}
-		colItems[best] = append(colItems[best], i)
-		heights[best] += 1.0 / ar
+		groups[best] = append(groups[best], i)
+		heights[best] += 1 / ar
+	}
+	return groups
+}
+
+func waterfallColumnWidth(viewW float32, cols int) (flex, heightBasis float32) {
+	if cols < 1 {
+		cols = 1
+	}
+	inner := viewW - flowPad*2
+	if inner < 48 {
+		inner = 48
+	}
+	flex = (inner - flowGap*float32(cols-1)) / float32(cols)
+	heightBasis = flex
+	if heightBasis < 48 {
+		heightBasis = 48
+	}
+	return flex, heightBasis
+}
+
+// waterfallFrames is the card geometry waterfallView paints.
+func waterfallFrames(aspects []float32, viewW, thumb float32) []flowBox {
+	cols := waterfallColumns(viewW, thumb)
+	flex, basis := waterfallColumnWidth(viewW, cols)
+	groups := waterfallGroups(aspects, cols)
+	boxes := make([]flowBox, len(aspects))
+	cardW := flex
+	if cardW < 1 {
+		cardW = 1
+	}
+	for ci, group := range groups {
+		y := flowPad
+		x := flowPad + float32(ci)*(flex+flowGap)
+		for _, i := range group {
+			ar := aspects[i]
+			if ar <= 0 {
+				ar = 1
+			}
+			if ar < 0.2 {
+				ar = 0.2
+			}
+			h := basis/ar + flowLabel
+			boxes[i] = flowBox{Index: i, X: x, Y: y, W: cardW, H: h}
+			y += h + flowGap
+		}
+	}
+	return boxes
+}
+
+// justifiedFrames is the card geometry justifiedView paints. Rows are packed
+// by aspect, then each row is a fixed thumb+label strip with equal cards.
+func justifiedFrames(aspects []float32, viewW, thumb float32) []flowBox {
+	raw := make([]float64, len(aspects))
+	for i, ar := range aspects {
+		raw[i] = float64(ar)
+		if raw[i] <= 0 {
+			raw[i] = 1
+		}
+	}
+	rows := justifiedRows(raw, float64(viewW)-float64(flowPad*2), float64(thumb), float64(flowGap))
+	boxes := make([]flowBox, len(aspects))
+	rowH := thumb + flowLabel
+	cardH := rowH - flowMargin*2
+	if cardH < 1 {
+		cardH = 1
+	}
+	inner := viewW - flowPad*2
+	y := flowPad
+	for _, row := range rows {
+		n := len(row)
+		if n == 0 {
+			continue
+		}
+		cardW := (inner - flowGap*float32(n-1) - flowMargin*2*float32(n)) / float32(n)
+		if cardW < 1 {
+			cardW = 1
+		}
+		for i, idx := range row {
+			x := flowPad + flowMargin + float32(i)*(cardW+flowMargin*2+flowGap)
+			boxes[idx] = flowBox{Index: idx, X: x, Y: y + flowMargin, W: cardW, H: cardH}
+		}
+		y += rowH + flowGap
+	}
+	return boxes
+}
+
+func flowHit(boxes []flowBox, x, y float32) (flowBox, bool) {
+	best := flowBox{}
+	bestD := float32(1e9)
+	found := false
+	for _, b := range boxes {
+		if b.W <= 0 || b.H <= 0 {
+			continue
+		}
+		inside := x >= b.X && x <= b.X+b.W && y >= b.Y && y <= b.Y+b.H
+		dx, dy := float32(0), float32(0)
+		if x < b.X {
+			dx = b.X - x
+		} else if x > b.X+b.W {
+			dx = x - (b.X + b.W)
+		}
+		if y < b.Y {
+			dy = b.Y - y
+		} else if y > b.Y+b.H {
+			dy = y - (b.Y + b.H)
+		}
+		d := dx*dx + dy*dy
+		if inside {
+			d = -1
+		}
+		if !found || d < bestD {
+			best, bestD, found = b, d, true
+		}
+		if inside {
+			return b, true
+		}
+	}
+	return best, found
+}
+
+// waterfallView packs items into N columns, each appended to the shortest.
+func (a *appState) waterfallView(c *ui.Context) {
+	root := a.Root
+	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
+	width := float32(1280)
+	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
+		width = bounds.W
+		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
+	}
+	aspects := a.visibleAspects()
+	cols := waterfallColumns(width, float32(a.Thumb))
+	groups := waterfallGroups(aspects, cols)
+	for i := range a.Visible {
+		item := &a.Items[a.Visible[i]]
 		if !item.InfoLoaded {
 			go a.loadInfo(a.Visible[i])
 		}
 	}
-	row := ui.Row(c).Fill().Gap(8).Padding(8)
-	row.Children(func() {
-		for ci := 0; ci < cols; ci++ {
-			col := ui.Column(c).Grow(1).Gap(8)
-			col.Children(func() {
-				for _, i := range colItems[ci] {
-					a.thumbCard(c, root, i)
-				}
-			})
-		}
+	scroll.Children(func() {
+		row := ui.Row(c).FillWidth().Gap(flowGap).Padding(flowPad)
+		row.Children(func() {
+			for ci := 0; ci < cols; ci++ {
+				col := ui.Column(c).Grow(1).Gap(flowGap)
+				_, basis := waterfallColumnWidth(width, cols)
+				group := groups[ci]
+				col.Children(func() {
+					for _, i := range group {
+						item := &a.Items[a.Visible[i]]
+						ar := float32(1)
+						if item.Info.Height > 0 && item.Info.Width > 0 {
+							ar = float32(item.Info.Width) / float32(item.Info.Height)
+						}
+						if ar < 0.2 {
+							ar = 0.2
+						}
+						a.thumbCard(c, root, i, basis/ar+flowLabel)
+					}
+				})
+			}
+		})
 	})
 }
 
 // justifiedView packs items into rows, each row stretched to fill the width.
 func (a *appState) justifiedView(c *ui.Context) {
-	t := c.Theme()
 	root := a.Root
-	const rowWidth = 1280.0
-	const gap = 8.0
-	var rows [][]int
-	var row []int
-	var rowAR float64
+	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
+	width := float32(1280)
+	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
+		width = bounds.W
+		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
+	}
+	const gap = float64(flowGap)
+	aspects := make([]float64, len(a.Visible))
 	for i := range a.Visible {
 		item := &a.Items[a.Visible[i]]
-		var ar float64 = 1
+		aspects[i] = 1
 		if item.Info.Height > 0 && item.Info.Width > 0 {
-			ar = float64(item.Info.Width) / float64(item.Info.Height)
+			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
 		}
-		if ar == 0 {
-			ar = 1
-		}
-		row = append(row, i)
-		rowAR += ar
 		if !item.InfoLoaded {
 			go a.loadInfo(a.Visible[i])
 		}
-		// pack when row aspect ratio exceeds target
-		if rowAR > rowWidth/float64(a.Thumb) {
-			rows = append(rows, row)
-			row = nil
-			rowAR = 0
-		}
 	}
-	if len(row) > 0 {
-		rows = append(rows, row)
-	}
-	col := ui.Column(c).Fill().Gap(gap).Padding(8)
-	col.Children(func() {
-		for _, r := range rows {
-			r := r
-			rr := ui.Row(c).Gap(gap).Grow(1)
-			rr.Children(func() {
-				for _, i := range r {
-					a.thumbCard(c, root, i)
-				}
-			})
-		}
+	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
+	scroll.Children(func() {
+		col := ui.Column(c).FillWidth().Gap(float32(gap)).Padding(flowPad)
+		col.Children(func() {
+			for _, r := range rows {
+				r := r
+				rr := ui.Row(c).Gap(flowGap).Height(float32(a.Thumb) + flowLabel)
+				rr.Children(func() {
+					for _, i := range r {
+						a.thumbCard(c, root, i, 0)
+					}
+				})
+			}
+		})
 	})
-	_ = t
 }
 
-func (a *appState) thumbCard(c *ui.Context, root string, i int) {
+func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) {
 	t := c.Theme()
 	item := &a.Items[a.Visible[i]]
-	card := ui.Column(c).Grow(1).Margin(2).Padding(2).Gap(2).Radius(6).Background(t.Surface)
+	card := ui.Column(c).Grow(1).Gap(4)
+	if height > 0 {
+		card.Height(height)
+	}
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
 	card.Children(func() {
-		thumb := ui.Box(c).Grow(1).Radius(4).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
+		thumb := ui.Box(c).Grow(1).Radius(6).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
 		thumb.Children(func() {
-			if item.Bitmap != nil {
-				ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
+			if item.IsDir {
+				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
+			} else if item.Bitmap != nil {
+				ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
 			} else if item.Failed {
 				ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
 			} else {
@@ -113,7 +340,11 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int) {
 		})
 		ui.Text(c, item.Name).FontSize(11).MaxLines(1).SingleLine().TextAlign(ui.Start)
 	})
+	a.fileDragSource(card, item.Path)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
+	if card.DoubleClicked() {
+		a.openLargeImage(i)
+	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(root, a.Visible[i])
 	}

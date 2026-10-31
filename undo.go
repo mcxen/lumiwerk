@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 )
@@ -42,6 +43,9 @@ func (s *undoStack) redo() (undoEntry, bool) {
 }
 
 func inverseOf(op fileOperation) (fileOperation, bool) {
+	if op.replaced || op.permanent {
+		return fileOperation{}, false
+	}
 	switch op.op {
 	case opCopy:
 		if len(op.created) == 0 {
@@ -60,6 +64,20 @@ func inverseOf(op fileOperation) (fileOperation, bool) {
 			return fileOperation{}, false
 		}
 		return fileOperation{op: opRename, mappings: swapped}, true
+	case opCompress, opExtract:
+		if op.dropSource || len(op.created) == 0 {
+			return fileOperation{}, false
+		}
+		return fileOperation{op: opDelete, paths: append([]string(nil), op.created...)}, true
+	case opDelete:
+		if op.permanent || len(op.mappings) == 0 {
+			return fileOperation{}, false
+		}
+		swapped := swappedMappings(op.mappings)
+		if len(swapped) == 0 {
+			return fileOperation{}, false
+		}
+		return fileOperation{op: opMove, mappings: swapped}, true
 	default:
 		return fileOperation{}, false
 	}
@@ -76,6 +94,48 @@ func (a *appState) performTracked(op fileOperation) error {
 	}
 	a.finishOperation(applied)
 	return nil
+}
+
+func (a *appState) startArchive(op fileOperation) {
+	if len(op.paths) == 0 {
+		return
+	}
+	if a.Window == nil {
+		applied, err := perform(op)
+		if err != nil {
+			if errors.Is(err, errNeedZipPassword) && op.op == opExtract {
+				a.promptZip("extract", op.paths, op.dropSource)
+				return
+			}
+			a.toast(err.Error())
+			return
+		}
+		if inverse, ok := inverseOf(applied); ok {
+			a.Undo.record(applied, inverse)
+		}
+		a.finishOperation(applied)
+		return
+	}
+	go func() {
+		applied, err := perform(op)
+		if a.Window == nil {
+			return
+		}
+		a.Window.Update(func() {
+			if err != nil && errors.Is(err, errNeedZipPassword) && op.op == opExtract {
+				a.promptZip("extract", op.paths, op.dropSource)
+				return
+			}
+			if err != nil {
+				a.toast(err.Error())
+				return
+			}
+			if inverse, ok := inverseOf(applied); ok {
+				a.Undo.record(applied, inverse)
+			}
+			a.finishOperation(applied)
+		})
+	}()
 }
 
 func (a *appState) runOperation(op fileOperation) {
@@ -145,6 +205,17 @@ func (a *appState) finishOperation(op fileOperation) {
 		a.PendingSelect = append([]string(nil), op.created...)
 	case opDelete:
 		a.noteDeleted(op.paths)
+	case opCompress, opExtract:
+		if op.detail != "" {
+			a.toast(op.detail)
+		}
+		if op.dropSource {
+			a.noteDeleted(op.paths)
+		}
+		if op.op == opExtract && len(op.created) == 1 && !a.Recursive && isDir(op.created[0]) {
+			a.openFolder(op.created[0])
+			return
+		}
 	}
 	a.refresh()
 }
@@ -201,9 +272,8 @@ func (a *appState) noteDeleted(paths []string) {
 		}
 	}
 	if a.Video != nil {
-		if _, ok := gone[a.Video.path]; ok && a.Video.player != nil {
-			a.Video.player.Close()
-			a.Video = nil
+		if _, ok := gone[a.Video.path]; ok {
+			a.closeVideo()
 		}
 	}
 }

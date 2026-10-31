@@ -20,15 +20,46 @@ type dragState struct {
 }
 
 // transform composes pan, zoom, rotation and mirror for the large view media.
-func (a *appState) transform() ui.Transform {
-	t := ui.Translation(a.PanX, a.PanY).Then(ui.Scaling(a.Zoom, a.Zoom)).Then(ui.Rotation(a.Rotation))
+// fitTransform keeps rotation and mirror, but does not enlarge a thumbnail.
+func (a *appState) fitTransform() ui.Transform {
+	var t ui.Transform
 	if a.Mirror {
-		t = t.Then(ui.Scaling(-1, 1))
+		t = ui.Scaling(-1, 1)
 	}
-	return t
+	return t.Then(ui.Rotation(a.Rotation))
+}
+
+func (a *appState) transform() ui.Transform {
+	// Mirror and rotation happen before zoom. Scale, then pan, so the
+	// content under the pointer stays put. Translation-before-scale does not.
+	scale := a.contentScale(a.currentItem())
+	return a.fitTransform().Then(ui.Scaling(scale, scale)).Then(ui.Translation(a.PanX, a.PanY))
+}
+
+// contentScale refits after a quarter turn. Fit(Contain) sizes the unrotated
+// bitmap; FlowVision swaps the sides first, so a wide photo turned on its
+// side fits the window again instead of sticking out of it.
+func (a *appState) contentScale(item *mediaItem) float32 {
+	if item == nil || a.Zoom <= 0 {
+		return a.Zoom
+	}
+	bw, bh := a.largeSize()
+	base := containScale(item.Info.Width, item.Info.Height, bw, bh)
+	if base <= 0 {
+		return a.Zoom
+	}
+	ow, oh := orientedSize(item.Info.Width, item.Info.Height, quarterTurns(a.Rotation))
+	want := containScale(ow, oh, bw, bh)
+	if want <= 0 {
+		return a.Zoom
+	}
+	return a.Zoom * want / base
 }
 
 func (a *appState) largeSize() (float32, float32) {
+	if a.StageW > 1 && a.StageH > 1 {
+		return a.StageW, a.StageH
+	}
 	if a.Window == nil {
 		return 1280, 760
 	}
@@ -55,6 +86,7 @@ func (a *appState) zoomAt(cx, cy, factor float32) {
 	a.Zoom = next
 	a.clampPan()
 	a.showZoomHUD()
+	a.noteVideoZoom()
 }
 
 func (a *appState) zoomStep(factor float32) {
@@ -66,6 +98,7 @@ func (a *appState) zoomStep(factor float32) {
 func (a *appState) resetZoom() {
 	a.Zoom, a.PanX, a.PanY = 1, 0, 0
 	a.showZoomHUD()
+	a.noteVideoZoom()
 }
 
 // zoom100 shows the media at its original pixel scale, centered.
@@ -134,17 +167,12 @@ func (a *appState) clampZoom(z float32) float32 {
 
 // fitScale is the scale Fit(Contain) applies to the original pixels.
 func (a *appState) fitScale(item *mediaItem) float32 {
-	bw, bh := a.largeSize()
-	iw, ih := float32(item.Info.Width), float32(item.Info.Height)
-	if iw <= 0 || ih <= 0 || bw <= 0 || bh <= 0 {
+	if item == nil {
 		return 0
 	}
-	fw := bw / iw
-	fh := bh / ih
-	if fw < fh {
-		return fw
-	}
-	return fh
+	bw, bh := a.largeSize()
+	ow, oh := orientedSize(item.Info.Width, item.Info.Height, quarterTurns(a.Rotation))
+	return containScale(ow, oh, bw, bh)
 }
 
 func (a *appState) zoomPercent(item *mediaItem) int {
@@ -166,22 +194,13 @@ func (a *appState) showZoomHUD() {
 }
 
 func (a *appState) toggleVideoPlayback() {
-	if a.Video == nil || a.Video.player == nil {
+	if a.videoPlaying() {
+		a.holdVideo(true)
 		return
 	}
-	if a.Video.player.Playing() {
-		a.Video.Position = min(a.Video.Position+time.Since(a.Video.StartedAt).Seconds(), a.videoDuration())
-		a.Video.player.Pause()
-		a.requestSharpFrame()
-	} else {
-		a.Video.Still = nil
-		a.Video.player.Play()
-		a.Video.StartedAt = time.Now()
-	}
+	a.playVideo()
 }
 
-// requestSharpFrame replaces the playback-sized frame with a full-resolution
-// still once the video is paused, so zooming in stays sharp.
 func (a *appState) requestSharpFrame() {
 	if a.Video == nil || a.Video.path == "" {
 		return
@@ -200,7 +219,7 @@ func (a *appState) requestSharpFrame() {
 			if a.Video == nil || a.Video.stillToken != token || a.Video.path != path {
 				return
 			}
-			if a.Video.player != nil && a.Video.player.Playing() {
+			if a.Video.playing {
 				return
 			}
 			a.Video.Still = bitmap
@@ -209,23 +228,32 @@ func (a *appState) requestSharpFrame() {
 }
 
 func (a *appState) videoDuration() float64 {
+	if secs, ok := a.knownDuration(); ok {
+		return secs
+	}
+	return 1
+}
+
+func (a *appState) knownDuration() (float64, bool) {
 	item := a.currentItem()
 	if item == nil || item.Info.DurationSec <= 0 {
-		return 1
+		return 0, false
 	}
-	return item.Info.DurationSec
+	return item.Info.DurationSec, true
 }
 
 // ratingFor reads a 1-5 rating from Finder tags such as "评分3" or "3 星".
 func ratingFor(item *mediaItem) int {
+	if item == nil {
+		return 0
+	}
 	for _, tag := range item.Tags {
-		trimmed := strings.TrimSpace(tag)
-		for _, r := range trimmed {
+		if !isRatingTag(tag) {
+			continue
+		}
+		for _, r := range tag {
 			if r >= '1' && r <= '5' {
 				return int(r - '0')
-			}
-			if r == '0' {
-				break
 			}
 		}
 	}

@@ -1,0 +1,267 @@
+package main
+
+import (
+	"archive/zip"
+	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// errNeedZipPassword asks the UI to collect a password and try again.
+var errNeedZipPassword = errors.New("需要密码。")
+
+// discardPath removes a source after a successful archive operation.
+// FlowVision moves it to the Trash. Tests replace this.
+var discardPath = trashPath
+
+func isArchiveName(name string) bool {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tar.xz") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".zip", ".cbz", ".tar", ".tgz", ".tbz", ".tbz2", ".txz":
+		return true
+	default:
+		return false
+	}
+}
+
+func isZipName(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".zip", ".cbz":
+		return true
+	default:
+		return false
+	}
+}
+
+func allArchives(paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		if !isArchiveName(filepath.Base(path)) {
+			return false
+		}
+	}
+	return true
+}
+
+func archivesOnly(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		if isArchiveName(filepath.Base(path)) {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+func sortedPaths(paths []string) []string {
+	out := append([]string(nil), paths...)
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
+	return out
+}
+
+// archiveBaseName strips one extension, or a compound tar suffix, the way
+// FlowVision names the folder an archive extracts into.
+func archiveBaseName(name string) string {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".tar.gz", ".tar.bz2", ".tar.xz"} {
+		if strings.HasSuffix(lower, ext) {
+			return name[:len(name)-len(ext)]
+		}
+	}
+	return strings.TrimSuffix(name, filepath.Ext(name))
+}
+
+func configuredZipPassword(p prefsFile) (string, bool) {
+	pass := strings.TrimSpace(p.ZipPassword)
+	if pass == "" {
+		return "", false
+	}
+	return pass, true
+}
+
+// zipDestination matches FlowVision: one item becomes basename.zip, several
+// become Archive_yyyyMMdd_HHmmss.zip, and an existing name becomes name_2.
+func zipDestination(paths []string, now time.Time) (string, error) {
+	if len(paths) == 0 {
+		return "", errors.New("没有要压缩的项目")
+	}
+	parent := filepath.Dir(paths[0])
+	for _, path := range paths[1:] {
+		if pathKey(filepath.Dir(path)) != pathKey(parent) {
+			return "", errors.New("请在同一目录下选择要压缩的项目。")
+		}
+	}
+	var name string
+	if len(paths) == 1 {
+		base := strings.TrimSuffix(filepath.Base(paths[0]), filepath.Ext(paths[0]))
+		name = base + ".zip"
+	} else {
+		name = "Archive_" + now.Format("20060102_150405") + ".zip"
+	}
+	return flowUnique(filepath.Join(parent, name), false, nil), nil
+}
+
+func extractDestination(archive string) string {
+	base := archiveBaseName(filepath.Base(archive))
+	return flowUnique(filepath.Join(filepath.Dir(archive), base), false, nil)
+}
+
+// zipArgs is FlowVision's /usr/bin/zip -r -y, with -P only for an encrypted zip.
+func zipArgs(paths []string, dest, password string) (string, []string, error) {
+	if len(paths) == 0 {
+		return "", nil, errors.New("没有要压缩的项目")
+	}
+	cwd := filepath.Dir(paths[0])
+	args := []string{"-r", "-y"}
+	if password != "" {
+		args = append(args, "-P", password)
+	}
+	args = append(args, dest)
+	for _, path := range paths {
+		if pathKey(filepath.Dir(path)) != pathKey(cwd) {
+			return "", nil, errors.New("请在同一目录下选择要压缩的项目。")
+		}
+		args = append(args, filepath.Base(path))
+	}
+	return cwd, args, nil
+}
+
+func compressPaths(paths []string, password string, now time.Time) (string, error) {
+	if len(paths) == 0 {
+		return "", errors.New("没有要压缩的项目")
+	}
+	paths = sortedPaths(paths)
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("压缩源文件不存在：%s", filepath.Base(path))
+		}
+	}
+	dest, err := zipDestination(paths, now)
+	if err != nil {
+		return "", err
+	}
+	cwd, args, err := zipArgs(paths, dest, password)
+	if err != nil {
+		return "", err
+	}
+	if err := runTool("/usr/bin/zip", args, cwd); err != nil {
+		_ = os.Remove(dest)
+		return "", fmt.Errorf("压缩失败。%s", err.Error())
+	}
+	return dest, nil
+}
+
+func zipEncrypted(path string) bool {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return false
+	}
+	defer reader.Close()
+	for _, file := range reader.File {
+		if file.Flags&1 != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func archivePasswordError(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "password") || strings.Contains(lower, "passphrase") || strings.Contains(lower, "decrypt")
+}
+
+type extractedArchive struct {
+	archive string
+	dest    string
+}
+
+func extractArchives(paths []string, password string) ([]extractedArchive, []string, error) {
+	archives := archivesOnly(sortedPaths(paths))
+	if len(archives) == 0 {
+		return nil, nil, errors.New("请先选择压缩包文件。")
+	}
+	var extracted []extractedArchive
+	var failed []string
+	passwordFails := 0
+	for _, archive := range archives {
+		dest, err := extractOne(archive, password)
+		if err != nil {
+			failed = append(failed, filepath.Base(archive))
+			if errors.Is(err, errNeedZipPassword) {
+				passwordFails++
+			}
+			continue
+		}
+		extracted = append(extracted, extractedArchive{archive: archive, dest: dest})
+	}
+	if len(extracted) == 0 {
+		if passwordFails == len(archives) {
+			return nil, failed, errNeedZipPassword
+		}
+		return nil, failed, errors.New("解压失败。")
+	}
+	return extracted, failed, nil
+}
+
+func extractOne(archive, password string) (string, error) {
+	if isZipName(filepath.Base(archive)) && password == "" && zipEncrypted(archive) {
+		return "", errNeedZipPassword
+	}
+	dest := extractDestination(archive)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", err
+	}
+	args := []string{"-xf", archive, "-C", dest}
+	if password != "" {
+		args = []string{"--passphrase", password, "-xf", archive, "-C", dest}
+	}
+	if err := runTool("/usr/bin/bsdtar", args, ""); err != nil {
+		_ = os.RemoveAll(dest)
+		if archivePasswordError(err.Error()) {
+			return "", errNeedZipPassword
+		}
+		return "", err
+	}
+	return dest, nil
+}
+
+func previewNames(names []string) string {
+	if len(names) > 3 {
+		names = names[:3]
+	}
+	return strings.Join(names, "、")
+}
+
+func runTool(name string, args []string, dir string) error {
+	if _, err := os.Stat(name); err != nil {
+		return fmt.Errorf("找不到 %s", filepath.Base(name))
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdin = bytes.NewReader(nil)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if msg == "" {
+		msg = err.Error()
+	}
+	if len(msg) > 300 {
+		msg = msg[:300]
+	}
+	return errors.New(msg)
+}

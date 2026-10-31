@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func finderTags(path string) []string {
+func finderTagsMDLS(path string) []string {
 	out, err := exec.Command("/usr/bin/mdls", "-name", "kMDItemUserTags", "-raw", path).Output()
 	if err != nil || len(out) == 0 {
 		return nil
@@ -61,4 +61,11 @@ func (a *appState) loadTags() {
 		}
 		a.applyFilterLocked()
 	})
+}
+
+func finderTags(path string) []string {
+	if tags, err := urlTags(path); err == nil {
+		return tags
+	}
+	return finderTagsMDLS(path)
 }

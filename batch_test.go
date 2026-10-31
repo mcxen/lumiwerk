@@ -31,3 +31,19 @@ func TestApplyRenames(t *testing.T) {
 		t.Fatal("old file remains")
 	}
 }
+
+func TestBatchRenamePipeline(t *testing.T) {
+	paths := []string{"/album/a IMG.png", "/album/b IMG.png"}
+	rule := renameRule{Prefix: "P_", Suffix: "_S", Find: "IMG", Replace: "PIC", Pattern: "{folder}_{name}_{index:02}"}
+	got := previewRenames(paths, rule, time.Unix(0, 0))
+	if filepath.Base(got["/album/a IMG.png"]) != "P_album_a PIC_01_S.png" {
+		t.Fatalf("first = %s", filepath.Base(got["/album/a IMG.png"]))
+	}
+	if filepath.Base(got["/album/b IMG.png"]) != "P_album_b PIC_02_S.png" {
+		t.Fatalf("second = %s", filepath.Base(got["/album/b IMG.png"]))
+	}
+	kept := previewRenames([]string{"/album/a.png"}, renameRule{Pattern: "{name}.{ext}"}, time.Unix(0, 0))
+	if filepath.Base(kept["/album/a.png"]) != "a.png" {
+		t.Fatalf("ext doubled: %s", filepath.Base(kept["/album/a.png"]))
+	}
+}
