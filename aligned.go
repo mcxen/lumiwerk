@@ -262,6 +262,7 @@ func (a *appState) scanFolder(root string, seq int) {
 		}
 		a.Items = files
 		a.applyFilterLocked()
+		go a.loadTags()
 	})
 }
 
@@ -793,6 +794,14 @@ func (a *appState) gridView(c *ui.Context) {
 		card.Children(func() {
 			thumb := ui.Box(c).Grow(1).Radius(4).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
 			thumb.Children(func() {
+				if len(item.Tags) > 0 {
+					tags := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorEnd).Gap(2).Padding(3)
+					tags.Children(func() {
+						for range item.Tags {
+							ui.Box(c).Width(5).Height(5).Radius(2).Background(t.Accent)
+						}
+					})
+				}
 				if item.Bitmap != nil {
 					ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
 				} else if item.Failed {
