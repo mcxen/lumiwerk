@@ -47,6 +47,7 @@ type mediaItem struct {
 	ThumbDone  bool
 	Info       mediaInfo
 	InfoLoaded bool
+	Tags       []string
 }
 
 // videoView owns a real MyGo player for the video currently in large view.
@@ -98,6 +99,7 @@ type appState struct {
 	Info        infoState
 	Gesture     gestureState
 	Undo        undoStack
+	TagFilter   string
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
@@ -270,6 +272,9 @@ func (a *appState) applyFilterLocked() {
 			continue
 		}
 		if (a.FilterMode == 1 && a.Items[i].IsVideo) || (a.FilterMode == 2 && !a.Items[i].IsVideo) {
+			continue
+		}
+		if a.TagFilter != "" && !containsString(a.Items[i].Tags, a.TagFilter) {
 			continue
 		}
 		a.Visible = append(a.Visible, i)
@@ -595,12 +600,22 @@ func (a *appState) sidebarView(c *ui.Context) {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "Finder标签").FontSize(11).Bold().TextColor(t.TextMuted)
 		})
-		ui.Text(c, "红色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		ui.Text(c, "橙色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		ui.Text(c, "黄色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		ui.Text(c, "绿色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		ui.Text(c, "蓝色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		ui.Text(c, "灰色").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+		for _, tag := range []string{"红色", "橙色", "黄色", "绿色", "蓝色", "灰色"} {
+			name := tag
+			item := ui.Text(c, name).FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+			if a.TagFilter == name {
+				item.TextColor(t.Accent).Bold()
+			}
+			item.OnClick(func() {
+				if a.TagFilter == name {
+					a.TagFilter = ""
+				} else {
+					a.TagFilter = name
+					go a.loadTags()
+				}
+				a.applyFilter()
+			})
+		}
 	})
 }
 
