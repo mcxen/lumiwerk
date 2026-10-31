@@ -1,6 +1,6 @@
 # Lumiwerk
 
-A native macOS media browser built with Go and MyGo v0.6.0.
+A native macOS media browser built with Go and MyGo v0.7.3.
 
 Lumiwerk = French *lumière* (light) + German *Werk* (work) — "light work," a tool for browsing media art.
 
