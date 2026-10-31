@@ -42,7 +42,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 ## Phase 5: File Operations
 - [x] T5.1 Copy/move/delete/rename with two-phase rename
-- [ ] T5.2 Undo/redo (Cmd+Z / Cmd+Shift+Z)
+- [x] T5.2 Undo/redo (Cmd+Z / Cmd+Shift+Z)
 - [x] T5.3 Batch rename with preview and rule templates
 - [x] T5.4 Quick rename in current folder
 - [ ] T5.5 Copy to configured folder (shortcuts)

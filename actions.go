@@ -49,7 +49,7 @@ func (a *appState) doCopy() {
 		if err != nil || len(dest) == 0 {
 			return
 		}
-		if err := perform(fileOperation{op: opCopy, paths: paths, dest: dest[0]}); err != nil {
+		if err := a.performTracked(fileOperation{op: opCopy, paths: paths, dest: dest[0]}); err != nil {
 			return
 		}
 		a.Window.Update(func() { a.refresh() })
@@ -66,7 +66,7 @@ func (a *appState) doMove() {
 		if err != nil || len(dest) == 0 {
 			return
 		}
-		if err := perform(fileOperation{op: opMove, paths: paths, dest: dest[0]}); err != nil {
+		if err := a.performTracked(fileOperation{op: opMove, paths: paths, dest: dest[0]}); err != nil {
 			return
 		}
 		a.Window.Update(func() { a.refresh() })
@@ -78,7 +78,7 @@ func (a *appState) doTrash() {
 	if len(paths) == 0 {
 		return
 	}
-	if err := perform(fileOperation{op: opDelete, paths: paths}); err != nil {
+	if err := a.performTracked(fileOperation{op: opDelete, paths: paths}); err != nil {
 		return
 	}
 	a.refresh()
@@ -103,7 +103,7 @@ func (a *appState) commitRename() {
 		a.Renaming = false
 		return
 	}
-	if err := perform(fileOperation{op: opRename, paths: []string{a.RenamePath}, newName: a.RenameVal}); err != nil {
+	if err := a.performTracked(fileOperation{op: opRename, paths: []string{a.RenamePath}, newName: a.RenameVal}); err != nil {
 		a.Renaming = false
 		return
 	}

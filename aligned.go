@@ -97,6 +97,7 @@ type appState struct {
 	Video       *videoView
 	Info        infoState
 	Gesture     gestureState
+	Undo        undoStack
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
@@ -508,6 +509,12 @@ func (a *appState) view(c *ui.Context) {
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyF) && !a.InLargeView {
 		a.FocusSearch = true
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyZ) && !a.InLargeView {
+		a.undo()
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyZ) && !a.InLargeView {
+		a.redo()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyC) && !a.InLargeView {
 		a.doCopy()
