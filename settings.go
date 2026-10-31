@@ -247,10 +247,24 @@ func (a *appState) shortcutMenu(m *ui.Menu, selected *string) {
 }
 
 func shortcutConflict(image, video string) string {
+	var warnings []string
 	if image != "" && image == video {
-		return fmt.Sprintf("图片与视频复制使用了同一个快捷键：%s", image)
+		warnings = append(warnings, fmt.Sprintf("图片与视频复制使用了同一个快捷键：%s", image))
 	}
-	return ""
+	reserved := map[string]string{
+		"A": "上一项", "D": "下一项", "W": "放大", "S": "缩小",
+		"Q": "左旋", "E": "右旋", "F": "镜像", "T": "窗口置顶",
+		"Z": "缩放 100%", "X": "缩放适合", "M": "移动到下载",
+		"U": "文件简介", "I": "信息/EXIF", "O": "OCR", "P": "二维码",
+		"0": "重置缩略图", "=": "缩略图放大", "-": "缩略图缩小",
+		"1": "最大化窗口", "2": "合适窗口", "5": "居中",
+	}
+	for _, key := range []string{image, video} {
+		if note, ok := reserved[strings.ToUpper(key)]; ok {
+			warnings = append(warnings, fmt.Sprintf("快捷键 %s 会覆盖内置功能：%s", key, note))
+		}
+	}
+	return strings.Join(warnings, "\n")
 }
 
 func (a *appState) applyActionSettings() {
@@ -300,7 +314,20 @@ func (a *appState) pickActionDestination(kind string) {
 func (a *appState) showOperationGuide(shortcuts bool) {
 	message := "单击选择，双击打开；空格打开或播放/暂停。左右方向键切换媒体，滚轮或双指缩放，Esc 退出大图。"
 	if shortcuts {
-		message = fmt.Sprintf("复制到图片文件夹：%s\n复制视频到视频文件夹：%s\n视频：Cmd+左右逐帧，Shift+左右切换文件\nI：信息；U：文件简介；F2：重命名；Delete：移到废纸篓", a.Settings.ImageShortcut, a.Settings.VideoShortcut)
+		message = fmt.Sprintf(`快捷键对照：
+
+图片复制：%s    视频复制：%s
+空格：打开/播放暂停    Esc：退出大图
+左右：切换媒体（视频时左右快进/退 5 秒）
+Cmd+左右：视频逐帧    Shift+左右：视频切换上/下文件
+Q/E：左旋/右旋    F：镜像    Z：缩放 100%%    X：缩放适合
+W/S：放大/缩小    =/-：缩略图放大/缩小    0：重置缩略图
+1：最大化    2：合适窗口    5：居中    3/4：窗口适配图片
+T：窗口置顶    M：移动到下载    Cmd+Down：打开选中项
+I：信息/EXIF    U：文件简介    F2：重命名    F3：搜索    F5：刷新
+Delete：移到废纸篓    Cmd+1~9：Finder 标签    Ctrl+1~5：评级
+Alt+Enter：全屏    Opt+1~9：切换配置    Cmd+Opt+1~9：保存配置`,
+			a.Settings.ImageShortcut, a.Settings.VideoShortcut)
 	}
 	_, _ = mygo.Dialog.Message(mygo.MessageOptions{Parent: a.Settings.Window, Title: "操作指引", Message: message, Buttons: []string{"好"}})
 }

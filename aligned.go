@@ -961,17 +961,33 @@ func (a *appState) view(c *ui.Context) {
 		a.SidebarShown = !a.SidebarShown
 	}
 	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyLeft) || (a.InLargeView && c.Shortcut(0, ui.KeyLeft))) {
-		if a.InLargeView {
+		if a.InLargeView && !a.videoLargeView() {
 			a.prevImage()
 		} else {
 			a.goBack()
 		}
 	}
 	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyRight) || (a.InLargeView && c.Shortcut(0, ui.KeyRight))) {
-		if a.InLargeView {
+		if a.InLargeView && !a.videoLargeView() {
 			a.nextImage()
 		} else {
 			a.goForward()
+		}
+	}
+	// Video seek with arrow keys in large view.
+	if a.InLargeView && !a.Editor.Open && a.videoLargeView() {
+		if c.Shortcut(0, ui.KeyLeft) {
+			a.seekVideo(max(0, a.playhead()-5))
+		}
+		if c.Shortcut(0, ui.KeyRight) {
+			a.seekVideo(min(a.videoDuration(), a.playhead()+5))
+		}
+		// Cmd+arrow = frame-by-frame seek.
+		if c.Shortcut(ui.Cmd, ui.KeyLeft) {
+			a.seekVideo(max(0, a.playhead()-1.0/30))
+		}
+		if c.Shortcut(ui.Cmd, ui.KeyRight) {
+			a.seekVideo(min(a.videoDuration(), a.playhead()+1.0/30))
 		}
 	}
 	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
@@ -986,6 +1002,79 @@ func (a *appState) view(c *ui.Context) {
 	}
 	if c.Shortcut(0, ui.KeyT) && !a.InLargeView {
 		a.togglePinned()
+	}
+	// Large-view single-key shortcuts matching FlowVision.
+	if a.InLargeView && !a.Editor.Open && !a.modalOpen() {
+		if c.Shortcut(0, ui.KeyZ) {
+			a.zoom100()
+		}
+		if c.Shortcut(0, ui.KeyX) {
+			a.resetZoom()
+		}
+		if c.Shortcut(0, ui.KeyM) {
+			a.transferToDownloads(opMove)
+		}
+		if c.Shortcut(0, ui.KeyHome) {
+			a.openLargeImage(0)
+		}
+		if c.Shortcut(0, ui.KeyEnd) {
+			a.openLargeImage(len(a.Visible) - 1)
+		}
+		if c.Shortcut(0, ui.KeyW) {
+			a.zoomStep(1.25)
+		}
+		if c.Shortcut(0, ui.KeyS) {
+			a.zoomStep(1 / 1.25)
+		}
+	}
+	// F3 = search, F5 = refresh.
+	if c.Shortcut(0, ui.KeyF3) && !a.InLargeView {
+		a.FocusSearch = true
+	}
+	if c.Shortcut(0, ui.KeyF5) {
+		a.refresh()
+	}
+	// Cmd+Down opens selected item or enters folder.
+	if c.Shortcut(ui.Cmd, ui.KeyDown) && !a.InLargeView && !a.modalOpen() {
+		if a.Chosen >= 0 && a.Chosen < len(a.Visible) {
+			a.openItem(a.Chosen)
+		}
+	}
+	// Alt+Enter toggles fullscreen.
+	if c.Shortcut(ui.Alt, ui.KeyEnter) {
+		a.Window.ToggleFullScreen()
+	}
+	// Cmd+1~9 toggles Finder tags on selection.
+	if !a.InLargeView && !a.modalOpen() {
+		for i := 0; i < 9; i++ {
+			key := ui.Key1 + ui.Key(i)
+			if c.Shortcut(ui.Cmd, key) {
+				names := finderLabelNames()
+				if i < len(names) {
+					paths := a.operationPaths()
+					if len(paths) > 0 {
+						a.toggleTag(paths, names[i])
+					}
+				}
+			}
+		}
+	}
+	// Ctrl+1~5 sets rating, Ctrl+0 clears.
+	if !a.InLargeView && !a.modalOpen() {
+		for i := 0; i <= 5; i++ {
+			var key ui.Key
+			if i == 0 {
+				key = ui.Key0
+			} else {
+				key = ui.Key1 + ui.Key(i-1)
+			}
+			if c.Shortcut(ui.Ctrl, key) {
+				paths := a.operationPaths()
+				if len(paths) > 0 {
+					a.setRating(paths, i)
+				}
+			}
+		}
 	}
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyPeriod) && !a.modalOpen() {
 		a.toggleViewOption("hidden")
@@ -1676,7 +1765,7 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		case ui.KeyQ:
 			a.Rotation -= 90
 			return true
-		case ui.KeyM, ui.KeyF:
+		case ui.KeyF:
 			a.Mirror = !a.Mirror
 			return true
 		case ui.KeySpace:
@@ -1883,6 +1972,12 @@ func (a *appState) edgeArrows(c *ui.Context) {
 	if right.Clicked() {
 		a.nextImage()
 	}
+}
+
+// videoLargeView reports whether the current large-view item is a video.
+func (a *appState) videoLargeView() bool {
+	item := a.currentItem()
+	return item != nil && item.IsVideo
 }
 
 func shortTime(seconds float64) string {
