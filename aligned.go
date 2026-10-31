@@ -668,6 +668,10 @@ func (a *appState) mainView(c *ui.Context) {
 			a.emptyFolderView(c)
 		} else if a.LayoutMode == 1 {
 			a.detailView(c)
+		} else if a.LayoutMode == 2 {
+			a.waterfallView(c)
+		} else if a.LayoutMode == 3 {
+			a.justifiedView(c)
 		} else {
 			a.gridView(c)
 		}
@@ -714,7 +718,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.mu.Unlock()
 			}
 			ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
-			ui.Segmented(c, &a.LayoutMode, "网格", "详情").Label("视图")
+			ui.Segmented(c, &a.LayoutMode, "网格", "详情", "瀑布", "紧凑").Label("视图")
 			ui.Slider(c, &a.Thumb, 64, 512).Width(90)
 			ui.MenuButton(c, "排序", func(m *ui.Menu) {
 				for _, item := range []struct{ label, value string }{

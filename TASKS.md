@@ -56,8 +56,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T6.4 Finder tag filter
 
 ## Phase 7: Layout Modes
-- [ ] T7.1 Justified (Google Photos style, two-ended align)
-- [ ] T7.2 Waterfall (masonry)
+- [x] T7.1 Justified (Google Photos style, two-ended align)
+- [x] T7.2 Waterfall (masonry)
 - [x] T7.3 Grid (uniform)
 - [x] T7.4 Detail (list view)
 - [x] T7.5 Thumbnail size adjust (= / - / 0)

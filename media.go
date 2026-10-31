@@ -207,3 +207,27 @@ func trashPath(path string) error {
 	cmd := exec.Command("osascript", "-e", `tell application "Finder" to delete POSIX file "`+path+`"`)
 	return cmd.Run()
 }
+
+func (a *appState) loadInfo(index int) {
+	a.mu.Lock()
+	if index < 0 || index >= len(a.Items) {
+		a.mu.Unlock()
+		return
+	}
+	path := a.Items[index].Path
+	isVideo := a.Items[index].IsVideo
+	if a.Items[index].InfoLoaded {
+		a.mu.Unlock()
+		return
+	}
+	a.mu.Unlock()
+	info := loadMediaInfo(path, isVideo)
+	a.Window.Update(func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if index < len(a.Items) && a.Items[index].Path == path {
+			a.Items[index].Info = info
+			a.Items[index].InfoLoaded = true
+		}
+	})
+}
