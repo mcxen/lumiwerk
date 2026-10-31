@@ -69,7 +69,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 ## Phase 9: Polish
 - [x] T9.1 Window management: maximize(1), fit(2), center(5), pin top(T)
-- [ ] T9.2 Tabbed browsing
+- [x] T9.2 Tabbed browsing
 - [x] T9.3 Finder tags and rating display
 - [x] T9.4 EXIF info overlay (I)
 - [x] T9.5 File info overlay (U)

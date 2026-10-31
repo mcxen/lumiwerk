@@ -102,6 +102,7 @@ type appState struct {
 	TagFilter   string
 	Pinned      bool
 	Settings    settingsState
+	Tabs        tabState
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
