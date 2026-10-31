@@ -68,7 +68,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T8.3 Persist preferences to disk
 
 ## Phase 9: Polish
-- [ ] T9.1 Window management: maximize(1), fit(2), center(5), pin top(T)
+- [x] T9.1 Window management: maximize(1), fit(2), center(5), pin top(T)
 - [ ] T9.2 Tabbed browsing
 - [ ] T9.3 Finder tags and rating display
 - [x] T9.4 EXIF info overlay (I)

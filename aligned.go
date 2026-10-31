@@ -100,6 +100,7 @@ type appState struct {
 	Gesture     gestureState
 	Undo        undoStack
 	TagFilter   string
+	Pinned      bool
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
@@ -483,6 +484,20 @@ func (a *appState) view(c *ui.Context) {
 		} else {
 			a.goForward()
 		}
+	}
+	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
+		a.Window.ToggleMaximize()
+	}
+	if c.Shortcut(0, ui.Key2) && !a.InLargeView {
+		a.Window.SetSize(1280, 820)
+		a.Window.Center()
+	}
+	if c.Shortcut(0, ui.Key5) && !a.InLargeView {
+		a.Window.Center()
+	}
+	if c.Shortcut(0, ui.KeyT) && !a.InLargeView {
+		a.Pinned = !a.Pinned
+		a.Window.SetAlwaysOnTop(a.Pinned)
 	}
 	if !a.InLargeView {
 		switch {
