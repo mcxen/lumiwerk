@@ -26,7 +26,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T3.1 Directory tree population with lazy expand
 - [x] T3.2 Folder click navigates and loads media
 - [x] T3.3 Right-mouse gesture: up=parent, left/right=prev/next folder with media, down=back
-- [ ] T3.4 W/A/S/D keys map to gestures
+- [x] T3.4 W/A/S/D keys map to gestures
 - [x] T3.5 Cmd+Up/Down parent/enter folder
 - [x] T3.6 Recursive browsing mode (Cmd+Shift+R)
 - [x] T3.7 File system watcher for auto-refresh
