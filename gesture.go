@@ -227,7 +227,7 @@ func gridColumnCount(viewW, cell, gap float32) int {
 }
 
 func gridStride(thumb float64, gap float32) float32 {
-	row := float32(int(thumb+64) + 24)
+	row := float32(int(thumb+56) + 30)
 	if gap > 0 {
 		row += gap
 	}

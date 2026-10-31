@@ -29,6 +29,11 @@ type opState struct {
 }
 
 func (a *appState) selectedPaths() []string {
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			return []string{item.Path}
+		}
+	}
 	if a.Selected.Len() > 0 {
 		var out []string
 		for i := range a.Items {
@@ -240,7 +245,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	paths := a.operationPaths()
 	none := len(paths) == 0
 	if canOpen && m.Item("打开").Disabled(none).Chosen() {
-		a.openLargeImage(a.Chosen)
+		a.openItem(a.Chosen)
 	}
 	if len(paths) == 1 && isDir(paths[0]) && m.Item("在新标签页中打开").Chosen() {
 		a.openInNewTab(paths[0])
