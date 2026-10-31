@@ -14,6 +14,7 @@ func main() {
 	mygo.App.SetVersion(appVersion)
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 512}
+	a.Profiles = loadPrefs()
 	openPath := func(path string) {
 		if a.Window != nil {
 			a.Window.Update(func() { a.openFolder(path) })
@@ -38,6 +39,11 @@ func main() {
 		for _, arg := range os.Args[1:] {
 			if isDir(arg) {
 				openPath(arg)
+			}
+		}
+		if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
+			if p := a.Profiles.Profiles[a.Profiles.Active]; p.Root != "" && isDir(p.Root) {
+				openPath(p.Root)
 			}
 		}
 	})

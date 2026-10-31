@@ -24,6 +24,15 @@ type opState struct {
 }
 
 func (a *appState) selectedPaths() []string {
+	if a.Selected.Len() > 0 {
+		var out []string
+		for i := range a.Items {
+			if a.Selected.Has(a.Items[i].Path) {
+				out = append(out, a.Items[i].Path)
+			}
+		}
+		return out
+	}
 	if a.Chosen < 0 || a.Chosen >= len(a.Visible) {
 		return nil
 	}
@@ -127,6 +136,9 @@ func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
 	if m.Item("重命名…").Disabled(none).Chosen() {
 		a.startRename()
 	}
+	if m.Item("批量重命名…").Disabled(none).Chosen() {
+		a.startBatchRename()
+	}
 	if m.Item("复制到…").Disabled(none).Chosen() {
 		a.doCopy()
 	}
@@ -147,6 +159,9 @@ func (a *appState) fileContextMenu(m *ui.Menu) {
 	none := len(paths) == 0
 	if m.Item("重命名…").Disabled(none).Chosen() {
 		a.startRename()
+	}
+	if m.Item("批量重命名…").Disabled(none).Chosen() {
+		a.startBatchRename()
 	}
 	if m.Item("复制到…").Disabled(none).Chosen() {
 		a.doCopy()
@@ -228,5 +243,122 @@ func (a *appState) infoOverlay(c *ui.Context, item *mediaItem) {
 		for _, line := range lines {
 			ui.Text(c, line).FontSize(11).MaxLines(1).SingleLine()
 		}
+	})
+}
+
+// batchState tracks the batch rename dialog.
+type batchState struct {
+	Open    bool
+	Rule    renameRule
+	Preview map[string]string
+}
+
+func (a *appState) startBatchRename() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		return
+	}
+	a.Batch.Open = true
+	a.Batch.Rule = renameRule{Mode: "format", Pattern: "{name}_{num:3}", StartNumber: 1}
+	a.Batch.Preview = previewRenames(paths, a.Batch.Rule, time.Now())
+}
+
+func (a *appState) updateBatchPreview() {
+	a.Batch.Preview = previewRenames(a.selectedPaths(), a.Batch.Rule, time.Now())
+}
+
+func (a *appState) commitBatchRename() {
+	if len(a.Batch.Preview) == 0 {
+		a.Batch.Open = false
+		return
+	}
+	if err := applyRenames(a.Batch.Preview); err != nil {
+		a.Batch.Open = false
+		return
+	}
+	a.Batch.Open = false
+	a.Batch.Preview = nil
+	a.Selected.Clear()
+	a.refresh()
+}
+
+func (a *appState) batchDialog(c *ui.Context) {
+	if !a.Batch.Open {
+		return
+	}
+	t := c.Theme()
+	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(520).Padding(16).Gap(10).
+		Background(t.Surface).Border(1, t.Border).Radius(8)
+	panel.Children(func() {
+		ui.Text(c, "批量重命名").Bold().FontSize(16)
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "模式").FontSize(12)
+			mode := 0
+			switch a.Batch.Rule.Mode {
+			case "replace":
+				mode = 1
+			case "add":
+				mode = 2
+			}
+			ui.Segmented(c, &mode, "模板", "替换", "添加").Changed()
+			switch mode {
+			case 0:
+				a.Batch.Rule.Mode = "format"
+			case 1:
+				a.Batch.Rule.Mode = "replace"
+			case 2:
+				a.Batch.Rule.Mode = "add"
+			}
+		})
+		if a.Batch.Rule.Mode == "format" {
+			if ui.TextInput(c, &a.Batch.Rule.Pattern).Label("模板").Width(480).Changed() {
+				a.updateBatchPreview()
+			}
+			ui.Text(c, "可用: {num:3} {date} {time} {name} {ext}").FontSize(11).TextColor(t.TextMuted)
+		}
+		if a.Batch.Rule.Mode == "replace" {
+			if ui.TextInput(c, &a.Batch.Rule.Find).Label("查找").Width(230).Changed() {
+				a.updateBatchPreview()
+			}
+			if ui.TextInput(c, &a.Batch.Rule.Replace).Label("替换").Width(230).Changed() {
+				a.updateBatchPreview()
+			}
+		}
+		if a.Batch.Rule.Mode == "add" {
+			if ui.TextInput(c, &a.Batch.Rule.Pattern).Label("文本").Width(480).Changed() {
+				a.updateBatchPreview()
+			}
+			pos := 0
+			if a.Batch.Rule.AddPosition == "suffix" {
+				pos = 1
+			}
+			ui.Segmented(c, &pos, "前缀", "后缀").Changed()
+			if pos == 0 {
+				a.Batch.Rule.AddPosition = "prefix"
+			} else {
+				a.Batch.Rule.AddPosition = "suffix"
+			}
+		}
+		ui.Divider(c)
+		ui.Text(c, "预览").Bold().FontSize(12)
+		for _, src := range a.selectedPaths() {
+			dst := a.Batch.Preview[src]
+			if dst == "" {
+				continue
+			}
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Text(c, filepath.Base(src)).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
+				ui.Text(c, "→").FontSize(11)
+				ui.Text(c, filepath.Base(dst)).FontSize(11).MaxLines(1)
+			})
+		}
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c.Key("batch-cancel"), "取消").Clicked() {
+				a.Batch.Open = false
+			}
+			if ui.Button(c.Key("batch-ok"), "执行").Clicked() {
+				a.commitBatchRename()
+			}
+		})
 	})
 }

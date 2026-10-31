@@ -23,6 +23,9 @@ const (
 )
 
 var (
+	thumbLRU  = newLRUCache(512)
+	thumbGate = make(chan struct{}, 8)
+
 	dirIcon   = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`))
 	imageIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-7 7"/></svg>`))
 	videoIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="12" height="14" rx="2"/><path d="m21 8-6 4 6 4z"/></svg>`))
@@ -69,9 +72,11 @@ type appState struct {
 	History []string
 	Cursor  int
 
-	Grid      ui.GridState
-	ListState ui.ListState
-	Chosen    int
+	Grid       ui.GridState
+	ListState  ui.ListState
+	Chosen     int
+	Selected   ui.Selection[string]
+	FilterMode int
 
 	Outline      ui.OutlineState[string]
 	TreeChosen   int
@@ -91,7 +96,11 @@ type appState struct {
 	Mirror      bool
 	Video       *videoView
 	Info        infoState
+	Profiles    prefsFile
+	Batch       batchState
 	Renaming    bool
+	FocusSearch bool
+	LastQuery   string
 	RenamePath  string
 	RenameVal   string
 }
@@ -253,9 +262,13 @@ func (a *appState) applyFilterLocked() {
 	a.Visible = a.Visible[:0]
 	q := strings.ToLower(strings.TrimSpace(a.Query))
 	for i := range a.Items {
-		if q == "" || strings.Contains(strings.ToLower(a.Items[i].Name), q) {
-			a.Visible = append(a.Visible, i)
+		if q != "" && !pinyinContains(a.Items[i].Name, q) {
+			continue
 		}
+		if (a.FilterMode == 1 && a.Items[i].IsVideo) || (a.FilterMode == 2 && !a.Items[i].IsVideo) {
+			continue
+		}
+		a.Visible = append(a.Visible, i)
 	}
 	if a.Chosen >= len(a.Visible) {
 		a.Chosen = -1
@@ -384,6 +397,22 @@ func (a *appState) loadThumb(root string, index int) {
 	a.mu.Unlock()
 
 	go func() {
+		if bitmap := thumbLRU.Get(path); bitmap != nil {
+			a.Window.Update(func() {
+				a.mu.Lock()
+				defer a.mu.Unlock()
+				if a.Root != root || index >= len(a.Items) || a.Items[index].Path != path {
+					return
+				}
+				current := &a.Items[index]
+				current.Bitmap = bitmap
+				current.Decoded = true
+				current.Loading = false
+			})
+			return
+		}
+		thumbGate <- struct{}{}
+		defer func() { <-thumbGate }()
 		var data []byte
 		var err error
 		if video {
@@ -407,6 +436,7 @@ func (a *appState) loadThumb(root string, index int) {
 			} else {
 				current.Bitmap = bitmap
 				current.Decoded = true
+				thumbLRU.Put(path, bitmap)
 			}
 			current.Loading = false
 		})
@@ -463,8 +493,20 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) && !a.InLargeView {
 		go a.newFolder()
 	}
+	if c.Shortcut(ui.Cmd, ui.KeyF) && !a.InLargeView {
+		a.FocusSearch = true
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyC) && !a.InLargeView {
 		a.doCopy()
+	}
+	for i := 0; i < 9; i++ {
+		key := ui.Key1 + ui.Key(i)
+		if c.Shortcut(ui.Alt, key) {
+			a.applyProfile(i)
+		}
+		if c.Shortcut(ui.Cmd|ui.Alt, key) {
+			a.saveProfile(i)
+		}
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyX) && !a.InLargeView {
 		a.doMove()
@@ -483,6 +525,7 @@ func (a *appState) view(c *ui.Context) {
 		a.mainView(c)
 	}
 	a.renameDialog(c)
+	a.batchDialog(c)
 }
 
 func (a *appState) sidebarView(c *ui.Context) {
@@ -566,7 +609,19 @@ func (a *appState) toolbarView(c *ui.Context) {
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1)
 			ui.Textf(c, "(%d 图像)", len(a.Visible)).FontSize(11).TextColor(t.TextMuted)
 		}
-		ui.SearchField(c, &a.Query).Width(180).Changed()
+		prevQuery := a.LastQuery
+		search := ui.SearchField(c, &a.Query).Key("query").Width(180)
+		if a.FocusSearch {
+			search.Focus()
+			a.FocusSearch = false
+		}
+		if a.Query != prevQuery {
+			a.LastQuery = a.Query
+			a.mu.Lock()
+			a.applyFilterLocked()
+			a.mu.Unlock()
+		}
+		ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
 		ui.Segmented(c, &a.LayoutMode, "网格", "详情").Label("视图")
 		ui.Slider(c, &a.Thumb, 192, 4096).Width(90)
 		ui.MenuButton(c, "排序", func(m *ui.Menu) {
@@ -638,6 +693,7 @@ func (a *appState) gridView(c *ui.Context) {
 	root := a.Root
 	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
 	a.Grid.Selected = &a.Chosen
+	a.Grid.Selection = &a.Selected
 	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
 	cell := int(a.Thumb/2 + 96)
 	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+28), func(i int) {
@@ -855,7 +911,9 @@ func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
 	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
 	a.Grid.Selected = &a.Chosen
+	a.Grid.Selection = &a.Selected
 	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
+	a.ListState.Selection = &a.Selected
 	list := ui.List(c, &a.ListState, len(a.Visible), func(i int) {
 		item := &a.Items[a.Visible[i]]
 		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
@@ -878,4 +936,46 @@ func (a *appState) detailView(c *ui.Context) {
 		}
 	})
 	list.Grow(1)
+}
+
+func (a *appState) currentProfile() profile {
+	return profile{
+		Root:       a.Root,
+		Sidebar:    a.SidebarShown,
+		SidebarW:   a.SidebarWidth,
+		LayoutMode: a.LayoutMode,
+		Thumb:      a.Thumb,
+		Sort:       a.Sort,
+		Recursive:  a.Recursive,
+	}
+}
+
+func (a *appState) applyProfile(i int) {
+	if i < 0 || i >= len(a.Profiles.Profiles) {
+		return
+	}
+	p := a.Profiles.Profiles[i]
+	a.Profiles.Active = i
+	a.SidebarShown = p.Sidebar
+	if p.SidebarW > 0 {
+		a.SidebarWidth = p.SidebarW
+	}
+	a.LayoutMode = p.LayoutMode
+	a.Thumb = p.Thumb
+	a.Sort = p.Sort
+	a.Recursive = p.Recursive
+	savePrefs(a.Profiles)
+	if p.Root != "" && isDir(p.Root) {
+		a.openFolder(p.Root)
+	}
+	a.refresh()
+}
+
+func (a *appState) saveProfile(i int) {
+	if i < 0 || i >= len(a.Profiles.Profiles) {
+		return
+	}
+	a.Profiles.Profiles[i] = a.currentProfile()
+	a.Profiles.Active = i
+	savePrefs(a.Profiles)
 }

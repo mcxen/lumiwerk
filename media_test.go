@@ -23,3 +23,12 @@ func TestApplyFilter(t *testing.T) {
 		t.Fatalf("filtered to %d items, want 2", len(a.Visible))
 	}
 }
+
+func TestPinyinContains(t *testing.T) {
+	if !pinyinContains("小猫视频", "xmsp") && !pinyinContains("小猫视频", "xiaomaoshipin") {
+		t.Fatalf("pinyin search failed")
+	}
+	if pinyinContains("小猫视频", "xyz") {
+		t.Fatalf("unexpected pinyin match")
+	}
+}
