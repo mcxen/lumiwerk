@@ -515,11 +515,11 @@ func (a *appState) view(c *ui.Context) {
 	if a.SidebarWidth == 0 {
 		a.SidebarWidth = sidebarDefaultWidth
 	}
-	if !a.SidebarShown {
+	if !a.SidebarShown && !a.InLargeView {
 		a.SidebarShown = true
 	}
 
-	if a.SidebarShown {
+	if a.SidebarShown && !a.InLargeView {
 		ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.mainView(c) }).Fill()
 	} else {
 		a.mainView(c)
@@ -642,31 +642,33 @@ func (a *appState) toolbarView(c *ui.Context) {
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1)
 			ui.Textf(c, "(%d 图像)", len(a.Visible)).FontSize(11).TextColor(t.TextMuted)
 		}
-		prevQuery := a.LastQuery
-		search := ui.SearchField(c, &a.Query).Key("query").Width(180)
-		if a.FocusSearch {
-			search.Focus()
-			a.FocusSearch = false
-		}
-		if a.Query != prevQuery {
-			a.LastQuery = a.Query
-			a.mu.Lock()
-			a.applyFilterLocked()
-			a.mu.Unlock()
-		}
-		ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
-		ui.Segmented(c, &a.LayoutMode, "网格", "详情").Label("视图")
-		ui.Slider(c, &a.Thumb, 64, 512).Width(90)
-		ui.MenuButton(c, "排序", func(m *ui.Menu) {
-			for _, item := range []struct{ label, value string }{
-				{"名称", "name"}, {"日期", "date"}, {"大小", "size"},
-			} {
-				if m.Item(item.label).Radio(a.Sort == item.value).Chosen() {
-					a.Sort = item.value
-					a.refresh()
-				}
+		if !a.InLargeView {
+			prevQuery := a.LastQuery
+			search := ui.SearchField(c, &a.Query).Key("query").Width(180)
+			if a.FocusSearch {
+				search.Focus()
+				a.FocusSearch = false
 			}
-		})
+			if a.Query != prevQuery {
+				a.LastQuery = a.Query
+				a.mu.Lock()
+				a.applyFilterLocked()
+				a.mu.Unlock()
+			}
+			ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
+			ui.Segmented(c, &a.LayoutMode, "网格", "详情").Label("视图")
+			ui.Slider(c, &a.Thumb, 64, 512).Width(90)
+			ui.MenuButton(c, "排序", func(m *ui.Menu) {
+				for _, item := range []struct{ label, value string }{
+					{"名称", "name"}, {"日期", "date"}, {"大小", "size"},
+				} {
+					if m.Item(item.label).Radio(a.Sort == item.value).Chosen() {
+						a.Sort = item.value
+						a.refresh()
+					}
+				}
+			})
+		}
 	}).Padding(6, 10).Background(t.Surface)
 	_ = bar
 }

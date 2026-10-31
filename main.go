@@ -4,6 +4,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -39,6 +40,18 @@ func main() {
 		for _, arg := range os.Args[1:] {
 			if isDir(arg) {
 				openPath(arg)
+			}
+		}
+		for _, arg := range os.Args[1:] {
+			if arg == "--large" {
+				go func() {
+					time.Sleep(1500 * time.Millisecond)
+					a.Window.Update(func() {
+						if len(a.Visible) > 0 {
+							a.openLargeImage(0)
+						}
+					})
+				}()
 			}
 		}
 		if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
