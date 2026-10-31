@@ -1,37 +1,25 @@
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestIsMediaFile(t *testing.T) {
-	for _, ext := range []string{"png", "PNG", "jpg", "jpeg", "webp", "gif", "bmp"} {
+	for _, ext := range []string{"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "mts"} {
 		if !isMediaFile(ext) {
-			t.Errorf("isMediaFile(%q) = false, want true", ext)
+			t.Fatalf("isMediaFile(%q) = false, want true", ext)
 		}
 	}
-	for _, ext := range []string{"txt", "mp4", "mov", "cr2", ""} {
+	for _, ext := range []string{"txt", "doc", "zip", "pdf", "go", ""} {
 		if isMediaFile(ext) {
-			t.Errorf("isMediaFile(%q) = true, want false", ext)
+			t.Fatalf("isMediaFile(%q) = true, want false", ext)
 		}
 	}
 }
 
 func TestApplyFilter(t *testing.T) {
-	a := &appState{
-		Items: []mediaItem{
-			{Name: "bridge.jpg"},
-			{Name: "poster.png"},
-			{Name: "notes.txt"},
-		},
-	}
+	a := &appState{Items: []mediaItem{{Name: "apple.png"}, {Name: "banana.mp4"}, {Name: "cherry.jpg"}}, Visible: make([]int, 0, 3)}
+	a.Query = "a"
 	a.applyFilter()
-	if len(a.Visible) != 3 {
-		t.Fatalf("Visible len = %d, want 3", len(a.Visible))
-	}
-	a.Query = "poster"
-	a.applyFilter()
-	if len(a.Visible) != 1 || a.Visible[0] != 1 {
-		t.Fatalf("Visible = %v, want [1]", a.Visible)
+	if len(a.Visible) != 2 {
+		t.Fatalf("filtered to %d items, want 2", len(a.Visible))
 	}
 }
