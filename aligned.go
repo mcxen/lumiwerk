@@ -96,6 +96,7 @@ type appState struct {
 	Mirror      bool
 	Video       *videoView
 	Info        infoState
+	Gesture     gestureState
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
@@ -475,6 +476,18 @@ func (a *appState) view(c *ui.Context) {
 			a.goForward()
 		}
 	}
+	if !a.InLargeView {
+		switch {
+		case c.Shortcut(0, ui.KeyW):
+			a.goUp()
+		case c.Shortcut(0, ui.KeyA):
+			a.nextMediaFolder(-1)
+		case c.Shortcut(0, ui.KeyS):
+			a.goBack()
+		case c.Shortcut(0, ui.KeyD):
+			a.nextMediaFolder(1)
+		}
+	}
 	if c.Shortcut(0, ui.KeyEscape) && a.InLargeView {
 		a.closeLargeImage()
 	}
@@ -599,6 +612,7 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 func (a *appState) mainView(c *ui.Context) {
 	t := c.Theme()
 	col := ui.Column(c).Fill().Background(t.Background)
+	col.HandleInput(a.handleGesture)
 	col.Children(func() {
 		a.toolbarView(c)
 		ui.Divider(c)
