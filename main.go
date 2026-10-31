@@ -14,6 +14,18 @@ func main() {
 	mygo.App.SetVersion(appVersion)
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 512}
+	openPath := func(path string) {
+		if a.Window != nil {
+			a.Window.Update(func() { a.openFolder(path) })
+		}
+	}
+	mygo.App.OnSecondInstance(func(args []string, _ string) {
+		for _, arg := range args {
+			if isDir(arg) {
+				openPath(arg)
+			}
+		}
+	})
 	mygo.App.WhenReady(func() {
 		a.Window = mygo.NewWindow(mygo.WindowOptions{
 			Title:   appName,
@@ -23,8 +35,10 @@ func main() {
 		})
 
 		mygo.App.SetMenu(newAppMenu(a))
-		if len(os.Args) > 1 {
-			a.Window.Update(func() { a.openFolder(os.Args[1]) })
+		for _, arg := range os.Args[1:] {
+			if isDir(arg) {
+				openPath(arg)
+			}
 		}
 	})
 

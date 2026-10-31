@@ -31,15 +31,24 @@ var (
 )
 
 type mediaItem struct {
-	Path    string
-	Name    string
-	Ext     string
-	Size    int64
-	ModTime int64
-	Bitmap  *ui.Bitmap
-	Decoded bool
-	Failed  bool
-	Loading bool
+	Path      string
+	Name      string
+	Ext       string
+	Size      int64
+	ModTime   int64
+	Bitmap    *ui.Bitmap
+	Decoded   bool
+	Failed    bool
+	Loading   bool
+	IsVideo   bool
+	ThumbDone bool
+}
+
+// videoView owns a real MyGo player for the video currently in large view.
+type videoView struct {
+	player *ui.VideoPlayer
+	path   string
+	err    error
 }
 
 type appState struct {
@@ -75,8 +84,10 @@ type appState struct {
 
 	InLargeView bool
 	LargeIndex  int
+	Zoom        float32
 	Rotation    float32
 	Mirror      bool
+	Video       *videoView
 }
 
 func newAppMenu(a *appState) *mygo.Menu {
@@ -188,7 +199,7 @@ func (a *appState) scanFolder(root string, seq int) {
 			if err != nil {
 				return nil
 			}
-			files = append(files, mediaItem{Path: path, Name: filepath.Base(path), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix()})
+			files = append(files, mediaItem{Path: path, Name: filepath.Base(path), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
 			return nil
 		})
 	} else {
@@ -208,7 +219,7 @@ func (a *appState) scanFolder(root string, seq int) {
 			if err != nil {
 				continue
 			}
-			files = append(files, mediaItem{Path: filepath.Join(root, e.Name()), Name: e.Name(), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix()})
+			files = append(files, mediaItem{Path: filepath.Join(root, e.Name()), Name: e.Name(), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
 		}
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int {
@@ -363,10 +374,17 @@ func (a *appState) loadThumb(root string, index int) {
 	}
 	item.Loading = true
 	path := item.Path
+	video := item.IsVideo
 	a.mu.Unlock()
 
 	go func() {
-		data, err := os.ReadFile(path)
+		var data []byte
+		var err error
+		if video {
+			data, err = videoPosterPNG(path)
+		} else {
+			data, err = os.ReadFile(path)
+		}
 		var bitmap *ui.Bitmap
 		if err == nil {
 			bitmap, err = ui.DecodeBitmap(data)
@@ -435,7 +453,11 @@ func (a *appState) view(c *ui.Context) {
 		a.SidebarShown = true
 	}
 
-	ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.mainView(c) }).Fill()
+	if a.SidebarShown {
+		ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.mainView(c) }).Fill()
+	} else {
+		a.mainView(c)
+	}
 }
 
 func (a *appState) sidebarView(c *ui.Context) {
@@ -643,18 +665,115 @@ func (a *appState) largeImageView(c *ui.Context) {
 		return
 	}
 	box := ui.Box(c).Fill().Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
+	if ev := box.HandleInput; false {
+		_ = ev
+	}
+	box.HandleInput(func(ev ui.InputEvent) bool {
+		switch ev.Kind {
+		case ui.InputZoom:
+			a.Zoom = clampZoom(a.Zoom * ev.Scale)
+			return true
+		case ui.InputScroll:
+			if ev.Mods&ui.Ctrl != 0 {
+				delta := ev.DY
+				if delta == 0 {
+					delta = ev.DX
+				}
+				a.Zoom = clampZoom(a.Zoom * (1 - delta/500))
+				return true
+			}
+			return false
+		case ui.InputKeyDown:
+			switch ev.Key {
+			case ui.KeyE:
+				a.Rotation += 90
+				return true
+			case ui.KeyQ:
+				a.Rotation -= 90
+				return true
+			case ui.KeyM:
+				a.Mirror = !a.Mirror
+				return true
+			case ui.Key0:
+				a.Zoom, a.Rotation, a.Mirror = 1, 0, false
+				return true
+			case ui.KeyEqual:
+				a.Zoom = clampZoom(a.Zoom * 1.25)
+				return true
+			case ui.KeyMinus:
+				a.Zoom = clampZoom(a.Zoom / 1.25)
+				return true
+			}
+		}
+		return false
+	})
 	box.Children(func() {
-		if item.Bitmap != nil {
-			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
-			img.Rotate(a.Rotation)
-			if a.Mirror {
-				img.Transform(ui.Scaling(-1, 1))
+		if item.IsVideo {
+			a.ensureVideo(item.Path)
+			if a.Video.err != nil {
+				ui.Textf(c, "视频解码失败: %v", a.Video.err).TextColor(t.Danger)
+			} else if a.Video.player != nil {
+				ui.Video(c, a.Video.player).Fit(ui.Contain).Grow(1).Transform(transformFor(a.Zoom, a.Rotation, a.Mirror))
+			} else {
+				ui.Spinner(c)
 			}
 		} else {
-			ui.Spinner(c)
+			if item.Bitmap == nil {
+				ui.Spinner(c)
+			} else {
+				ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1).Transform(transformFor(a.Zoom, a.Rotation, a.Mirror))
+			}
 		}
+		// Overlay controls like FlowVision's zoom and rotate buttons.
+		controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorCenter).Gap(8).Padding(8).Background(t.Surface).Radius(8)
+		controls.Children(func() {
+			if ui.Button(c.Key("zoom-out"), "−").Tooltip("缩小").Clicked() {
+				a.Zoom = clampZoom(a.Zoom / 1.25)
+			}
+			if ui.Button(c.Key("fit"), "1:1").Tooltip("100%").Clicked() {
+				a.Zoom = 1
+			}
+			if ui.Button(c.Key("zoom-in"), "+").Tooltip("放大").Clicked() {
+				a.Zoom = clampZoom(a.Zoom * 1.25)
+			}
+			if ui.Button(c.Key("rotate"), "⟳").Tooltip("旋转").Clicked() {
+				a.Rotation += 90
+			}
+			if ui.Button(c.Key("mirror"), "⇔").Tooltip("镜像").Clicked() {
+				a.Mirror = !a.Mirror
+			}
+		})
 	})
-	_ = box
+}
+
+func clampZoom(z float32) float32 {
+	if z < 0.1 {
+		return 0.1
+	}
+	if z > 8 {
+		return 8
+	}
+	return z
+}
+
+func transformFor(zoom float32, rotation float32, mirror bool) ui.Transform {
+	t := ui.Scaling(zoom, zoom).Then(ui.Rotation(rotation))
+	if mirror {
+		t = t.Then(ui.Scaling(-1, 1))
+	}
+	return t
+}
+
+func (a *appState) ensureVideo(path string) {
+	if a.Video != nil && a.Video.path == path && a.Video.err == nil {
+		return
+	}
+	if a.Video != nil && a.Video.player != nil {
+		a.Video.player.Close()
+	}
+	dec := newFFmpegDecoder(path)
+	player, err := ui.NewVideoPlayer(dec)
+	a.Video = &videoView{player: player, path: path, err: err}
 }
 
 func (a *appState) openLargeImage(index int) {
@@ -663,6 +782,11 @@ func (a *appState) openLargeImage(index int) {
 	}
 	a.InLargeView = true
 	a.LargeIndex = index
+	a.Zoom, a.Rotation, a.Mirror = 1, 0, false
+	if a.Video != nil && a.Video.player != nil {
+		a.Video.player.Close()
+	}
+	a.Video = nil
 	item := &a.Items[a.Visible[index]]
 	a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
 	if !item.Decoded && !item.Failed && !item.Loading {
@@ -673,6 +797,10 @@ func (a *appState) openLargeImage(index int) {
 func (a *appState) closeLargeImage() {
 	a.InLargeView = false
 	a.LargeIndex = -1
+	if a.Video != nil && a.Video.player != nil {
+		a.Video.player.Close()
+	}
+	a.Video = nil
 	if a.Root != "" {
 		a.Window.SetTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))
 	}

@@ -14,13 +14,13 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T1.8 Dark/light theme auto-detect matching FlowVision colors (#FFFFFF / #2D2D2D grid bg)
 
 ## Phase 2: Large Image View
-- [ ] T2.1 Space/Enter toggles large image from grid
-- [ ] T2.2 Full-area image display with fit-to-window / 100% zoom
-- [ ] T2.3 Window title shows "filename (index/total)"
-- [ ] T2.4 Arrow keys (Cmd+Left/Right) navigate prev/next image
-- [ ] T2.5 Zoom: scroll wheel, long-press left = 100%, right-click = fit
-- [ ] T2.6 Rotate (E) and mirror, left-rotate (Q)
-- [ ] T2.7 Esc closes large view
+- [x] T2.1 Space/Enter toggles large image from grid
+- [x] T2.2 Full-area image display with fit-to-window / 100% zoom
+- [x] T2.3 Window title shows "filename (index/total)"
+- [x] T2.4 Arrow keys (Cmd+Left/Right) navigate prev/next image
+- [x] T2.5 Zoom: scroll wheel, long-press left = 100%, right-click = fit
+- [x] T2.6 Rotate (E) and mirror, left-rotate (Q)
+- [x] T2.7 Esc closes large view
 
 ## Phase 3: File System & Navigation
 - [x] T3.1 Directory tree population with lazy expand
@@ -37,8 +37,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [ ] T4.3 Background concurrent decode with thread limit
 - [x] T4.4 Full image decode for large view
 - [ ] T4.5 EXIF metadata extraction (dimensions, dates, camera)
-- [ ] T4.6 Video thumbnail (first frame via ffmpeg)
-- [ ] T4.7 Video playback (mpv or AVPlayer bridge)
+- [x] T4.6 Video thumbnail (first frame via ffmpeg)
+- [x] T4.7 Video playback (mpv or AVPlayer bridge)
 
 ## Phase 5: File Operations
 - [ ] T5.1 Copy/move/delete/rename with two-phase rename
