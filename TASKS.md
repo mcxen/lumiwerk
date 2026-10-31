@@ -53,7 +53,7 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T6.1 Filename search with pinyin support
 - [x] T6.2 Sort by name, date, size, EXIF date, random
 - [x] T6.3 Filter by file type (image/video/raw)
-- [ ] T6.4 Finder tag filter
+- [x] T6.4 Finder tag filter
 
 ## Phase 7: Layout Modes
 - [ ] T7.1 Justified (Google Photos style, two-ended align)
