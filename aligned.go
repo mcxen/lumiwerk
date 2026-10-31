@@ -26,11 +26,14 @@ var (
 	thumbLRU  = newLRUCache(512)
 	thumbGate = make(chan struct{}, 8)
 
-	dirIcon   = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`))
-	imageIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-7 7"/></svg>`))
-	videoIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="12" height="14" rx="2"/><path d="m21 8-6 4 6 4z"/></svg>`))
-	starIcon  = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.9 5.9 6.1.9-4.5 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.8l6.1-.9z"/></svg>`))
-	clockIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`))
+	dirIcon        = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`))
+	imageIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-7 7"/></svg>`))
+	videoIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="12" height="14" rx="2"/><path d="m21 8-6 4 6 4z"/></svg>`))
+	starIcon       = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.9 5.9 6.1.9-4.5 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.8l6.1-.9z"/></svg>`))
+	clockIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`))
+	arrowLeftIcon  = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7"/></svg>`))
+	arrowRightIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>`))
+	sidebarIcon    = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>`))
 )
 
 type mediaItem struct {
@@ -52,9 +55,14 @@ type mediaItem struct {
 
 // videoView owns a real MyGo player for the video currently in large view.
 type videoView struct {
-	player *ui.VideoPlayer
-	path   string
-	err    error
+	player     *ui.VideoPlayer
+	dec        *ffmpegDecoder
+	path       string
+	err        error
+	Position   float64
+	StartedAt  time.Time
+	Still      *ui.Bitmap
+	stillToken int
 }
 
 type appState struct {
@@ -90,26 +98,41 @@ type appState struct {
 	LayoutMode int
 	Thumb      float64
 
-	InLargeView bool
-	LargeIndex  int
-	Zoom        float32
-	Rotation    float32
-	Mirror      bool
-	Video       *videoView
-	Info        infoState
-	Gesture     gestureState
-	Undo        undoStack
-	TagFilter   string
-	Pinned      bool
-	Settings    settingsState
-	Tabs        tabState
-	Profiles    prefsFile
-	Batch       batchState
-	Renaming    bool
-	FocusSearch bool
-	LastQuery   string
-	RenamePath  string
-	RenameVal   string
+	InLargeView   bool
+	LargeIndex    int
+	Zoom          float32
+	Rotation      float32
+	Mirror        bool
+	Video         *videoView
+	Info          infoState
+	Gesture       gestureState
+	Undo          undoStack
+	TagFilter     string
+	Pinned        bool
+	PanX, PanY    float32
+	RightDown     bool
+	LargeDrag     dragState
+	HUD           string
+	HUDUntil      time.Time
+	Settings      settingsState
+	Tabs          tabState
+	Profiles      prefsFile
+	Batch         batchState
+	Renaming      bool
+	FocusSearch   bool
+	LastQuery     string
+	RenamePath    string
+	RenameVal     string
+	Clip          []string
+	Cut           map[string]bool
+	PendingSelect []string
+	PendingLarge  string
+	KeepLarge     bool
+	NewFolder     bool
+	FolderName    string
+	FolderTake    []string
+	SeekFrom      float64
+	ResumePlay    bool
 }
 
 func newAppMenu(a *appState) *mygo.Menu {
@@ -129,6 +152,19 @@ func newAppMenu(a *appState) *mygo.Menu {
 				a.Window.Update(func() { a.openSettings(); a.settingsWindow() })
 			}},
 			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.copyToConfigured() }},
+			{Label: "快速重命名当前目录", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.Window.Update(func() { a.quickRenameFolder() })
+			}},
+		}},
+		{Label: "编辑", Submenu: []*mygo.MenuItem{
+			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCopy() }) }},
+			{Label: "剪切", Accelerator: "CmdOrCtrl+X", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCut() }) }},
+			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(false) }) }},
+			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(true) }) }},
+			mygo.Separator(),
+			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.startRename() }) }},
+			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doTrash() }) }},
+			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.revealInFinder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
 			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.SidebarShown = !a.SidebarShown }) }},
@@ -267,8 +303,70 @@ func (a *appState) scanFolder(root string, seq int) {
 		}
 		a.Items = files
 		a.applyFilterLocked()
+		a.restorePendingSelection()
 		go a.loadTags()
 	})
+}
+
+func (a *appState) restorePendingSelection() {
+	if len(a.PendingSelect) > 0 {
+		want := map[string]struct{}{}
+		for _, path := range a.PendingSelect {
+			want[path] = struct{}{}
+		}
+		a.Selected.Clear()
+		first := -1
+		for visibleIndex, itemIndex := range a.Visible {
+			path := a.Items[itemIndex].Path
+			if _, ok := want[path]; !ok {
+				continue
+			}
+			a.Selected.Add(path)
+			if first < 0 {
+				first = visibleIndex
+			}
+		}
+		if first >= 0 {
+			a.Chosen = first
+		}
+		a.PendingSelect = nil
+	}
+	if !a.KeepLarge {
+		if a.InLargeView && a.LargeIndex >= 0 && a.LargeIndex < len(a.Visible) {
+			item := a.Items[a.Visible[a.LargeIndex]]
+			if a.Window != nil {
+				a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible)))
+			}
+		}
+		return
+	}
+	found := -1
+	if a.PendingLarge != "" {
+		for visibleIndex, itemIndex := range a.Visible {
+			if a.Items[itemIndex].Path == a.PendingLarge {
+				found = visibleIndex
+				break
+			}
+		}
+	}
+	a.KeepLarge = false
+	a.PendingLarge = ""
+	if found < 0 {
+		a.closeLargeImage()
+		return
+	}
+	a.InLargeView = true
+	a.LargeIndex = found
+	item := &a.Items[a.Visible[found]]
+	if a.Video != nil && item.IsVideo {
+		a.Video.path = item.Path
+		if a.Video.dec != nil {
+			a.Video.dec.path = item.Path
+		}
+	}
+	if a.Window != nil {
+		a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, found+1, len(a.Visible)))
+	}
 }
 
 func (a *appState) applyFilterLocked() {
@@ -520,8 +618,14 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyEscape) && a.InLargeView {
 		a.closeLargeImage()
 	}
-	if c.Shortcut(0, ui.KeySpace) && !a.InLargeView && a.Chosen >= 0 {
-		a.openLargeImage(a.Chosen)
+	if c.Shortcut(0, ui.KeySpace) && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		if a.InLargeView {
+			if item := a.currentItem(); item != nil && item.IsVideo {
+				a.toggleVideoPlayback()
+			}
+		} else if a.Chosen >= 0 {
+			a.openLargeImage(a.Chosen)
+		}
 	}
 	if c.Shortcut(0, ui.KeyI) && a.InLargeView {
 		a.Info.EXIF = !a.Info.EXIF
@@ -529,11 +633,16 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyU) && a.InLargeView {
 		a.Info.File = !a.Info.File
 	}
-	if c.Shortcut(0, ui.KeyDelete) && !a.InLargeView {
-		a.doTrash()
+	if c.Shortcut(0, ui.KeyDelete) || c.Shortcut(0, ui.KeyBackspace) {
+		if !a.Renaming && !a.NewFolder && !a.Batch.Open {
+			a.doTrash()
+		}
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) && !a.InLargeView {
-		go a.newFolder()
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) && !a.InLargeView && !a.Renaming && !a.NewFolder {
+		a.newFolder()
+	}
+	if c.Shortcut(0, ui.KeyF2) && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		a.startRename()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyF) && !a.InLargeView {
 		a.FocusSearch = true
@@ -544,8 +653,29 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyZ) && !a.InLargeView {
 		a.redo()
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyC) && !a.InLargeView {
+	if c.Shortcut(ui.Cmd, ui.KeyC) && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.doCopy()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyV) && !a.InLargeView && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		a.doPaste(false)
+	}
+	if c.Shortcut(ui.Cmd|ui.Alt, ui.KeyV) && !a.InLargeView && !a.Renaming && !a.NewFolder {
+		a.doPaste(true)
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyA) && !a.InLargeView && !a.Renaming && !a.NewFolder {
+		a.Selected.Clear()
+		for _, index := range a.Visible {
+			a.Selected.Add(a.Items[index].Path)
+		}
+		if a.Chosen < 0 && len(a.Visible) > 0 {
+			a.Chosen = 0
+		}
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyR) {
+		a.refresh()
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.InLargeView && !a.Renaming && !a.NewFolder {
+		a.quickRenameFolder()
 	}
 	for i := 0; i < 9; i++ {
 		key := ui.Key1 + ui.Key(i)
@@ -556,8 +686,8 @@ func (a *appState) view(c *ui.Context) {
 			a.saveProfile(i)
 		}
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyX) && !a.InLargeView {
-		a.doMove()
+	if c.Shortcut(ui.Cmd, ui.KeyX) && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		a.doCut()
 	}
 
 	if a.SidebarWidth == 0 {
@@ -573,6 +703,7 @@ func (a *appState) view(c *ui.Context) {
 		a.mainView(c)
 	}
 	a.renameDialog(c)
+	a.folderDialog(c)
 	a.batchDialog(c)
 }
 
@@ -677,19 +808,20 @@ func (a *appState) mainView(c *ui.Context) {
 			a.gridView(c)
 		}
 		a.statusBar(c)
+		a.toastOverlay(c)
 	})
 }
 
 func (a *appState) toolbarView(c *ui.Context) {
 	t := c.Theme()
 	bar := ui.Toolbar(c, func() {
-		if ui.Button(c.Key("sidebar"), "").Label("侧栏").Tooltip("显示/隐藏侧栏").Clicked() {
+		if ui.Button(c.Key("sidebar"), "").Children(func() { ui.Icon(c, sidebarIcon).FontSize(14) }).Tooltip("显示/隐藏侧栏").Clicked() {
 			a.SidebarShown = !a.SidebarShown
 		}
-		if ui.Button(c.Key("back"), "").Label("后退").Tooltip("后退").Clicked() {
+		if ui.Button(c.Key("back"), "").Children(func() { ui.Icon(c, arrowLeftIcon).FontSize(14) }).Tooltip("后退").Clicked() {
 			a.goBack()
 		}
-		if ui.Button(c.Key("forward"), "").Label("前进").Tooltip("前进").Clicked() {
+		if ui.Button(c.Key("forward"), "").Children(func() { ui.Icon(c, arrowRightIcon).FontSize(14) }).Tooltip("前进").Clicked() {
 			a.goForward()
 		}
 		if a.InLargeView {
@@ -702,12 +834,12 @@ func (a *appState) toolbarView(c *ui.Context) {
 		} else {
 			items := strings.Split(strings.ReplaceAll(a.breadcrumbPath(), " › ", "/"), "/")
 			chosen := len(items) - 1
-			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1)
+			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
 			ui.Textf(c, "(%d 图像)", len(a.Visible)).FontSize(11).TextColor(t.TextMuted)
 		}
 		if !a.InLargeView {
 			prevQuery := a.LastQuery
-			search := ui.SearchField(c, &a.Query).Key("query").Width(180)
+			search := ui.SearchField(c, &a.Query).Key("query").Width(150)
 			if a.FocusSearch {
 				search.Focus()
 				a.FocusSearch = false
@@ -718,9 +850,26 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.applyFilterLocked()
 				a.mu.Unlock()
 			}
-			ui.Segmented(c, &a.FilterMode, "全部", "图片", "视频").Label("类型").Changed()
-			ui.Segmented(c, &a.LayoutMode, "网格", "详情", "瀑布", "紧凑").Label("视图")
-			ui.Slider(c, &a.Thumb, 64, 512).Width(90)
+			ui.MenuButton(c, "类型", func(m *ui.Menu) {
+				for i, name := range []string{"全部", "图片", "视频"} {
+					idx := i
+					if m.Item(name).Radio(a.FilterMode == idx).Chosen() {
+						a.FilterMode = idx
+						a.applyFilter()
+					}
+				}
+			})
+		}
+		if !a.InLargeView {
+			ui.MenuButton(c, "布局", func(m *ui.Menu) {
+				for i, name := range []string{"网格", "详情", "瀑布", "紧凑"} {
+					idx := i
+					if m.Item(name).Radio(a.LayoutMode == idx).Chosen() {
+						a.LayoutMode = idx
+					}
+				}
+			})
+			ui.Slider(c, &a.Thumb, 64, 512).Width(80)
 			ui.MenuButton(c, "排序", func(m *ui.Menu) {
 				for _, item := range []struct{ label, value string }{
 					{"名称", "name"}, {"日期", "date"}, {"大小", "size"},
@@ -780,6 +929,7 @@ func (a *appState) emptyView(c *ui.Context) {
 
 func (a *appState) emptyFolderView(c *ui.Context) {
 	zone := ui.Column(c).Fill().Center().AlignItems(ui.Center).Gap(6)
+	zone.ContextMenu(func(m *ui.Menu) { a.fileContextMenu(m) })
 	zone.Children(func() {
 		ui.Text(c, "没有媒体文件").FontSize(16).Bold()
 		ui.Text(c, "打开其他目录或启用递归浏览").TextColor(c.Theme().TextMuted)
@@ -797,6 +947,9 @@ func (a *appState) gridView(c *ui.Context) {
 	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+24), func(i int) {
 		item := &a.Items[a.Visible[i]]
 		card := ui.Column(c).Grow(1).Margin(4).Padding(4).Gap(4).Radius(6).Background(t.Surface)
+		if a.isCut(item.Path) {
+			card.Opacity(0.4)
+		}
 		if a.Chosen == i {
 			card.Border(2, t.Accent)
 		}
@@ -804,7 +957,7 @@ func (a *appState) gridView(c *ui.Context) {
 			thumb := ui.Box(c).Grow(1).Radius(4).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
 			thumb.Children(func() {
 				if len(item.Tags) > 0 {
-					tags := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorEnd).Gap(2).Padding(3)
+					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
 					tags.Children(func() {
 						for range item.Tags {
 							ui.Box(c).Width(5).Height(5).Radius(2).Background(t.Accent)
@@ -852,105 +1005,346 @@ func (a *appState) largeImageView(c *ui.Context) {
 		ui.Text(c, "没有图像").TextColor(t.TextMuted)
 		return
 	}
-	box := ui.Box(c).Fill().Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
-	if ev := box.HandleInput; false {
-		_ = ev
-	}
-	box.HandleInput(func(ev ui.InputEvent) bool {
-		switch ev.Kind {
-		case ui.InputZoom:
-			a.Zoom = clampZoom(a.Zoom * ev.Scale)
-			return true
-		case ui.InputScroll:
-			if ev.Mods&ui.Ctrl != 0 {
-				delta := ev.DY
-				if delta == 0 {
-					delta = ev.DX
-				}
-				a.Zoom = clampZoom(a.Zoom * (1 - delta/500))
-				return true
-			}
-			return false
-		case ui.InputKeyDown:
-			switch ev.Key {
-			case ui.KeyE:
-				a.Rotation += 90
-				return true
-			case ui.KeyQ:
-				a.Rotation -= 90
-				return true
-			case ui.KeyM:
-				a.Mirror = !a.Mirror
-				return true
-			case ui.Key0:
-				a.Zoom, a.Rotation, a.Mirror = 1, 0, false
-				return true
-			case ui.KeyEqual:
-				a.Zoom = clampZoom(a.Zoom * 1.25)
-				return true
-			case ui.KeyMinus:
-				a.Zoom = clampZoom(a.Zoom / 1.25)
-				return true
-			}
-		}
-		return false
-	})
+	a.ensureMediaInfo(item)
+	box := ui.Box(c).Fill().Background(t.Background)
+	a.tickLongPress(c, item)
 	box.Children(func() {
-		if item.IsVideo {
-			a.ensureVideo(item.Path)
-			if a.Video.err != nil {
-				ui.Textf(c, "视频解码失败: %v", a.Video.err).TextColor(t.Danger)
-			} else if a.Video.player != nil {
-				ui.Video(c, a.Video.player).Fit(ui.Contain).Grow(1).Transform(transformFor(a.Zoom, a.Rotation, a.Mirror))
-			} else {
+		// The gesture surface sits behind the controls so buttons still receive clicks.
+		stage := ui.Box(c).Fill().Justify(ui.Center).AlignItems(ui.Center)
+		stage.HandleInput(func(ev ui.InputEvent) bool { return a.largeInput(ev, item) })
+		stage.ContextMenu(func(m *ui.Menu) { a.largeContextMenu(m, item) })
+		stage.Children(func() {
+			if item.IsVideo {
+				a.ensureVideo(item.Path)
+				if a.Video.err != nil {
+					ui.Textf(c, "视频解码失败: %v", a.Video.err).TextColor(t.Danger)
+				} else if a.Video.Still != nil && a.Video.player != nil && !a.Video.player.Playing() {
+					ui.Image(c, a.Video.Still).Fit(ui.Contain).Grow(1).Transform(a.transform())
+				} else if a.Video.player != nil {
+					ui.Video(c, a.Video.player).Fit(ui.Contain).Grow(1).Transform(a.transform())
+				} else {
+					ui.Spinner(c)
+				}
+			} else if item.Bitmap == nil {
 				ui.Spinner(c)
-			}
-		} else {
-			if item.Bitmap == nil {
-				ui.Spinner(c)
 			} else {
-				ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1).Transform(transformFor(a.Zoom, a.Rotation, a.Mirror))
-			}
-		}
-		a.infoOverlay(c, item)
-		// Overlay controls like FlowVision's zoom and rotate buttons.
-		controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorCenter).Gap(8).Padding(8).Background(t.Surface).Radius(8)
-		controls.Children(func() {
-			if ui.Button(c.Key("zoom-out"), "−").Tooltip("缩小").Clicked() {
-				a.Zoom = clampZoom(a.Zoom / 1.25)
-			}
-			if ui.Button(c.Key("fit"), "1:1").Tooltip("100%").Clicked() {
-				a.Zoom = 1
-			}
-			if ui.Button(c.Key("zoom-in"), "+").Tooltip("放大").Clicked() {
-				a.Zoom = clampZoom(a.Zoom * 1.25)
-			}
-			if ui.Button(c.Key("rotate"), "⟳").Tooltip("旋转").Clicked() {
-				a.Rotation += 90
-			}
-			if ui.Button(c.Key("mirror"), "⇔").Tooltip("镜像").Clicked() {
-				a.Mirror = !a.Mirror
+				ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1).Transform(a.transform())
 			}
 		})
+		a.mediaOverlay(c, item)
+		a.zoomHUD(c)
+		a.edgeArrows(c)
+		a.largeControls(c, item)
 	})
 }
 
-func clampZoom(z float32) float32 {
-	if z < 0.1 {
-		return 0.1
+// largeInput handles zoom, pan, edge clicks and double-click close.
+func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
+	switch ev.Kind {
+	case ui.InputZoom:
+		a.zoomAt(ev.X, ev.Y, ev.Scale)
+		return true
+	case ui.InputScroll:
+		delta := ev.DY
+		if delta == 0 {
+			delta = ev.DX
+		}
+		factor := wheelZoomFactor(delta, ev.Precise, ev.Momentum)
+		if factor == 1 {
+			return true
+		}
+		a.zoomAt(ev.X, ev.Y, factor)
+		return true
+	case ui.InputPointerDown:
+		// Images keep right-click for the context menu. Video captures it to seek.
+		if ev.Button == 1 && !item.IsVideo {
+			return false
+		}
+		if ev.Button == 1 {
+			a.RightDown = true
+		}
+		a.LargeDrag = dragState{active: true, startX: ev.X, startY: ev.Y, lastX: ev.X, lastY: ev.Y, moved: false, button: ev.Button, time: ev.Time}
+		if item.IsVideo && ev.Button == 1 && a.Video != nil {
+			a.SeekFrom = a.Video.Position
+			a.ResumePlay = a.Video.player != nil && a.Video.player.Playing()
+			if a.ResumePlay {
+				a.Video.player.Pause()
+			}
+		}
+		if ev.Button == 0 && ev.Clicks >= 2 {
+			a.closeLargeImage()
+			return true
+		}
+		return true
+	case ui.InputPointerMove:
+		if !a.LargeDrag.active {
+			return false
+		}
+		dx, dy := ev.X-a.LargeDrag.lastX, ev.Y-a.LargeDrag.lastY
+		a.LargeDrag.lastX, a.LargeDrag.lastY = ev.X, ev.Y
+		if abs32(ev.X-a.LargeDrag.startX) > 3 || abs32(ev.Y-a.LargeDrag.startY) > 3 {
+			a.LargeDrag.moved = true
+		}
+		if !a.LargeDrag.moved {
+			return true
+		}
+		if a.LargeDrag.button == 1 && item.IsVideo {
+			preview := seekPreview(a.SeekFrom, float64(ev.X-a.LargeDrag.startX), float64(a.largeWidth()), a.videoDuration())
+			a.HUD = "跳转到 " + shortTime(preview)
+			a.HUDUntil = time.Now().Add(800 * time.Millisecond)
+			return true
+		}
+		if a.LargeDrag.button == 0 {
+			a.PanX += dx
+			a.PanY += dy
+			a.clampPan()
+		}
+		return true
+	case ui.InputPointerUp:
+		button := ev.Button
+		moved := a.LargeDrag.moved
+		fired := a.LargeDrag.fired
+		startX := a.LargeDrag.startX
+		a.LargeDrag.active = false
+		if button == 1 {
+			a.RightDown = false
+			if item.IsVideo && moved {
+				preview := seekPreview(a.SeekFrom, float64(ev.X-startX), float64(a.largeWidth()), a.videoDuration())
+				a.seekVideo(preview)
+				if a.ResumePlay && a.Video != nil && a.Video.player != nil {
+					a.Video.player.Play()
+					a.Video.StartedAt = time.Now()
+				}
+				a.ResumePlay = false
+				return true
+			}
+		}
+		if fired || moved {
+			return true
+		}
+		if button != 0 {
+			return false
+		}
+		left, right := edgeZones(a.largeWidth())
+		if ev.X <= left {
+			a.prevImage()
+			return true
+		}
+		if ev.X >= right {
+			a.nextImage()
+			return true
+		}
+		if item.IsVideo {
+			a.toggleVideoPlayback()
+			return true
+		}
+		return false
+	case ui.InputKeyDown:
+		switch ev.Key {
+		case ui.KeyEqual, ui.KeyMinus, ui.Key0:
+			switch ev.Key {
+			case ui.KeyEqual:
+				a.zoomStep(1.25)
+			case ui.KeyMinus:
+				a.zoomStep(1 / 1.25)
+			case ui.Key0:
+				a.resetZoom()
+			}
+			return true
+		case ui.KeyE:
+			a.Rotation += 90
+			return true
+		case ui.KeyQ:
+			a.Rotation -= 90
+			return true
+		case ui.KeyM, ui.KeyF:
+			a.Mirror = !a.Mirror
+			return true
+		case ui.KeySpace:
+			if item.IsVideo {
+				a.toggleVideoPlayback()
+				return true
+			}
+		}
 	}
-	if z > 8 {
-		return 8
-	}
-	return z
+	return false
 }
 
-func transformFor(zoom float32, rotation float32, mirror bool) ui.Transform {
-	t := ui.Scaling(zoom, zoom).Then(ui.Rotation(rotation))
-	if mirror {
-		t = t.Then(ui.Scaling(-1, 1))
+// mediaOverlay stacks Finder tag dots, rating stars and the info panel over the media.
+func (a *appState) mediaOverlay(c *ui.Context, item *mediaItem) {
+	t := c.Theme()
+	dots := 0
+	for _, tag := range item.Tags {
+		if ratingFor(&mediaItem{Tags: []string{tag}}) > 0 {
+			continue
+		}
+		dots++
 	}
-	return t
+	if dots > 0 {
+		tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(10, 10).Gap(4)
+		tags.Children(func() {
+			for _, tag := range item.Tags {
+				if ratingFor(&mediaItem{Tags: []string{tag}}) > 0 {
+					continue
+				}
+				ui.Box(c).Width(10).Height(10).Radius(5).Background(tagColor(tag))
+			}
+		})
+	}
+	if stars := ratingFor(item); stars > 0 {
+		panel := ui.Row(c).Attach(ui.AnchorBottomStart, ui.AnchorBottomStart).Margin(14, 14).Padding(4, 8).Radius(6).Background(t.Surface)
+		panel.Children(func() {
+			for i := 0; i < 5; i++ {
+				col := t.TextMuted
+				if i < stars {
+					col = ui.RGB(255, 199, 0)
+				}
+				ui.Icon(c, starIcon).FontSize(16).TextColor(col)
+			}
+		})
+	}
+	a.infoOverlay(c, item)
+}
+
+// zoomHUD shows the transient zoom percentage.
+func (a *appState) zoomHUD(c *ui.Context) {
+	if a.HUD == "" {
+		return
+	}
+	if time.Now().After(a.HUDUntil) {
+		a.HUD = ""
+		return
+	}
+	if d := time.Until(a.HUDUntil); d > 0 {
+		c.After(d)
+	}
+	t := c.Theme()
+	hud := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorTop).Margin(24, 0).Padding(6, 14).Radius(6).Background(t.Surface)
+	hud.Children(func() {
+		ui.Text(c, a.HUD).FontSize(12).Bold()
+	})
+}
+
+// largeControls is the floating bottom control strip.
+func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
+	if item.IsVideo {
+		a.videoControlsBar(c, item)
+		return
+	}
+	t := c.Theme()
+	controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Margin(16, 0).Gap(6).Padding(6).Background(t.Surface).Radius(8)
+	controls.Children(func() {
+		if ui.Button(c.Key("zoom-out"), "−").Tooltip("缩小").Clicked() {
+			a.zoomStep(1 / 1.25)
+		}
+		if ui.Button(c.Key("fit"), "适应").Tooltip("适应窗口").Clicked() {
+			a.resetZoom()
+		}
+		if ui.Button(c.Key("zoom-in"), "+").Tooltip("放大").Clicked() {
+			a.zoomStep(1.25)
+		}
+		if ui.Button(c.Key("zoom-100"), "1:1").Tooltip("实际大小").Clicked() {
+			a.zoom100()
+		}
+		if ui.Button(c.Key("rotate"), "⟳").Tooltip("顺时针旋转").Clicked() {
+			a.Rotation += 90
+		}
+		if ui.Button(c.Key("rotate-ccw"), "⟲").Tooltip("逆时针旋转").Clicked() {
+			a.Rotation -= 90
+		}
+		if ui.Button(c.Key("mirror"), "⇔").Tooltip("镜像").Clicked() {
+			a.Mirror = !a.Mirror
+		}
+	})
+}
+
+// videoControlsBar is the floating 520px playback strip above the video.
+func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
+	if a.Video == nil || a.Video.player == nil {
+		return
+	}
+	t := c.Theme()
+	duration := item.Info.DurationSec
+	if duration <= 0 {
+		duration = 1
+	}
+	if a.Video.player.Playing() {
+		a.Video.Position = min(duration, a.Video.Position+time.Since(a.Video.StartedAt).Seconds())
+		a.Video.StartedAt = time.Now()
+	}
+	bar := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Width(520).Height(67).Margin(14, 0).Padding(8, 12).
+		Gap(8).AlignItems(ui.Center).Background(t.Surface).Radius(8).Border(1, t.Border)
+	bar.Children(func() {
+		label := "播放"
+		if a.Video.player.Playing() {
+			label = "暂停"
+		}
+		if ui.Button(c.Key("video-play"), label).Clicked() {
+			a.toggleVideoPlayback()
+		}
+		pos := a.Video.Position
+		if ui.Slider(c, &pos, 0, duration).Width(260).Tooltip("进度").Changed() {
+			a.seekVideo(pos)
+		}
+		ui.Textf(c, "%s / %s", shortTime(a.Video.Position), shortTime(duration)).FontSize(11).TextColor(t.TextMuted)
+	})
+}
+
+// edgeArrows mirrors FlowVision's left/right media switching hints.
+func (a *appState) edgeArrows(c *ui.Context) {
+	t := c.Theme()
+	left := ui.Row(c).Attach(ui.AnchorLeft, ui.AnchorLeft).Margin(12, 0).Padding(8, 10).Radius(20).Background(t.Surface)
+	left.Children(func() {
+		ui.Icon(c, arrowLeftIcon).FontSize(22).TextColor(t.TextMuted)
+	})
+	if left.Clicked() {
+		a.prevImage()
+	}
+	right := ui.Row(c).Attach(ui.AnchorRight, ui.AnchorRight).Margin(12, 0).Padding(8, 10).Radius(20).Background(t.Surface)
+	right.Children(func() {
+		ui.Icon(c, arrowRightIcon).FontSize(22).TextColor(t.TextMuted)
+	})
+	if right.Clicked() {
+		a.nextImage()
+	}
+}
+
+func shortTime(seconds float64) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	total := int(seconds)
+	return fmt.Sprintf("%02d:%02d", total/60, total%60)
+}
+
+// ensureMediaInfo loads EXIF dimensions for ratio math.
+func (a *appState) ensureMediaInfo(item *mediaItem) {
+	if item.InfoLoaded && item.Info.Width > 0 {
+		return
+	}
+	go a.loadInfo(a.Visible[a.LargeIndex])
+}
+
+// largeWidth is the content area width, used for edge-click zones.
+func (a *appState) largeWidth() float32 {
+	if a.Window == nil {
+		return 1280
+	}
+	w, _ := a.Window.ContentSize()
+	if w <= 0 {
+		return 1280
+	}
+	return float32(w)
+}
+
+func clampFloat32(value, min, max float32) float32 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func (a *appState) ensureVideo(path string) {
@@ -962,7 +1356,39 @@ func (a *appState) ensureVideo(path string) {
 	}
 	dec := newFFmpegDecoder(path)
 	player, err := ui.NewVideoPlayer(dec)
-	a.Video = &videoView{player: player, path: path, err: err}
+	a.Video = &videoView{player: player, dec: dec, path: path, err: err, StartedAt: time.Now()}
+}
+
+// seekVideo restarts the real ffmpeg stream at seconds so the control bar
+// moves through the source media instead of a synthetic timeline.
+func (a *appState) seekVideo(seconds float64) {
+	if a.Video == nil || a.Video.path == "" {
+		return
+	}
+	if seconds < 0 {
+		seconds = 0
+	}
+	playing := a.Video.player != nil && a.Video.player.Playing()
+	if a.Video.player != nil {
+		a.Video.player.Close()
+	}
+	dec := newFFmpegDecoderAt(a.Video.path, seconds)
+	player, err := ui.NewVideoPlayer(dec)
+	a.Video.player = player
+	a.Video.dec = dec
+	a.Video.err = err
+	a.Video.Still = nil
+	a.Video.Position = seconds
+	a.Video.StartedAt = time.Now()
+	if player == nil {
+		return
+	}
+	if playing {
+		player.Play()
+		return
+	}
+	player.Pause()
+	a.requestSharpFrame()
 }
 
 func (a *appState) openLargeImage(index int) {
@@ -972,6 +1398,8 @@ func (a *appState) openLargeImage(index int) {
 	a.InLargeView = true
 	a.LargeIndex = index
 	a.Zoom, a.Rotation, a.Mirror = 1, 0, false
+	a.PanX, a.PanY = 0, 0
+	a.HUD, a.HUDUntil = "", time.Time{}
 	if a.Video != nil && a.Video.player != nil {
 		a.Video.player.Close()
 	}
@@ -1037,6 +1465,10 @@ func (a *appState) detailView(c *ui.Context) {
 			ui.Text(c, time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05")).FontSize(11).TextColor(t.TextMuted)
 		})
 		row.OnClick(func() { a.Chosen = i })
+		row.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
+		if a.isCut(item.Path) {
+			row.Opacity(0.4)
+		}
 		if row.DoubleClicked() {
 			a.openLargeImage(i)
 		}

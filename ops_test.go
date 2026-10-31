@@ -22,7 +22,7 @@ func TestCopyMoveRenameDelete(t *testing.T) {
 	}
 
 	// Copy
-	if err := perform(fileOperation{op: opCopy, paths: []string{src}, dest: dstDir}); err != nil {
+	if _, err := perform(fileOperation{op: opCopy, paths: []string{src}, dest: dstDir}); err != nil {
 		t.Fatal(err)
 	}
 	copied := filepath.Join(dstDir, "a.txt")
@@ -32,7 +32,7 @@ func TestCopyMoveRenameDelete(t *testing.T) {
 
 	// Rename via two-phase.
 	renamed := filepath.Join(dstDir, "renamed.txt")
-	if err := perform(fileOperation{op: opRename, paths: []string{copied}, newName: "renamed.txt"}); err != nil {
+	if _, err := perform(fileOperation{op: opRename, paths: []string{copied}, newName: "renamed.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(renamed); err != nil {

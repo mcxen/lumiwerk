@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type profile struct {
@@ -18,8 +19,9 @@ type profile struct {
 }
 
 type prefsFile struct {
-	Active   int       `json:"active"`
-	Profiles []profile `json:"profiles"`
+	Active      int       `json:"active"`
+	Profiles    []profile `json:"profiles"`
+	QuickRename string    `json:"quickRename,omitempty"`
 }
 
 func prefsPath() string {
@@ -39,6 +41,9 @@ func loadPrefs() prefsFile {
 	_ = json.Unmarshal(data, &p)
 	if len(p.Profiles) != 9 {
 		p.Profiles = make([]profile, 9)
+	}
+	if strings.TrimSpace(p.QuickRename) == "" {
+		p.QuickRename = "{folder}_{index}"
 	}
 	return p
 }

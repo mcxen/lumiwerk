@@ -16,12 +16,13 @@ import (
 
 // mediaInfo is the metadata shown in EXIF and file info overlays.
 type mediaInfo struct {
-	Width    int
-	Height   int
-	Duration string
-	Created  string
-	Camera   string
-	Model    string
+	Width       int
+	Height      int
+	Duration    string
+	DurationSec float64
+	Created     string
+	Camera      string
+	Model       string
 }
 
 func loadMediaInfo(path string, isVideo bool) mediaInfo {
@@ -86,6 +87,7 @@ func probeVideo(path string) mediaInfo {
 			info.Height, _ = strconv.Atoi(val)
 		case "duration":
 			if secs, err := strconv.ParseFloat(val, 64); err == nil {
+				info.DurationSec = secs
 				info.Duration = formatDuration(secs)
 			}
 		}
@@ -112,53 +114,91 @@ const (
 )
 
 type fileOperation struct {
-	op      fileOp
-	paths   []string
-	dest    string
-	newName string
+	op       fileOp
+	paths    []string
+	dest     string
+	newName  string
+	mappings []pathPair
+	created  []string
+	cut      bool
 }
 
-// perform applies a real file operation. Rename uses a two-phase move through
-// a temporary name so partial failures cannot leave a mismatched state.
-func perform(op fileOperation) error {
+// perform applies a real file operation. Rename uses FlowVision's two-phase
+// mapping so swaps and case-only changes roll back together. The returned
+// operation records the paths that were actually created or moved.
+func perform(op fileOperation) (fileOperation, error) {
 	switch op.op {
 	case opCopy:
-		for _, src := range op.paths {
-			dst := uniquePath(filepath.Join(op.dest, filepath.Base(src)))
-			if err := copyFile(src, dst); err != nil {
-				return err
-			}
+		if err := rejectSelfCopy(op.paths, op.dest); err != nil {
+			return op, err
 		}
+		var created []string
+		for _, src := range op.paths {
+			inPlace := pathKey(filepath.Dir(src)) == pathKey(op.dest)
+			dst := filepath.Join(op.dest, filepath.Base(src))
+			if inPlace {
+				dst = flowUnique(dst, true, created)
+			} else {
+				dst = flowUnique(dst, false, created)
+			}
+			if err := copyTree(src, dst); err != nil {
+				return op, err
+			}
+			created = append(created, dst)
+		}
+		op.created = created
 	case opMove:
-		for _, src := range op.paths {
-			dst := uniquePath(filepath.Join(op.dest, filepath.Base(src)))
-			if err := os.Rename(src, dst); err != nil {
-				return err
+		if len(op.mappings) > 0 {
+			for _, mapping := range op.mappings {
+				if err := movePath(mapping.From, mapping.To); err != nil {
+					return op, err
+				}
 			}
+			return op, nil
 		}
+		if err := rejectSelfCopy(op.paths, op.dest); err != nil {
+			return op, err
+		}
+		var mappings []pathPair
+		var reserved []string
+		for _, src := range op.paths {
+			dst := flowUnique(filepath.Join(op.dest, filepath.Base(src)), false, reserved)
+			if err := movePath(src, dst); err != nil {
+				return op, err
+			}
+			mappings = append(mappings, pathPair{From: src, To: dst})
+			reserved = append(reserved, dst)
+		}
+		op.mappings = mappings
 	case opDelete:
 		for _, path := range op.paths {
 			if err := trashPath(path); err != nil {
-				return err
+				return op, err
 			}
 		}
 	case opRename:
-		if len(op.paths) != 1 {
-			return errors.New("rename takes exactly one path")
+		mappings := op.mappings
+		if len(mappings) == 0 {
+			if len(op.paths) != 1 {
+				return op, errors.New("rename takes exactly one path")
+			}
+			if err := validBaseName(op.newName); err != nil {
+				return op, err
+			}
+			mappings = []pathPair{{From: op.paths[0], To: filepath.Join(filepath.Dir(op.paths[0]), op.newName)}}
 		}
-		src := op.paths[0]
-		dir := filepath.Dir(src)
-		final := filepath.Join(dir, op.newName)
-		if _, err := os.Stat(final); err == nil {
-			return fmt.Errorf("target exists: %s", final)
+		if err := applyRenameMappings(mappings); err != nil {
+			return op, err
 		}
-		tmp := uniquePath(filepath.Join(dir, "."+filepath.Base(src)+".lumiwerk-tmp"))
-		if err := os.Rename(src, tmp); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, final); err != nil {
-			_ = os.Rename(tmp, src)
-			return err
+		op.mappings = mappings
+	}
+	return op, nil
+}
+
+func rejectSelfCopy(paths []string, dest string) error {
+	for _, src := range paths {
+		if copiesIntoSelf(src, dest) {
+			return errors.New("不能将文件或文件夹复制到自身或其子目录中。")
 		}
 	}
 	return nil

@@ -4,7 +4,7 @@ Reference: FlowVision.app built from `/Users/mcx/Documents/OpenSpring/FlowVision
 Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 ## Phase 1: Main Window Layout (grid view)
-- [x] T1.1 Project scaffold (mygo v0.6.0, native UI, build passes)
+- [x] T1.1 Project scaffold (mygo v0.7.3, native UI, build passes)
 - [x] T1.2 Three-pane split: sidebar | path-bar+grid | (no right pane in grid mode)
 - [x] T1.3 Sidebar: directory tree (NSOutlineView equivalent) with Favorites, History, Finder-tags, volume list
 - [x] T1.4 Toolbar: back/forward, path breadcrumb, search field, layout switcher, thumbnail size
@@ -73,3 +73,12 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T9.3 Finder tags and rating display
 - [x] T9.4 EXIF info overlay (I)
 - [x] T9.5 File info overlay (U)
+
+## Phase 10: FlowVision Large-View Alignment
+- [x] T10.1 Layered large view: image/video media, overlays, HUD, controls, edge arrows
+- [x] T10.2 Pointer-anchored zoom with FlowVision original-width 1/2–10x limits
+- [x] T10.3 Fit, 1:1, zoom buttons, keyboard shortcuts, long-press zoom, transient zoom HUD
+- [x] T10.4 Drag pan, double-click close, edge-click previous/next, video pause on click
+- [x] T10.5 Real ffmpeg video playback, 520x67 floating controls, seek, elapsed/total time
+- [x] T10.6 Finder tag dots, rating stars, EXIF and file info overlays over media
+- [x] T10.7 MyGo v0.7.3 release build, go test/vet/build, headless and real-window acceptance

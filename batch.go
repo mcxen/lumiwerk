@@ -75,17 +75,16 @@ func numWidth(pattern string) int {
 	return n
 }
 
-// applyRenames performs two-phase rename for every distinct path.
+// applyRenames performs one two-phase rename for the whole mapping, so files
+// can swap names without a temporary collision.
 func applyRenames(mapping map[string]string) error {
+	var pairs []pathPair
 	for src, dst := range mapping {
-		if src == dst {
-			continue
-		}
-		if err := perform(fileOperation{op: opRename, paths: []string{src}, newName: filepath.Base(dst)}); err != nil {
-			return err
+		if src != dst {
+			pairs = append(pairs, pathPair{From: src, To: dst})
 		}
 	}
-	return nil
+	return applyRenameMappings(pairs)
 }
 
 // replaceNum expands {num:N} with a zero-padded number.

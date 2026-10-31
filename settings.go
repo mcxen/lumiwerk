@@ -6,22 +6,24 @@ import (
 )
 
 type settingsState struct {
-	Open     bool
-	Pane     int
-	Thumb    float64
-	Sort     string
-	Dest     string
-	CacheCap float64
-	Workers  float64
+	Open      bool
+	Pane      int
+	Thumb     float64
+	Sort      string
+	Dest      string
+	CacheCap  float64
+	Workers   float64
+	QuickRule string
 }
 
 func (a *appState) openSettings() {
 	a.Settings = settingsState{
-		Thumb:    a.Thumb,
-		Sort:     a.Sort,
-		Dest:     a.currentDestination(),
-		CacheCap: float64(thumbLRU.limit),
-		Workers:  float64(cap(thumbGate)),
+		Thumb:     a.Thumb,
+		Sort:      a.Sort,
+		Dest:      a.currentDestination(),
+		CacheCap:  float64(thumbLRU.limit),
+		Workers:   float64(cap(thumbGate)),
+		QuickRule: a.Profiles.QuickRename,
 	}
 
 	a.Settings.Open = true
@@ -85,6 +87,8 @@ func (a *appState) settingsView(c *ui.Context) {
 				if ui.Button(c.Key("settings-pick"), "选择目录…").Clicked() {
 					go a.setCopyDestination()
 				}
+				ui.TextInput(c, &a.Settings.QuickRule).Label("快速重命名规则").Width(360)
+				ui.Text(c, "默认 {folder}_{index}，也可用 {index:03} {name} {ext}").FontSize(11).TextColor(t.TextMuted)
 			default:
 				ui.Text(c, "高级").FontSize(16).Bold()
 				ui.Slider(c, &a.Settings.CacheCap, 64, 1024).Label("缩略图缓存数量")
@@ -93,6 +97,10 @@ func (a *appState) settingsView(c *ui.Context) {
 			if ui.Button(c.Key("settings-save"), "保存").Clicked() {
 				a.Thumb = a.Settings.Thumb
 				a.Sort = a.Settings.Sort
+				if rule := a.Settings.QuickRule; rule != "" {
+					a.Profiles.QuickRename = rule
+					savePrefs(a.Profiles)
+				}
 				thumbLRU.limit = int(a.Settings.CacheCap)
 				a.Settings.Open = false
 				if a.Window != nil {

@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -39,49 +41,73 @@ func (a *appState) selectedPaths() []string {
 	return []string{a.Items[a.Visible[a.Chosen]].Path}
 }
 
-func (a *appState) doCopy() {
+func (a *appState) doCopy() { a.copySelection(false) }
+
+func (a *appState) doCut() { a.copySelection(true) }
+
+// copySelection puts the selection on the system clipboard. Cut keeps the
+// FlowVision dimmed-source state until the next paste moves the files.
+func (a *appState) copySelection(cut bool) {
 	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
 	if len(paths) == 0 {
 		return
 	}
-	go func() {
-		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "复制到目录", Directory: true})
-		if err != nil || len(dest) == 0 {
-			return
+	a.Clip = append([]string(nil), paths...)
+	a.Cut = nil
+	if cut {
+		a.Cut = map[string]bool{}
+		for _, path := range paths {
+			a.Cut[path] = true
 		}
-		if err := a.performTracked(fileOperation{op: opCopy, paths: paths, dest: dest[0]}); err != nil {
-			return
-		}
-		a.Window.Update(func() { a.refresh() })
-	}()
+	}
+	if data, err := transfer.FileData(paths...); err == nil {
+		_ = mygo.Clipboard.Write(data)
+	}
 }
 
-func (a *appState) doMove() {
+func (a *appState) doCopyTo() { a.transferToFolder(opCopy) }
+
+func (a *appState) doMove() { a.transferToFolder(opMove) }
+
+func (a *appState) transferToFolder(kind fileOp) {
 	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
 	if len(paths) == 0 {
 		return
 	}
+	title := "复制到目录"
+	if kind == opMove {
+		title = "移动到目录"
+	}
 	go func() {
-		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "移动到目录", Directory: true})
+		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: title, Directory: true})
 		if err != nil || len(dest) == 0 {
 			return
 		}
-		if err := a.performTracked(fileOperation{op: opMove, paths: paths, dest: dest[0]}); err != nil {
-			return
-		}
-		a.Window.Update(func() { a.refresh() })
+		a.runOperation(fileOperation{op: kind, paths: paths, dest: dest[0]})
 	}()
 }
 
 func (a *appState) doTrash() {
 	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
 	if len(paths) == 0 {
 		return
 	}
-	if err := a.performTracked(fileOperation{op: opDelete, paths: paths}); err != nil {
-		return
-	}
-	a.refresh()
+	_ = a.performTracked(fileOperation{op: opDelete, paths: paths})
 }
 
 func (a *appState) startRename() {
@@ -104,77 +130,140 @@ func (a *appState) commitRename() {
 		return
 	}
 	if err := a.performTracked(fileOperation{op: opRename, paths: []string{a.RenamePath}, newName: a.RenameVal}); err != nil {
-		a.Renaming = false
 		return
 	}
 	a.Renaming = false
 	a.RenamePath = ""
-	a.refresh()
 }
 
-func (a *appState) newFolder() {
+func (a *appState) newFolder() { a.promptFolder(nil) }
+
+func (a *appState) newFolderWithSelection() {
+	paths := a.selectedPaths()
+	if len(paths) == 0 {
+		a.promptFolder(nil)
+		return
+	}
+	a.promptFolder(paths)
+}
+
+func (a *appState) promptFolder(take []string) {
 	if a.Root == "" {
 		return
 	}
-	name := time.Now().Format("新建文件夹 2006-01-02 15-04-05")
-	if err := os.Mkdir(filepath.Join(a.Root, name), 0o755); err != nil {
+	a.NewFolder = true
+	a.FolderName = "新建文件夹"
+	a.FolderTake = append([]string(nil), take...)
+}
+
+func (a *appState) commitFolder() {
+	if !a.NewFolder {
 		return
 	}
-	a.refresh()
+	name := a.FolderName
+	if err := validBaseName(name); err != nil {
+		a.toast(err.Error())
+		return
+	}
+	dir := flowUnique(filepath.Join(a.Root, name), false, nil)
+	if filepath.Base(dir) != name {
+		a.toast("文件或文件夹已存在：" + name)
+		return
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		a.toast(err.Error())
+		return
+	}
+	take := append([]string(nil), a.FolderTake...)
+	a.NewFolder = false
+	a.FolderName = ""
+	a.FolderTake = nil
+	if len(take) == 0 {
+		a.PendingSelect = []string{dir}
+		a.refresh()
+		return
+	}
+	_ = a.performTracked(fileOperation{op: opMove, paths: take, dest: dir})
 }
 
 func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
 	if index >= 0 && index < len(a.Visible) {
 		a.Chosen = index
+		if !a.Selected.Has(a.Items[a.Visible[index]].Path) {
+			a.Selected.Clear()
+			a.Selected.Add(a.Items[a.Visible[index]].Path)
+		}
 	}
-	paths := a.selectedPaths()
-	none := len(paths) == 0
-	if m.Item("打开").Disabled(none).Chosen() {
-		a.openLargeImage(a.Chosen)
-	}
-	m.Separator()
-	if m.Item("重命名…").Disabled(none).Chosen() {
-		a.startRename()
-	}
-	if m.Item("批量重命名…").Disabled(none).Chosen() {
-		a.startBatchRename()
-	}
-	if m.Item("复制到…").Disabled(none).Chosen() {
-		a.doCopy()
-	}
-	if m.Item("移动到…").Disabled(none).Chosen() {
-		a.doMove()
-	}
-	if m.Item("移到废纸篓").Disabled(none).Chosen() {
-		a.doTrash()
-	}
-	m.Separator()
-	if m.Item("新建文件夹").Disabled(a.Root == "").Chosen() {
-		a.newFolder()
-	}
+	a.fileMenu(m, true)
 }
 
-func (a *appState) fileContextMenu(m *ui.Menu) {
+func (a *appState) fileContextMenu(m *ui.Menu) { a.fileMenu(m, false) }
+
+func (a *appState) largeContextMenu(m *ui.Menu, item *mediaItem) {
+	_ = item
+	if m.Item("适应窗口").Chosen() {
+		a.resetZoom()
+	}
+	if m.Item("实际大小").Chosen() {
+		a.zoom100()
+	}
+	m.Separator()
+	a.fileMenu(m, false)
+}
+
+func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	paths := a.selectedPaths()
 	none := len(paths) == 0
+	if canOpen && m.Item("打开").Disabled(none).Chosen() {
+		a.openLargeImage(a.Chosen)
+	}
+	if m.Item("在 Finder 中显示").Disabled(none).Chosen() {
+		a.revealInFinder()
+	}
+	if m.Item("复制路径").Disabled(none).Chosen() {
+		a.copyPath()
+	}
+	m.Separator()
+	if m.Item("复制").Disabled(none).Chosen() {
+		a.doCopy()
+	}
+	if m.Item("剪切").Disabled(none).Chosen() {
+		a.doCut()
+	}
+	if m.Item("粘贴").Disabled(a.Root == "" || !a.canPaste()).Chosen() {
+		a.doPaste(false)
+	}
+	if m.Item("移动到此").Disabled(a.Root == "" || !a.canPaste()).Chosen() {
+		a.doPaste(true)
+	}
+	m.Separator()
 	if m.Item("重命名…").Disabled(none).Chosen() {
 		a.startRename()
 	}
-	if m.Item("批量重命名…").Disabled(none).Chosen() {
+	if m.Item("批量重命名…").Disabled(len(paths) < 2).Chosen() {
 		a.startBatchRename()
 	}
+	if m.Item("快速重命名当前目录").Disabled(a.Root == "").Chosen() {
+		a.quickRenameFolder()
+	}
 	if m.Item("复制到…").Disabled(none).Chosen() {
-		a.doCopy()
+		a.doCopyTo()
 	}
 	if m.Item("移动到…").Disabled(none).Chosen() {
 		a.doMove()
 	}
-	if m.Item("移到废纸篓").Disabled(none).Chosen() {
-		a.doTrash()
+	if m.Item("复制到配置目录").Disabled(none).Chosen() {
+		go a.copyToConfigured()
 	}
 	m.Separator()
 	if m.Item("新建文件夹").Disabled(a.Root == "").Chosen() {
 		a.newFolder()
+	}
+	if m.Item("用所选项目新建文件夹").Disabled(none).Chosen() {
+		a.newFolderWithSelection()
+	}
+	if m.Item("移到废纸篓").Disabled(none).Chosen() {
+		a.doTrash()
 	}
 }
 
@@ -272,14 +361,17 @@ func (a *appState) commitBatchRename() {
 		a.Batch.Open = false
 		return
 	}
-	if err := applyRenames(a.Batch.Preview); err != nil {
-		a.Batch.Open = false
+	var mappings []pathPair
+	for src, dst := range a.Batch.Preview {
+		if src != dst {
+			mappings = append(mappings, pathPair{From: src, To: dst})
+		}
+	}
+	if err := a.performTracked(fileOperation{op: opRename, mappings: mappings}); err != nil {
 		return
 	}
 	a.Batch.Open = false
 	a.Batch.Preview = nil
-	a.Selected.Clear()
-	a.refresh()
 }
 
 func (a *appState) batchDialog(c *ui.Context) {
@@ -390,8 +482,172 @@ func (a *appState) copyToConfigured() {
 	if len(paths) == 0 {
 		return
 	}
-	if err := a.performTracked(fileOperation{op: opCopy, paths: paths, dest: dest}); err != nil {
+	a.runOperation(fileOperation{op: opCopy, paths: paths, dest: dest})
+}
+
+func (a *appState) toast(msg string) {
+	if msg == "" {
 		return
 	}
-	a.Window.Update(func() { a.refresh() })
+	a.HUD = msg
+	a.HUDUntil = time.Now().Add(1600 * time.Millisecond)
+}
+
+func (a *appState) canPaste() bool {
+	paths, _ := a.filesForPaste(false)
+	return len(paths) > 0
+}
+
+func (a *appState) filesForPaste(forceMove bool) ([]string, bool) {
+	paths := readClipboardFiles()
+	if len(paths) == 0 {
+		paths = append([]string(nil), a.Clip...)
+	}
+	cut := forceMove
+	if !forceMove && len(a.Cut) > 0 && samePaths(paths, a.Clip) {
+		cut = true
+	}
+	return paths, cut
+}
+
+func samePaths(aPaths, bPaths []string) bool {
+	if len(aPaths) != len(bPaths) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, path := range aPaths {
+		seen[pathKey(path)]++
+	}
+	for _, path := range bPaths {
+		key := pathKey(path)
+		seen[key]--
+		if seen[key] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func readClipboardFiles() []string {
+	data, err := mygo.Clipboard.Read(transfer.FileList, transfer.URIList)
+	if err != nil {
+		return nil
+	}
+	files, err := data.Files()
+	if err != nil {
+		return nil
+	}
+	return files
+}
+
+func (a *appState) doPaste(forceMove bool) {
+	if a.Root == "" {
+		return
+	}
+	paths, cut := a.filesForPaste(forceMove)
+	if len(paths) == 0 {
+		a.toast("剪贴板里没有文件")
+		return
+	}
+	op := fileOperation{op: opCopy, paths: paths, dest: a.Root}
+	if cut {
+		op.op = opMove
+		op.cut = true
+	}
+	a.runOperation(op)
+}
+
+func (a *appState) revealInFinder() {
+	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	_ = exec.Command("open", "-R", paths[0]).Start()
+}
+
+func (a *appState) copyPath() {
+	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	mygo.Clipboard.WriteText(paths[0])
+	a.toast(paths[0])
+}
+
+func (a *appState) quickRenameFolder() {
+	if a.Root == "" {
+		return
+	}
+	var paths []string
+	for _, index := range a.Visible {
+		paths = append(paths, a.Items[index].Path)
+	}
+	if len(paths) == 0 {
+		a.toast("当前目录没有可重命名的文件")
+		return
+	}
+	rule := a.Profiles.QuickRename
+	mappings := quickRenameMappings(paths, pathName(a.Root), rule)
+	_ = a.performTracked(fileOperation{op: opRename, mappings: mappings})
+}
+
+func (a *appState) isCut(path string) bool {
+	return a.Cut != nil && a.Cut[path]
+}
+
+func (a *appState) toastOverlay(c *ui.Context) {
+	if a.HUD == "" || a.InLargeView {
+		return
+	}
+	if time.Now().After(a.HUDUntil) {
+		a.HUD = ""
+		return
+	}
+	if d := time.Until(a.HUDUntil); d > 0 {
+		c.After(d)
+	}
+	t := c.Theme()
+	hud := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorTop).Margin(8, 0).Padding(6, 12).Radius(6).Background(t.Surface).Border(1, t.Border)
+	hud.Children(func() {
+		ui.Text(c, a.HUD).FontSize(12).MaxLines(1)
+	})
+}
+
+func (a *appState) folderDialog(c *ui.Context) {
+	if !a.NewFolder {
+		return
+	}
+	t := c.Theme()
+	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(320).Padding(16).Gap(8).
+		Background(t.Surface).Border(1, t.Border).Radius(8)
+	panel.Children(func() {
+		title := "新建文件夹"
+		if len(a.FolderTake) > 0 {
+			title = "用所选项目新建文件夹"
+		}
+		ui.Text(c, title).Bold().FontSize(14)
+		field := ui.TextInput(c, &a.FolderName).Width(280)
+		if field.Submitted() {
+			a.commitFolder()
+		}
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c.Key("folder-cancel"), "取消").Clicked() {
+				a.NewFolder = false
+				a.FolderTake = nil
+			}
+			if ui.Button(c.Key("folder-ok"), "确定").Clicked() {
+				a.commitFolder()
+			}
+		})
+	})
 }

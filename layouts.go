@@ -97,6 +97,9 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int) {
 	t := c.Theme()
 	item := &a.Items[a.Visible[i]]
 	card := ui.Column(c).Grow(1).Margin(2).Padding(2).Gap(2).Radius(6).Background(t.Surface)
+	if a.isCut(item.Path) {
+		card.Opacity(0.4)
+	}
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Radius(4).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
 		thumb.Children(func() {
