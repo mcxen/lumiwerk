@@ -129,6 +129,7 @@ type appState struct {
 	columnY      float32
 
 	InLargeView   bool
+	Hero          heroState
 	LargeIndex    int
 	Zoom          float32
 	Rotation      float32
@@ -1603,7 +1604,8 @@ func (a *appState) gridView(c *ui.Context) {
 			card.Border(2, t.Accent)
 		}
 		card.Children(func() {
-			thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+			a.thumbHero(thumb, item.Path)
 			thumb.Children(func() {
 				if dots := tagDots(item.Tags); len(dots) > 0 {
 					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
@@ -1694,7 +1696,9 @@ func (a *appState) largeImageView(c *ui.Context) {
 			} else if item.IsVideo {
 				a.ensureVideo(item.Path)
 				a.settleVideoEdge(c)
-				a.videoLayer(c, true)
+				if !a.largeHero(c, item, nil, func() { a.videoLayer(c, true) }) {
+					a.videoLayer(c, true)
+				}
 			} else {
 				pic := item.Large
 				if pic == nil {
@@ -1702,12 +1706,16 @@ func (a *appState) largeImageView(c *ui.Context) {
 				}
 				if pic == nil {
 					ui.Spinner(c)
-				} else if !sharpReady(item, a.zoomPercent(item)) {
-					ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(a.fitTransform())
-					a.HUD = "原图加载中"
-					a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
 				} else {
-					ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(a.transform())
+					tr := a.transform()
+					if !sharpReady(item, a.zoomPercent(item)) {
+						tr = a.fitTransform()
+						a.HUD = "原图加载中"
+						a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
+					}
+					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Cover).Grow(1).Transform(tr) }) {
+						ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr)
+					}
 				}
 			}
 		})
@@ -2318,6 +2326,7 @@ func (a *appState) openLargeImage(index int) {
 		return
 	}
 	a.clearSharp()
+	a.heroBeginOpen(a.Items[a.Visible[index]].Path, !a.InLargeView)
 	a.InLargeView = true
 	a.LargeIndex = index
 	a.Zoom, a.Rotation, a.Mirror = 1, 0, false
@@ -2340,6 +2349,9 @@ func (a *appState) closeLargeImage() {
 	a.autoTick = time.Time{}
 	a.closeEditor()
 	a.clearSharp()
+	if item := a.currentItem(); a.InLargeView && item != nil {
+		a.heroBeginClose(item.Path)
+	}
 	a.InLargeView = false
 	a.LargeIndex = -1
 	a.dropLargeBitmaps("")
