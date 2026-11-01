@@ -207,3 +207,16 @@ func releaseShownPixels(item *mediaItem) {
 	}
 	item.Bitmap.ReleasePixels()
 }
+
+// Has reports whether key is cached, without touching its recency.
+func (c *thumbCache) Has(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.art[key]; ok {
+		return true
+	}
+	if p, ok := c.gone[key]; ok && p.Value() != nil {
+		return true
+	}
+	return false
+}

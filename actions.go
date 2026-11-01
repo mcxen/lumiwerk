@@ -141,7 +141,9 @@ func (a *appState) deleteSelection(permanent bool) {
 	if !a.confirmDelete(len(paths), permanent) {
 		return
 	}
-	_ = a.performTracked(fileOperation{op: opDelete, paths: paths, permanent: permanent})
+	// Moving to the Trash goes through Finder one file at a time; run it off
+	// the main thread so a large selection does not freeze the window.
+	a.runOperation(fileOperation{op: opDelete, paths: paths, permanent: permanent})
 }
 
 func (a *appState) startRename() {
