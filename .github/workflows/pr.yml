@@ -36,7 +36,12 @@ jobs:
       - name: Resolve the Go toolchain version
         id: goversion
         run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      # Windows only: the image provisioner puts Go in the tool cache as a
+      # junction, which the cache save cannot archive usefully (it saved
+      # 205 bytes of link) and restoring it breaks setup-go with EEXIST.
+      # Windows re-downloads Go instead (~26s).
       - name: Restore Go toolchain
+        if: runner.os != 'Windows'
         uses: actions/cache@v4
         with:
           path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
