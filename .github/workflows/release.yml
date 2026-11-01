@@ -28,18 +28,23 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # Prebuilt static FFmpeg (ffmpeg + ffprobe, SHA-256 pinned), ~5s,
-      # instead of brew installing a dependency tree (~20s). The media
-      # tests exec `ffmpeg`/`ffprobe` from PATH and skip without them.
+      # Pinned prebuilt FFmpeg (ffmpeg + ffprobe, evermeet.cx 9.0.2,
+      # SHA-256 checked), ~4s, instead of brew installing a dependency
+      # tree (~20s). The media tests exec `ffmpeg`/`ffprobe` from PATH and
+      # skip without them; these builds decode PNG and encode MJPEG, which
+      # is what those tests need (a brew build was verified equivalent).
       - name: Install prebuilt FFmpeg for media tests
         run: |
-          curl -sSfL --retry 3 -o ffmpeg.tar.gz \
-            "https://github.com/vanloctech/ffmpeg-macos/releases/download/ffmpeg-2026.06.11/ffmpeg-macos-arm64.tar.gz"
-          echo "26f5133f88d5ab1254cc03499acef42dae2dbc574dd26e0dade8c968420127e9  ffmpeg.tar.gz" | shasum -a 256 -c -
-          mkdir -p "$RUNNER_TEMP/bin" ffmpeg-bin
-          tar xzf ffmpeg.tar.gz -C ffmpeg-bin
-          sudo mv ffmpeg-bin/ffmpeg ffmpeg-bin/ffprobe "$RUNNER_TEMP/bin/"
-          chmod +x "$RUNNER_TEMP/bin/ffmpeg" "$RUNNER_TEMP/bin/ffprobe"
+          curl -sSfL --retry 3 -o ffmpeg.zip "https://evermeet.cx/ffmpeg/ffmpeg-9.0.2.zip"
+          curl -sSfL --retry 3 -o ffprobe.zip "https://evermeet.cx/ffmpeg/ffprobe-9.0.2.zip"
+          shasum -a 256 -c - <<'SUMS'
+          4acc0be580f9b2788029eb7bd4d645ff87968911b0a62aeeb3940d42d54558d5  ffmpeg.zip
+          24a9c968cd4da72d99c7245e914b921815835eb6dff01d99868031aebaf1d439  ffprobe.zip
+          SUMS
+          unzip -q ffmpeg.zip
+          unzip -q ffprobe.zip
+          mkdir -p "$RUNNER_TEMP/bin"
+          mv ffmpeg ffprobe "$RUNNER_TEMP/bin/"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Check the release version
         if: github.ref_type == 'tag'
