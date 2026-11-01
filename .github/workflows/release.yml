@@ -36,7 +36,7 @@ jobs:
           curl -sSfL --retry 3 -o ffmpeg.tar.gz \
             "https://github.com/vanloctech/ffmpeg-macos/releases/download/ffmpeg-2026.06.11/ffmpeg-macos-arm64.tar.gz"
           echo "26f5133f88d5ab1254cc03499acef42dae2dbc574dd26e0dade8c968420127e9  ffmpeg.tar.gz" | shasum -a 256 -c -
-          mkdir -p ffmpeg-bin
+          mkdir -p "$RUNNER_TEMP/bin" ffmpeg-bin
           tar xzf ffmpeg.tar.gz -C ffmpeg-bin
           sudo mv ffmpeg-bin/ffmpeg ffmpeg-bin/ffprobe "$RUNNER_TEMP/bin/"
           chmod +x "$RUNNER_TEMP/bin/ffmpeg" "$RUNNER_TEMP/bin/ffprobe"
