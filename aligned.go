@@ -1256,17 +1256,25 @@ func (a *appState) rootView(c *ui.Context) {
 			a.nextMediaFolder(1)
 		}
 	}
-	if c.Shortcut(0, ui.KeyEscape) && a.modalOpen() {
-		a.AutoConfig = ""
-		a.AutoValue = ""
-		a.ZipAsk = false
-		a.ZipPass = ""
-		a.CropAsk = false
-		a.TrimAsk = false
-		a.InfoAsk = false
-		a.closeEditor()
-	} else if c.Shortcut(0, ui.KeyEscape) && a.InLargeView {
-		a.closeLargeImage()
+	// MyGo's Shortcut consumes the delivered key on the first query, so
+	// the old modal/large if-else chain — which asked twice — let the
+	// modal query eat every Escape and the large view could never close.
+	// Query once, then branch on the guards.
+	switch c.Shortcut(0, ui.KeyEscape) {
+	case true:
+		switch {
+		case a.modalOpen():
+			a.AutoConfig = ""
+			a.AutoValue = ""
+			a.ZipAsk = false
+			a.ZipPass = ""
+			a.CropAsk = false
+			a.TrimAsk = false
+			a.InfoAsk = false
+			a.closeEditor()
+		case a.InLargeView:
+			a.closeLargeImage()
+		}
 	}
 	if c.Shortcut(0, ui.KeySpace) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		if a.InLargeView {
