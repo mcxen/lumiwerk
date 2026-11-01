@@ -41,6 +41,10 @@ func TestHiddenPathChecksEachPathComponent(t *testing.T) {
 }
 
 func TestAutoConfigValidationAndPreferences(t *testing.T) {
+	// savePrefs writes the real preferences file, so keep this test inside a
+	// temporary HOME instead of clobbering the user's configuration slots.
+	t.Setenv("HOME", t.TempDir())
+
 	a := &appState{Profiles: prefsFile{View: defaultViewPreferences(), ViewSet: true}}
 	a.AutoConfig, a.AutoValue = "scroll", "0"
 	a.commitAutoConfig()

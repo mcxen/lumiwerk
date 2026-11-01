@@ -136,11 +136,26 @@ func savePrefs(p prefsFile) {
 		return
 	}
 	path := prefsPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		logErrorf("could not create preferences directory %s: %v", filepath.Dir(path), err)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logErrorf("could not create preferences directory %s: %v", dir, err)
 		return
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		logErrorf("could not write preferences %s: %v", path, err)
+
+	// Write to a temporary file first and rename it into place: a crash or a
+	// full disk can otherwise leave a truncated preferences file behind.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		logErrorf("could not write preferences %s: %v", tmp, err)
+		return
+	}
+
+	// Keep one previous generation before replacing it, so an unexpected
+	// overwrite (a bug, a bad run) can still be undone from prefs.json.bak.
+	if _, err := os.Stat(path); err == nil {
+		_ = os.Rename(path, path+".bak")
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		logErrorf("could not install preferences %s: %v", path, err)
 	}
 }

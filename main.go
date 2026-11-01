@@ -26,11 +26,21 @@ func main() {
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Profiles.View.Theme))
 	logInfof("preferences loaded: prefs=%s profiles=%d active=%d view=%s",
 		prefsPath(), len(a.Profiles.Profiles), a.Profiles.Active, a.Profiles.View.Theme)
+	// An open event can arrive before WhenReady has built the window; remember
+	// it so the folder is not silently dropped.
+	pendingOpen := ""
 	openPath := func(path string) {
-		if a.Window != nil {
-			a.Window.Update(func() { a.openFolder(path) })
+		if a.Window == nil {
+			pendingOpen = path
+			return
 		}
+		a.Window.Update(func() { a.openFolder(path) })
 	}
+	mygo.App.OnOpenFile(func(path string) {
+		if isDir(path) {
+			openPath(path)
+		}
+	})
 	mygo.App.OnSecondInstance(func(args []string, _ string) {
 		for _, arg := range args {
 			if isDir(arg) {
@@ -47,6 +57,10 @@ func main() {
 		})
 
 		mygo.App.SetMenu(newAppMenu(a))
+		if pendingOpen != "" {
+			a.openFolder(pendingOpen)
+			pendingOpen = ""
+		}
 		for _, arg := range os.Args[1:] {
 			if isDir(arg) {
 				openPath(arg)
