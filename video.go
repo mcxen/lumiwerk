@@ -492,10 +492,10 @@ func (d *soundtrack) prime() error {
 		err error
 	}
 	done := make(chan got, 1)
-	go func() {
+	safeGo("video.go:495", func() {
 		n, err := io.ReadFull(stdout, buf)
 		done <- got{n, err}
-	}()
+	})
 	select {
 	case res := <-done:
 		if res.n < 8 {
@@ -652,7 +652,7 @@ func (a *appState) armSoundtrack(gen int) {
 	}
 	path := a.Video.path
 	at := soundtrackAt(a.Video.clock)
-	go func() {
+	safeGo("video.go:655", func() {
 		dec, err := newSoundtrack(path, at)
 		if err == nil {
 			err = dec.prime()
@@ -684,8 +684,8 @@ func (a *appState) armSoundtrack(gen int) {
 			publish()
 			return
 		}
-		a.Window.Update(publish)
-	}()
+		a.update(publish)
+	})
 }
 
 func (a *appState) videoPlaying() bool {
@@ -811,6 +811,7 @@ picked:
 	if show.err != nil {
 		if v.frame == nil && !errors.Is(show.err, io.EOF) {
 			v.err = show.err
+			logWarnf("video decode failed for %s: %v", v.path, show.err)
 		}
 		if v.playing {
 			a.holdVideo(v.frame != nil)

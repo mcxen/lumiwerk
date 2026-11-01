@@ -73,9 +73,15 @@ func loadPrefs() prefsFile {
 	p := prefsFile{View: defaultViewPreferences(), ViewSet: true}
 	data, err := os.ReadFile(prefsPath())
 	if err != nil {
+		if !os.IsNotExist(err) {
+			logWarnf("could not read preferences %s: %v", prefsPath(), err)
+		}
 		return p
 	}
-	_ = json.Unmarshal(data, &p)
+	if err := json.Unmarshal(data, &p); err != nil {
+		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
+		p = prefsFile{View: defaultViewPreferences(), ViewSet: true}
+	}
 	if len(p.Profiles) != 9 {
 		p.Profiles = make([]profile, 9)
 	}
@@ -114,9 +120,15 @@ func savePrefs(p prefsFile) {
 	p.ViewSet = true
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
+		logErrorf("could not encode preferences: %v", err)
 		return
 	}
 	path := prefsPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	_ = os.WriteFile(path, data, 0o644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		logErrorf("could not create preferences directory %s: %v", filepath.Dir(path), err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		logErrorf("could not write preferences %s: %v", path, err)
+	}
 }

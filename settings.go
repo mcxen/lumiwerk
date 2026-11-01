@@ -134,7 +134,7 @@ func (a *appState) generalSettings(c *ui.Context) {
 		a.Thumb = a.Settings.Thumb
 		a.Sort = a.Settings.Sort
 		if a.Window != nil {
-			a.Window.Update(func() { a.refresh() })
+			a.update(func() { a.refresh() })
 		}
 	}
 }
@@ -301,7 +301,7 @@ func (a *appState) pickActionDestination(kind string) {
 	if err != nil || len(paths) == 0 {
 		return
 	}
-	a.Window.Update(func() {
+	a.update(func() {
 		if kind == "video" {
 			a.Settings.VideoDest = paths[0]
 		} else {

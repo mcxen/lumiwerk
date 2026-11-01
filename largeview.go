@@ -209,13 +209,13 @@ func (a *appState) requestSharpFrame() {
 	at := a.Video.Position
 	a.Video.stillToken++
 	token := a.Video.stillToken
-	go func() {
+	safeGo("largeview.go:212", func() {
 		img, err := grabVideoStill(path, at)
 		if err != nil || a.Window == nil {
 			return
 		}
 		bitmap := ui.NewBitmap(img)
-		a.Window.Update(func() {
+		a.update(func() {
 			if a.Video == nil || a.Video.stillToken != token || a.Video.path != path {
 				return
 			}
@@ -224,7 +224,7 @@ func (a *appState) requestSharpFrame() {
 			}
 			a.Video.Still = bitmap
 		})
-	}()
+	})
 }
 
 func (a *appState) videoDuration() float64 {

@@ -247,9 +247,13 @@ func (a *appState) waterfallView(c *ui.Context) {
 	cols := waterfallColumns(width, float32(a.Thumb))
 	groups := waterfallGroups(aspects, cols)
 	for i := range a.Visible {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			continue
+		}
 		if !item.InfoLoaded {
-			go a.loadInfo(a.Visible[i])
+			idx := a.Visible[i]
+			safeGo("loadInfo", func() { a.loadInfo(idx) })
 		}
 	}
 	scroll.Children(func() {
@@ -261,7 +265,10 @@ func (a *appState) waterfallView(c *ui.Context) {
 				group := groups[ci]
 				col.Children(func() {
 					for _, i := range group {
-						item := &a.Items[a.Visible[i]]
+						item := a.visibleItem(i)
+						if item == nil {
+							continue
+						}
 						ar := float32(1)
 						if item.Info.Height > 0 && item.Info.Width > 0 {
 							ar = float32(item.Info.Width) / float32(item.Info.Height)
@@ -289,13 +296,17 @@ func (a *appState) justifiedView(c *ui.Context) {
 	const gap = float64(flowGap)
 	aspects := make([]float64, len(a.Visible))
 	for i := range a.Visible {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			continue
+		}
 		aspects[i] = 1
 		if item.Info.Height > 0 && item.Info.Width > 0 {
 			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
 		}
 		if !item.InfoLoaded {
-			go a.loadInfo(a.Visible[i])
+			idx := a.Visible[i]
+			safeGo("loadInfo", func() { a.loadInfo(idx) })
 		}
 	}
 	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
@@ -317,7 +328,10 @@ func (a *appState) justifiedView(c *ui.Context) {
 
 func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) {
 	t := c.Theme()
-	item := &a.Items[a.Visible[i]]
+	item := a.visibleItem(i)
+	if item == nil {
+		return
+	}
 	card := ui.Column(c).Grow(1).Gap(4)
 	if height > 0 {
 		card.Height(height)

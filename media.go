@@ -375,7 +375,7 @@ func (a *appState) loadInfo(index int) {
 	}
 	a.mu.Unlock()
 	info := loadMediaInfo(path, isVideo)
-	a.Window.Update(func() {
+	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if index < len(a.Items) && a.Items[index].Path == path {

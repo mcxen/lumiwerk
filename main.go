@@ -4,6 +4,7 @@ package main
 import (
 	"log"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -11,12 +12,20 @@ import (
 )
 
 func main() {
+	initLogging()
+	defer closeLogging()
+	defer logRecover("main")
+	logInfof("%s %s starting (go=%s %s/%s, args=%q, log=%s)",
+		appName, appVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH, os.Args[1:], LogPath())
+
 	mygo.App.SetName(appName)
 	mygo.App.SetVersion(appVersion)
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192, FolderFirst: true}
 	a.Profiles = loadPrefs()
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Profiles.View.Theme))
+	logInfof("preferences loaded: prefs=%s profiles=%d active=%d view=%s",
+		prefsPath(), len(a.Profiles.Profiles), a.Profiles.Active, a.Profiles.View.Theme)
 	openPath := func(path string) {
 		if a.Window != nil {
 			a.Window.Update(func() { a.openFolder(path) })
@@ -63,6 +72,8 @@ func main() {
 	})
 
 	if err := mygo.App.Run(); err != nil {
+		logErrorf("app run failed: %v", err)
 		log.Fatal(err)
 	}
+	logInfof("%s exited cleanly", appName)
 }

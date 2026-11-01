@@ -101,10 +101,10 @@ func (a *appState) togglePinned() {
 }
 
 func (a *appState) openItem(index int) {
-	if index < 0 || index >= len(a.Visible) {
+	item := a.visibleItem(index)
+	if item == nil {
 		return
 	}
-	item := a.Items[a.Visible[index]]
 	if !item.IsDir && !item.IsVideo && !isImageFile(item.Ext) && !isRawFile(item.Ext) {
 		_ = exec.Command("open", item.Path).Start()
 		return

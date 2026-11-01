@@ -208,75 +208,75 @@ func newAppMenu(a *appState) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.pickFolder() }},
-			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.goUp() }) }},
+			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			mygo.Separator(),
-			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.setRecursive(!a.Recursive) }) }},
+			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.setCopyDestination() }},
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.openSettings(); a.settingsWindow() })
+				a.update(func() { a.openSettings(); a.settingsWindow() })
 			}},
-			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.copyToConfigured() }) }},
-			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.transferToDownloads(opCopy) }) }},
-			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.transferToDownloads(opMove) }) }},
-			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.newTextFile() }) }},
+			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
+			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
+			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
+			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
 			{Label: "快速重命名当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.quickRenameFolder() })
+				a.update(func() { a.quickRenameFolder() })
 			}},
 			mygo.Separator(),
-			{Label: "快速压缩", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.quickCompress() }) }},
-			{Label: "压缩为 ZIP", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.compressPlain(false) }) }},
-			{Label: "压缩并删除源文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.compressPlain(true) }) }},
-			{Label: "加密压缩…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.encryptCompress(false) }) }},
-			{Label: "解压到当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.extractSelection(false) }) }},
-			{Label: "解压并删除压缩包", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.extractSelection(true) }) }},
+			{Label: "快速压缩", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.quickCompress() }) }},
+			{Label: "压缩为 ZIP", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.compressPlain(false) }) }},
+			{Label: "压缩并删除源文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.compressPlain(true) }) }},
+			{Label: "加密压缩…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.encryptCompress(false) }) }},
+			{Label: "解压到当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.extractSelection(false) }) }},
+			{Label: "解压并删除压缩包", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.extractSelection(true) }) }},
 			mygo.Separator(),
-			{Label: "截存当前画面", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.captureCurrentFrame() }) }},
-			{Label: "旋转文件 90°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.rotateSelection(90) }) }},
-			{Label: "旋转文件 270°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.rotateSelection(270) }) }},
-			{Label: "收藏当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleFavorite(a.Root) }) }},
-			{Label: "提取子文件夹文件并归集", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.collectSelection() }) }},
-			{Label: "裁剪视频尺寸…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.promptCrop(a.operationPaths()) }) }},
-			{Label: "无损裁剪片段…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.promptTrim() }) }},
+			{Label: "截存当前画面", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.captureCurrentFrame() }) }},
+			{Label: "旋转文件 90°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.rotateSelection(90) }) }},
+			{Label: "旋转文件 270°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.rotateSelection(270) }) }},
+			{Label: "收藏当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleFavorite(a.Root) }) }},
+			{Label: "提取子文件夹文件并归集", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.collectSelection() }) }},
+			{Label: "裁剪视频尺寸…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptCrop(a.operationPaths()) }) }},
+			{Label: "无损裁剪片段…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptTrim() }) }},
 		}},
 		{Label: "编辑", Submenu: []*mygo.MenuItem{
-			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCopy() }) }},
-			{Label: "剪切", Accelerator: "CmdOrCtrl+X", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCut() }) }},
-			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(false) }) }},
-			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(true) }) }},
+			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doCopy() }) }},
+			{Label: "剪切", Accelerator: "CmdOrCtrl+X", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doCut() }) }},
+			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(false) }) }},
+			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(true) }) }},
 			mygo.Separator(),
-			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.startRename() }) }},
-			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doTrash() }) }},
-			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.revealInFinder() }) }},
-			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.showInfo() }) }},
-			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.duplicateSelection() }) }},
-			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.showOriginalFolder() }) }},
+			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
+			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
+			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
+			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
+			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.duplicateSelection() }) }},
+			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
-			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.togglePinned() }) }},
+			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
 			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
+				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
 			}},
-			{Label: "显示隐藏文件", Accelerator: "CmdOrCtrl+Shift+.", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("hidden") }) }},
-			{Label: "显示所有类型文件", Accelerator: "CmdOrCtrl+Shift+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("all") }) }},
-			{Label: "显示图像文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("images") }) }},
-			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("raw") }) }},
-			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("videos") }) }},
-			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("archives") }) }},
-			{Label: "返回上一级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.goUp() }) }},
-			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.setRecursive(!a.Recursive) }) }},
-			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleViewOption("folders") }) }},
+			{Label: "显示隐藏文件", Accelerator: "CmdOrCtrl+Shift+.", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("hidden") }) }},
+			{Label: "显示所有类型文件", Accelerator: "CmdOrCtrl+Shift+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("all") }) }},
+			{Label: "显示图像文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("images") }) }},
+			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("raw") }) }},
+			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("videos") }) }},
+			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("archives") }) }},
+			{Label: "返回上一级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
+			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
+			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
 			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.setMediaUnit(!a.Profiles.View.MediaUnit) })
+				a.update(func() { a.setMediaUnit(!a.Profiles.View.MediaUnit) })
 			}},
-			{Label: "启用自动滚动", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.askAutoConfig("scroll") }) }},
-			{Label: "启用自动播放", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.askAutoConfig("play") }) }},
+			{Label: "启用自动滚动", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("scroll") }) }},
+			{Label: "启用自动播放", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("play") }) }},
 			{Label: "最大化窗口", Accelerator: "1", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.ToggleMaximize() }},
 			{Label: "合适窗口大小", Accelerator: "2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
 			{Label: "将窗口居中", Accelerator: "5", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
-			{Label: "跟随系统主题", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.setTheme("system") }) }},
-			{Label: "浅色模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.setTheme("light") }) }},
-			{Label: "黑暗模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.setTheme("dark") }) }},
-			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.SidebarShown = !a.SidebarShown }) }},
+			{Label: "跟随系统主题", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("system") }) }},
+			{Label: "浅色模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("light") }) }},
+			{Label: "黑暗模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("dark") }) }},
+			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.SidebarShown = !a.SidebarShown }) }},
 		}},
 	})
 }
@@ -365,7 +365,7 @@ func (a *appState) refresh() {
 	if root == "" {
 		return
 	}
-	go a.scanFolder(root, seq)
+	safeGo("scanFolder", func() { a.scanFolder(root, seq) })
 }
 
 func (a *appState) scanFolder(root string, seq int) {
@@ -409,6 +409,7 @@ func (a *appState) scanFolder(root string, seq int) {
 	} else {
 		entries, err := os.ReadDir(root)
 		if err != nil {
+			logErrorf("could not read folder %s: %v", root, err)
 			return
 		}
 		for _, e := range entries {
@@ -436,7 +437,7 @@ func (a *appState) scanFolder(root string, seq int) {
 		}
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })
-	a.Window.Update(func() {
+	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.Root != root || a.scanSeq != seq {
@@ -448,7 +449,7 @@ func (a *appState) scanFolder(root string, seq int) {
 		if a.InLargeView && (a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible)) {
 			a.closeLargeImage()
 		}
-		go a.loadTags()
+		safeGo("loadTags", a.loadTags)
 	})
 }
 
@@ -773,7 +774,7 @@ func (a *appState) startWatcher() {
 	recursive := a.Recursive || a.MediaUnitRoot == root
 	a.mu.Unlock()
 
-	go func() {
+	safeGo("watchFiles", func() {
 		w, err := mygo.WatchFiles(ctx, root, mygo.FileWatchOptions{Recursive: recursive, Debounce: 100 * time.Millisecond})
 		if err != nil {
 			return
@@ -793,10 +794,10 @@ func (a *appState) startWatcher() {
 				return
 			}
 			if len(events) > 0 {
-				a.Window.Update(func() { a.refresh() })
+				a.update(func() { a.refresh() })
 			}
 		}
-	}()
+	})
 }
 
 func (a *appState) stopWatcher() {
@@ -861,9 +862,12 @@ func (a *appState) treeChildren(path string) []string {
 func (a *appState) pickFolder() {
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "打开媒体目录", Directory: true})
 	if err != nil || len(paths) == 0 {
+		if err != nil {
+			logErrorf("open folder dialog failed: %v", err)
+		}
 		return
 	}
-	a.Window.Update(func() { a.openFolder(paths[0]) })
+	a.update(func() { a.openFolder(paths[0]) })
 }
 
 func (a *appState) loadThumb(root string, index int) {
@@ -885,10 +889,10 @@ func (a *appState) loadThumb(root string, index int) {
 	edge := thumbBand(thumbEdge(a.Thumb))
 	a.mu.Unlock()
 
-	go func() {
+	safeGo("loadThumb", func() {
 		key := thumbCacheKey(path, edge)
 		if bitmap := thumbLRU.Get(key); bitmap != nil {
-			a.Window.Update(func() {
+			a.update(func() {
 				a.mu.Lock()
 				defer a.mu.Unlock()
 				if a.Root != root || index >= len(a.Items) || a.Items[index].Path != path {
@@ -915,7 +919,7 @@ func (a *appState) loadThumb(root string, index int) {
 		if err == nil {
 			bitmap, err = ui.DecodeBitmap(data)
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if a.Root != root || index >= len(a.Items) || a.Items[index].Path != path {
@@ -927,6 +931,7 @@ func (a *appState) loadThumb(root string, index int) {
 			}
 			if err != nil {
 				current.Failed = true
+				logDebugf("thumbnail decode failed for %s: %v", path, err)
 			} else {
 				current.Bitmap = bitmap
 				current.Decoded = true
@@ -935,14 +940,42 @@ func (a *appState) loadThumb(root string, index int) {
 			}
 			current.Loading = false
 		})
-	}()
+	})
 }
 
 // ============================
 // Views
 // ============================
 
+// update runs fn on the window's main thread when a window exists. Background
+// work that touches the interface goes through it, so headless runs (tests or
+// an early startup failure) do nothing instead of panicking on a nil Window.
+func (a *appState) update(fn func()) {
+	if a.Window == nil {
+		return
+	}
+	a.Window.Update(fn)
+}
+
+// visibleItem returns the item at visible index i, or nil when either index is
+// out of range. Visible and Items are rewritten by background scans, so a view
+// that runs while a scan swaps them can see a stale index; this keeps that from
+// panicking with an out-of-range slice access.
+func (a *appState) visibleItem(i int) *mediaItem {
+	if i < 0 || i >= len(a.Visible) {
+		return nil
+	}
+	itemIndex := a.Visible[i]
+	if itemIndex < 0 || itemIndex >= len(a.Items) {
+		return nil
+	}
+	return &a.Items[itemIndex]
+}
+
 func (a *appState) view(c *ui.Context) {
+	// A panic building one frame is logged with its stack and the next frame
+	// rebuilds, instead of taking the whole app down.
+	defer logRecover("view")
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
@@ -1330,7 +1363,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 					a.TagFilter = ""
 				} else {
 					a.TagFilter = name
-					go a.loadTags()
+					safeGo("loadTags", a.loadTags)
 				}
 				a.applyFilter()
 			})
@@ -1517,15 +1550,28 @@ func (a *appState) emptyFolderView(c *ui.Context) {
 func (a *appState) gridView(c *ui.Context) {
 	t := c.Theme()
 	root := a.Root
-	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
+	a.Grid.Key = func(i int) any {
+		if item := a.visibleItem(i); item != nil {
+			return item.Path
+		}
+		return i
+	}
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
+	a.Grid.Label = func(i int) string {
+		if item := a.visibleItem(i); item != nil {
+			return item.Name
+		}
+		return ""
+	}
 	cell := int(a.Thumb + 56)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
 	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			return
+		}
 		card := ui.Column(c).Grow(1).Gap(4)
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
@@ -2115,7 +2161,11 @@ func (a *appState) ensureMediaInfo(item *mediaItem) {
 	if item.InfoLoaded && item.Info.Width > 0 {
 		return
 	}
-	go a.loadInfo(a.Visible[a.LargeIndex])
+	index := a.LargeIndex
+	if index < 0 || index >= len(a.Visible) {
+		return
+	}
+	safeGo("loadInfo", func() { a.loadInfo(a.Visible[index]) })
 }
 
 // largeWidth is the content area width, used for edge-click zones.
@@ -2210,12 +2260,12 @@ func (a *appState) ensureLarge(index int) {
 	item.LargeLoading = true
 	path := item.Path
 	root := a.Root
-	go func() {
+	safeGo("loadLarge", func() {
 		bmp, err := decodeLargeBitmap(path)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if a.Root != root || itemIndex >= len(a.Items) || a.Items[itemIndex].Path != path {
@@ -2231,7 +2281,7 @@ func (a *appState) ensureLarge(index int) {
 			}
 			current.Large = bmp
 		})
-	}()
+	})
 }
 
 func (a *appState) openLargeImage(index int) {
@@ -2314,13 +2364,26 @@ func (a *appState) applyFilter() {
 
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
-	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
+	a.Grid.Key = func(i int) any {
+		if item := a.visibleItem(i); item != nil {
+			return item.Path
+		}
+		return i
+	}
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
+	a.Grid.Label = func(i int) string {
+		if item := a.visibleItem(i); item != nil {
+			return item.Name
+		}
+		return ""
+	}
 	a.ListState.Selection = &a.Selected
 	list := ui.List(c, &a.ListState, len(a.Visible), func(i int) {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			return
+		}
 		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
 		if a.Chosen == i {
 			row.Background(t.Accent).TextColor(t.AccentText)

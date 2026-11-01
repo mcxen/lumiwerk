@@ -100,3 +100,11 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T12.7 Window maximize, suitable size, center, actual/current image size
 - [x] T12.8 Finder-style sorting menu, folder-first/full-path and EXIF order
 - [x] T12.9 Regression tests and isolated real-window acceptance
+
+## Phase 13: Logging and Crash Hardening
+- [x] T13.1 Rotating file log at `~/Library/Logs/Lumiwerk/lumiwerk.log` with `LUMIWERK_LOG` level override and stderr mirror
+- [x] T13.2 Log startup/shutdown, preference, decode and file-operation failures
+- [x] T13.3 `logRecover` and `safeGo` so panics in render and background jobs are logged, not fatal
+- [x] T13.4 Fix `SIGSEGV` in `popPool`: pin the Objective-C autorelease pool to one OS thread with `runtime.LockOSThread`
+- [x] T13.5 Nil-window safe `update` helper and out-of-range safe `visibleItem` for views racing background scans
+- [x] T13.6 Stress tests (repeated `go test`, threaded share stress, `-race`) and real-window launch check

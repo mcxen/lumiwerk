@@ -51,7 +51,7 @@ func (a *appState) loadTags() {
 	for i, p := range paths {
 		tags[i] = finderTags(p)
 	}
-	a.Window.Update(func() {
+	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		for i := range a.Items {

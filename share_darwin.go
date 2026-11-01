@@ -111,6 +111,7 @@ func (e errorString) Error() string { return string(e) }
 
 func ensureAppKit() {
 	if loadObjC() != nil {
+		logWarnf("objc runtime unavailable: %v", objcErr)
 		return
 	}
 	if classSharing != 0 && classWorkspace != 0 {
@@ -145,6 +146,21 @@ func popPool(pool uintptr) {
 	if pool != 0 {
 		purego.SyscallN(objcPoolPop, pool)
 	}
+}
+
+// withAutoreleasePool runs fn inside an Objective-C autorelease pool.
+//
+// objc_autoreleasePoolPush and objc_autoreleasePoolPop act on the calling
+// thread's pool stack. A Go goroutine may migrate between OS threads between
+// the two calls, so popping a pool that another thread pushed corrupts the
+// runtime and segfaults. LockOSThread pins the goroutine for the pool's
+// lifetime, which is what the earlier crash in popPool came from.
+func withAutoreleasePool(fn func()) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pool := pushPool()
+	defer popPool(pool)
+	fn()
 }
 
 func nsString(s string) uintptr {
@@ -198,46 +214,49 @@ func sharingServices(paths []string) ([]shareService, error) {
 	if classSharing == 0 {
 		return nil, errObjC
 	}
-	pool := pushPool()
-	defer popPool(pool)
-	items := urlArray(paths)
-	if items == 0 {
-		return nil, errObjC
-	}
-	list := objcMsg(classSharing, selServices, items)
-	if list == 0 {
-		return nil, nil
-	}
-	n := int(objcMsg(list, selCount))
-	out := make([]shareService, 0, n)
-	for i := 0; i < n; i++ {
-		svc := objcMsg(list, selObject, uintptr(i))
-		if svc == 0 {
-			continue
+	var out []shareService
+	var err error
+	withAutoreleasePool(func() {
+		items := urlArray(paths)
+		if items == 0 {
+			err = errObjC
+			return
 		}
-		title := goNSString(objcMsg(svc, selTitle))
-		if title == "" {
-			continue
+		list := objcMsg(classSharing, selServices, items)
+		if list == 0 {
+			return
 		}
-		objcMsg(svc, selRetain)
-		out = append(out, shareService{Title: title, raw: svc})
-	}
-	return out, nil
+		n := int(objcMsg(list, selCount))
+		out = make([]shareService, 0, n)
+		for i := 0; i < n; i++ {
+			svc := objcMsg(list, selObject, uintptr(i))
+			if svc == 0 {
+				continue
+			}
+			title := goNSString(objcMsg(svc, selTitle))
+			if title == "" {
+				continue
+			}
+			objcMsg(svc, selRetain)
+			out = append(out, shareService{Title: title, raw: svc})
+		}
+	})
+	return out, err
 }
 
 func (s shareService) perform(paths []string) {
 	if s.raw == 0 || len(paths) == 0 || loadObjC() != nil {
 		return
 	}
-	pool := pushPool()
-	defer popPool(pool)
-	items := urlArray(paths)
-	if items == 0 {
-		return
-	}
-	objcMsg(s.raw, selRetain)
-	objcMsg(s.raw, selPerform, items)
-	objcMsg(s.raw, selRelease)
+	withAutoreleasePool(func() {
+		items := urlArray(paths)
+		if items == 0 {
+			return
+		}
+		objcMsg(s.raw, selRetain)
+		objcMsg(s.raw, selPerform, items)
+		objcMsg(s.raw, selRelease)
+	})
 }
 
 func releaseShareServices(list []shareService) {
