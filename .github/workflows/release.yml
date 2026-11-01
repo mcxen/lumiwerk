@@ -1,0 +1,164 @@
+name: Desktop Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test and validate
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install FFmpeg for media tests
+        run: brew install ffmpeg
+      - name: Check the release version
+        if: github.ref_type == 'tag'
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
+      - run: go test ./...
+      - run: go vet ./...
+
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin/universal
+            directory: darwin-universal
+            os: macos-latest
+            kind: macos
+          - platform: windows/amd64
+            directory: windows-amd64
+            os: windows-latest
+            kind: windows
+          - platform: windows/arm64
+            directory: windows-arm64
+            os: windows-latest
+            kind: windows
+          - platform: linux/amd64
+            directory: linux-amd64
+            os: ubuntu-latest
+            kind: linux
+          - platform: linux/arm64
+            directory: linux-arm64
+            os: ubuntu-latest
+            kind: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install NSIS
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: choco install nsis --no-progress --yes
+      - name: Build application packages
+        run: |
+          cli="github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
+          go run "$cli" build -platform "${{ matrix.platform }}" -sign -
+      - name: Check macOS bundle and signature
+        if: matrix.kind == 'macos'
+        run: |
+          app="dist/${{ matrix.directory }}/Lumiwerk.app"
+          test -d "$app"
+          codesign --verify --deep --strict "$app"
+          test -n "$(find dist/${{ matrix.directory }} -maxdepth 1 -name '*.dmg' -type f -print -quit)"
+      - name: Check Windows installer
+        if: matrix.kind == 'windows'
+        run: |
+          installer="$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*-setup-*.exe' -type f -print -quit)"
+          test -n "$installer"
+          test -s "$installer"
+      - name: Check Linux packages
+        if: matrix.kind == 'linux'
+        run: |
+          test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.deb' -type f -print -quit)"
+          test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.tar.gz' -type f -print -quit)"
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.directory }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/darwin-universal/*.dmg
+            dist/windows-*/*-setup-*.exe
+            dist/linux-*/*.deb
+            dist/linux-*/*.tar.gz
+            dist/linux-amd64/install.sh
+
+  publish:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: release-downloads
+          merge-multiple: true
+      - name: Collect and verify release assets
+        run: |
+          mkdir release-assets
+          while IFS= read -r -d '' asset; do
+            target="release-assets/$(basename "$asset")"
+            if [ -e "$target" ]; then
+              echo "Duplicate release asset: $(basename "$asset")" >&2
+              exit 1
+            fi
+            mv "$asset" "$target"
+          done < <(find release-downloads -type f -print0)
+
+          patterns=(
+            'lumiwerk-*.dmg'
+            'lumiwerk-setup-*-amd64.exe'
+            'lumiwerk-setup-*-arm64.exe'
+            'lumiwerk_*_amd64.deb'
+            'lumiwerk_*_arm64.deb'
+            'lumiwerk-*-linux-amd64.tar.gz'
+            'lumiwerk-*-linux-arm64.tar.gz'
+            'install.sh'
+          )
+          for pattern in "${patterns[@]}"; do
+            mapfile -d '' matches < <(find release-assets -maxdepth 1 -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "Expected exactly one asset matching $pattern, found ${#matches[@]}" >&2
+              exit 1
+            fi
+            test -s "${matches[0]}"
+          done
+          (cd release-assets && sha256sum -- * > SHA256SUMS)
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -d '' assets < <(find release-assets -maxdepth 1 -type f -print0)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --title "Lumiwerk $GITHUB_REF_NAME" --generate-notes
+          fi
