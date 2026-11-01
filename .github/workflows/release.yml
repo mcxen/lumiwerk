@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: desktop-release-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+  # Superseded branch-dispatch runs may be cancelled; a tag release and
+  # anything on the default branch always runs to completion.
+  cancel-in-progress: ${{ github.ref_type == 'branch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 defaults:
   run:
@@ -81,10 +83,13 @@ jobs:
       # No choco install nsis: on Windows, mygo build downloads its own
       # SHA-256-pinned NSIS 3.13 into the user cache when makensis is
       # missing (a 2.3 MB zip, ~2s), which beats a choco dependency walk.
+      # Build the pinned mygo CLI once into the setup-go caches (module +
+      # build), then invoke the binary: go run would re-resolve and relink
+      # it in every build job.
       - name: Build application packages
         run: |
-          cli="github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
-          go run "$cli" build -platform "${{ matrix.platform }}" -sign -
+          go install "github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
+          "$(go env GOPATH)/bin/mygo" build -platform "${{ matrix.platform }}" -sign -
       - name: Check macOS bundle and signature
         if: matrix.kind == 'macos'
         run: |
