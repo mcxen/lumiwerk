@@ -359,6 +359,7 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 			} else if item.Bitmap != nil {
 				ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+				releaseShownPixels(item)
 			} else if item.Failed {
 				ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
 			} else {

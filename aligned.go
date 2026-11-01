@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	thumbLRU  = newLRUCache(512)
+	thumbLRU  = newThumbCache(thumbBudget)
 	thumbGate = make(chan struct{}, 8)
 
 	dirIcon        = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`))
@@ -442,6 +442,7 @@ func (a *appState) scanFolder(root string, seq int) {
 			a.closeLargeImage()
 		}
 		safeGo("loadTags", a.loadTags)
+		safeGo("probeAspects", a.probeVisibleAspects)
 	})
 }
 
@@ -928,7 +929,7 @@ func (a *appState) loadThumb(root string, index int) {
 				current.Bitmap = bitmap
 				current.Decoded = true
 				current.ThumbEdge = edge
-				thumbLRU.Put(key, bitmap)
+				thumbLRU.Put(key, bitmap, edge)
 			}
 			current.Loading = false
 		})
@@ -1573,6 +1574,7 @@ func (a *appState) gridView(c *ui.Context) {
 					ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 				} else if item.Bitmap != nil {
 					ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+					releaseShownPixels(item)
 				} else if item.Failed {
 					ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
 				} else {

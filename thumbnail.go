@@ -1,68 +1,10 @@
 package main
 
 import (
-	"container/list"
 	"fmt"
-	"os"
 
 	"github.com/egoist/mygo/ui"
 )
-
-const thumbnailCacheLimit = 512
-
-// lruCache stores decoded thumbnails keyed by source path.
-type lruCache struct {
-	limit int
-	ll    *list.List
-	items map[string]*list.Element
-}
-
-type lruEntry struct {
-	key    string
-	bitmap *ui.Bitmap
-}
-
-func newLRUCache(limit int) *lruCache {
-	if limit <= 0 {
-		limit = thumbnailCacheLimit
-	}
-	return &lruCache{limit: limit, ll: list.New(), items: make(map[string]*list.Element, limit)}
-}
-
-func (c *lruCache) Get(key string) *ui.Bitmap {
-	el, ok := c.items[key]
-	if !ok {
-		return nil
-	}
-	c.ll.MoveToFront(el)
-	return el.Value.(lruEntry).bitmap
-}
-
-func (c *lruCache) Put(key string, bitmap *ui.Bitmap) {
-	if el, ok := c.items[key]; ok {
-		c.ll.MoveToFront(el)
-		el.Value = lruEntry{key: key, bitmap: bitmap}
-		return
-	}
-	c.items[key] = c.ll.PushFront(lruEntry{key: key, bitmap: bitmap})
-	for c.ll.Len() > c.limit {
-		el := c.ll.Back()
-		if el == nil {
-			return
-		}
-		delete(c.items, el.Value.(lruEntry).key)
-		c.ll.Remove(el)
-	}
-}
-
-func (c *lruCache) Delete(key string) {
-	el, ok := c.items[key]
-	if !ok {
-		return
-	}
-	delete(c.items, key)
-	c.ll.Remove(el)
-}
 
 // thumbEdge is the longest side of a grid thumbnail. It tracks the slider
 // but stays small enough that a folder of photos does not decode originals.
@@ -119,6 +61,3 @@ func decodeLargeBitmap(path string) (*ui.Bitmap, error) {
 	}
 	return ui.DecodeBitmap(data)
 }
-
-// _ keeps os available for tests that embed this file's helpers.
-var _ = os.Getpid

@@ -164,7 +164,7 @@ func (a *appState) advancedSettings(c *ui.Context) {
 		}
 	})
 	if ui.Button(c.Key("settings-save"), "应用").Clicked() {
-		thumbLRU.limit = int(a.Settings.CacheCap)
+		thumbLRU.SetLimit(int(a.Settings.CacheCap))
 	}
 }
 

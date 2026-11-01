@@ -313,13 +313,63 @@ func (a *appState) loadInfo(index int) {
 		return
 	}
 	a.mu.Unlock()
-	info := loadMediaInfo(path, isVideo)
+	// The header probe is cheap and gives flow layouts an aspect before the
+	// full probe (spawned processes on macOS) answers.
+	info := mediaInfo{}
+	if !isVideo {
+		info.Width, info.Height = probeImageSize(path)
+	}
+	full := loadMediaInfo(path, isVideo)
+	if full.Width == 0 && full.Height == 0 && !isVideo {
+		full.Width, full.Height = info.Width, info.Height
+	}
 	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if index < len(a.Items) && a.Items[index].Path == path {
-			a.Items[index].Info = info
+			a.Items[index].Info = full
 			a.Items[index].InfoLoaded = true
+		}
+	})
+}
+
+// probeVisibleAspects gives flow layouts an aspect for every visible item
+// right now: probed sizes for loaded info, a header read for images, and 1
+// for the rest. It runs off the UI goroutine and posts the result.
+func (a *appState) probeVisibleAspects() {
+	a.mu.Lock()
+	visible := append([]int(nil), a.Visible...)
+	paths := make([]string, len(visible))
+	for i, idx := range visible {
+		if idx >= 0 && idx < len(a.Items) {
+			paths[i] = a.Items[idx].Path
+		}
+	}
+	video := make([]bool, len(visible))
+	for i, idx := range visible {
+		if idx >= 0 && idx < len(a.Items) {
+			video[i] = a.Items[idx].IsVideo
+		}
+	}
+	a.mu.Unlock()
+	sizes := make([][2]int, len(paths))
+	for i, path := range paths {
+		if path == "" || video[i] {
+			continue
+		}
+		w, h := probeImageSize(path)
+		sizes[i] = [2]int{w, h}
+	}
+	a.update(func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for i, idx := range visible {
+			if idx < 0 || idx >= len(a.Items) || a.Items[idx].InfoLoaded {
+				continue
+			}
+			if w, h := sizes[i][0], sizes[i][1]; w > 0 && h > 0 {
+				a.Items[idx].Info.Width, a.Items[idx].Info.Height = w, h
+			}
 		}
 	})
 }
