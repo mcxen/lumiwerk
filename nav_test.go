@@ -259,7 +259,13 @@ func TestSelectionAfterRenameUndoAndDelete(t *testing.T) {
 		t.Fatalf("after undo chosen %q", chosenPath(a))
 	}
 	a.redo()
-	h.drain(t, te, func() bool { return a.visibleIndexOf(zz) >= 0 && chosenPath(a) == zz })
+	// The redo rescan must have landed (zz sorted last) before the test
+	// reads the neighbor below: retargetPaths rewrites Items in place
+	// first, and choosing a neighbor from that transient order races the
+	// rescan's re-sorted order.
+	h.drain(t, te, func() bool {
+		return a.visibleIndexOf(zz) >= 0 && a.visibleIndexOf(zz) == len(a.Visible)-1 && chosenPath(a) == zz
+	})
 	if chosenPath(a) != zz {
 		t.Fatalf("after redo chosen %q", chosenPath(a))
 	}

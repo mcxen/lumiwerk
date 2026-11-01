@@ -262,6 +262,11 @@ func (a *appState) busy() bool {
 }
 
 func (a *appState) finishOperation(op fileOperation) {
+	// Each operation owns the pending selection. A leftover from a prior
+	// operation whose scan got superseded (refresh bumps scanSeq) would
+	// otherwise be applied by this operation's scan and hijack the
+	// selection — e.g. redo's target landing after a later delete.
+	a.PendingSelect = nil
 	if op.cut {
 		a.Cut = nil
 		a.Clip = nil

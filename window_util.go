@@ -50,6 +50,9 @@ func (a *appState) chooseOnly(i int) {
 	if item == nil {
 		return
 	}
+	// An explicit choice outranks any selection a pending rescan was
+	// going to restore.
+	a.PendingSelect = nil
 	a.Chosen = i
 	a.Selected.Clear()
 	a.Selected.Add(item.Path)
