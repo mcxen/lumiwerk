@@ -353,7 +353,8 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		card.Opacity(0.4)
 	}
 	card.Children(func() {
-		thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
 			if item.IsDir {
 				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)

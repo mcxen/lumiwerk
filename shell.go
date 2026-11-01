@@ -48,6 +48,7 @@ func (a *appState) browserShell(c *ui.Context) {
 		a.infoDialog(c)
 		a.autoConfigDialog(c)
 	})
+	a.heroFlyer(c)
 }
 
 func (a *appState) browserLayout(c *ui.Context) {
