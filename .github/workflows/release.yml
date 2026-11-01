@@ -22,12 +22,40 @@ jobs:
   test:
     name: Test and validate
     runs-on: macos-latest
+    env:
+      # Keep the Go caches inside the workspace so a single cache
+      # definition works on every OS.
+      GOCACHE: ${{ github.workspace }}/.gocache
+      GOPATH: ${{ github.workspace }}/.gopath
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the Go toolchain version
+        id: goversion
+        run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      # Installing Go costs ~15s on macOS and ~40s on Windows. Caching the
+      # exact hostedtoolcache directory (setup-go drops a .complete marker
+      # inside it) makes setup-go skip the download and extraction.
+      - name: Restore Go toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+          key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.goversion.outputs.version }}-v1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      # setup-go's built-in build cache keys on runner OS + go.sum, so the
+      # two matrix jobs of one OS raced for a single key and the loser
+      # recompiled everything on every run (windows/arm64: ~60s vs ~15s).
+      # Key per job instead; "go-build-test" is shared with pr.yml.
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .gocache
+            .gopath
+          key: go-build-test-v1-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-test-v1-
       # Pinned prebuilt FFmpeg (ffmpeg + ffprobe, evermeet.cx 9.0.2,
       # SHA-256 checked) instead of brew installing a dependency tree
       # (~20s). The extracted binaries are cached, so the slow first
@@ -65,6 +93,11 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Per-target Go caches: see the test job for why these live in the
+      # workspace and why the cache keys include the matrix platform.
+      GOCACHE: ${{ github.workspace }}/.gocache
+      GOPATH: ${{ github.workspace }}/.gopath
     strategy:
       fail-fast: false
       matrix:
@@ -91,10 +124,27 @@ jobs:
             kind: linux
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the Go toolchain version
+        id: goversion
+        shell: bash
+        run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      - name: Restore Go toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+          key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.goversion.outputs.version }}-v1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .gocache
+            .gopath
+          key: go-build-${{ matrix.platform }}-v1-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ matrix.platform }}-v1-
       # No choco install nsis: on Windows, mygo build downloads its own
       # SHA-256-pinned NSIS 3.13 into the user cache when makensis is
       # missing (a 2.3 MB zip, ~2s), which beats a choco dependency walk.

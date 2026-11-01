@@ -3,3 +3,5 @@ build
 lumiwerk
 .DS_Store
 lumiwerk.exe
+.gocache
+.gopath

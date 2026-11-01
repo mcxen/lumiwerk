@@ -26,12 +26,35 @@ jobs:
   test:
     name: Test and vet
     runs-on: macos-latest
+    env:
+      # Keep the Go caches inside the workspace so the cache definition
+      # matches release.yml (which shares this "go-build-test" key).
+      GOCACHE: ${{ github.workspace }}/.gocache
+      GOPATH: ${{ github.workspace }}/.gopath
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the Go toolchain version
+        id: goversion
+        run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      - name: Restore Go toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+          key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.goversion.outputs.version }}-v1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      # Shared with release.yml's test job: PRs and release runs warm each
+      # other's compiled-package cache.
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .gocache
+            .gopath
+          key: go-build-test-v1-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-test-v1-
       # Pinned prebuilt FFmpeg, cached on the runner: see release.yml for
       # the provenance and the checks it stands in for.
       - name: Restore prebuilt FFmpeg
@@ -57,4 +80,6 @@ jobs:
         run: echo "$(pwd)/bin" >> "$GITHUB_PATH"
       - run: go test ./...
       - run: go vet ./...
-      - run: gofmt -l . | tee /dev/stderr | (! grep .)
+      # lint the tracked sources only: the workspace also holds the Go
+      # caches, which contain third-party module sources.
+      - run: git ls-files '*.go' | xargs gofmt -l | tee /dev/stderr | (! grep .)
