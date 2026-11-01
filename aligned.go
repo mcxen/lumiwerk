@@ -972,6 +972,17 @@ func (a *appState) visibleItem(i int) *mediaItem {
 	return &a.Items[itemIndex]
 }
 
+// itemKey is the identity a media row carries in selection state. Grid and list
+// rows must use the same string keys as a.Selected (a Selection[string]); a
+// default row key is the row index, and mixing those panics in mygo with
+// "a row's key is a int, not the string of its Selection".
+func (a *appState) itemKey(i int) any {
+	if item := a.visibleItem(i); item != nil {
+		return item.Path
+	}
+	return fmt.Sprintf("!missing:%d", i)
+}
+
 func (a *appState) view(c *ui.Context) {
 	// A panic building one frame is logged with its stack and the next frame
 	// rebuilds, instead of taking the whole app down.
@@ -1550,12 +1561,7 @@ func (a *appState) emptyFolderView(c *ui.Context) {
 func (a *appState) gridView(c *ui.Context) {
 	t := c.Theme()
 	root := a.Root
-	a.Grid.Key = func(i int) any {
-		if item := a.visibleItem(i); item != nil {
-			return item.Path
-		}
-		return i
-	}
+	a.Grid.Key = a.itemKey
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
 	a.Grid.Label = func(i int) string {
@@ -2364,12 +2370,7 @@ func (a *appState) applyFilter() {
 
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
-	a.Grid.Key = func(i int) any {
-		if item := a.visibleItem(i); item != nil {
-			return item.Path
-		}
-		return i
-	}
+	a.Grid.Key = a.itemKey
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
 	a.Grid.Label = func(i int) string {
@@ -2378,6 +2379,7 @@ func (a *appState) detailView(c *ui.Context) {
 		}
 		return ""
 	}
+	a.ListState.Key = a.itemKey
 	a.ListState.Selection = &a.Selected
 	list := ui.List(c, &a.ListState, len(a.Visible), func(i int) {
 		item := a.visibleItem(i)
