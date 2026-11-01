@@ -76,14 +76,26 @@ func loadPrefs() prefsFile {
 		if !os.IsNotExist(err) {
 			logWarnf("could not read preferences %s: %v", prefsPath(), err)
 		}
+		normalizePrefs(&p)
 		return p
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
 		p = prefsFile{View: defaultViewPreferences(), ViewSet: true}
 	}
+	normalizePrefs(&p)
+	return p
+}
+
+// normalizePrefs fills in the parts every run needs. It runs on every load
+// path, so a missing file (a first launch) cannot leave Profiles nil: a nil
+// slice marshals to null, which would drop the nine configuration slots and
+// the startup folder on the next save. Existing profiles are kept.
+func normalizePrefs(p *prefsFile) {
 	if len(p.Profiles) != 9 {
-		p.Profiles = make([]profile, 9)
+		profiles := make([]profile, 9)
+		copy(profiles, p.Profiles)
+		p.Profiles = profiles
 	}
 	if strings.TrimSpace(p.QuickRename) == "" {
 		p.QuickRename = "{folder}_{index}"
@@ -113,11 +125,11 @@ func loadPrefs() prefsFile {
 	if p.PreviousVolume <= 0 || p.PreviousVolume > 2 {
 		p.PreviousVolume = 1
 	}
-	return p
 }
 
 func savePrefs(p prefsFile) {
 	p.ViewSet = true
+	normalizePrefs(&p)
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		logErrorf("could not encode preferences: %v", err)
