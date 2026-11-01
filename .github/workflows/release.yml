@@ -92,7 +92,10 @@ jobs:
       - name: Check the release version
         if: github.ref_type == 'tag'
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
-      - run: go test ./...
+      # -count=1 like the local gate: a cached "ok" would not re-execute
+      # the tests, and could mask a broken environment (e.g. a
+      # missing ffmpeg makes the media tests skip silently).
+      - run: go test -count=1 ./...
       - run: go vet ./...
 
   build:
