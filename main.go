@@ -68,14 +68,14 @@ func main() {
 		}
 		for _, arg := range os.Args[1:] {
 			if arg == "--large" {
-				go func() {
+				safeGo("main.openInitialLargeView", func() {
 					time.Sleep(1500 * time.Millisecond)
 					a.Window.Update(func() {
 						if len(a.Visible) > 0 {
 							a.openLargeImage(0)
 						}
 					})
-				}()
+				})
 			}
 		}
 		if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {

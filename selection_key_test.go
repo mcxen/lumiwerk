@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // TestItemKeyIsAlwaysString guards the grid/list selection contract:
 // a.Selected is a Selection[string], so every row key must be a string. A row
@@ -23,5 +27,24 @@ func TestItemKeyIsAlwaysStringForSelection(t *testing.T) {
 	}
 	if _, ok := a.itemKey(2).(string); !ok {
 		t.Fatalf("out-of-range row key = %#v, want a string", a.itemKey(2))
+	}
+}
+
+// TestDetailListRendersWithPathSelection exercises the same mygo list layout
+// that crashed when ListState kept its default integer row keys.
+func TestDetailListRendersWithPathSelection(t *testing.T) {
+	a := &appState{Chosen: 0, Thumb: 192}
+	a.Items = []mediaItem{
+		{Path: "/tmp/one.jpg", Name: "one.jpg", Ext: "jpg"},
+		{Path: "/tmp/two.mp4", Name: "two.mp4", Ext: "mp4", IsVideo: true},
+	}
+	a.Visible = []int{0, 1}
+	a.Selected.Add("/tmp/one.jpg")
+
+	te := ui.NewTester(a.detailView, 1000, 600)
+	te.Frame()
+	te.Frame()
+	if !te.HasText("one.jpg") || !te.HasText("two.mp4") {
+		t.Fatalf("detail rows missing: %q", te.Texts())
 	}
 }

@@ -152,6 +152,7 @@ type appState struct {
 	HUD           string
 	HUDUntil      time.Time
 	Settings      settingsState
+	Diagnostics   diagnosticsState
 	Tabs          tabState
 	Profiles      prefsFile
 	Batch         batchState
@@ -207,11 +208,11 @@ type appState struct {
 func newAppMenu(a *appState) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "文件", Submenu: []*mygo.MenuItem{
-			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.pickFolder() }},
+			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.pickFolder", a.pickFolder) }},
 			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			mygo.Separator(),
 			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
-			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.setCopyDestination() }},
+			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.setCopyDestination", a.setCopyDestination) }},
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.settingsWindow() })
 			}},
@@ -252,6 +253,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
+			{Label: "运行诊断…", Accelerator: "CmdOrCtrl+Shift+D", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(a.showDiagnostics)
+			}},
 			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
 			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
@@ -984,9 +988,10 @@ func (a *appState) itemKey(i int) any {
 }
 
 func (a *appState) view(c *ui.Context) {
-	// A panic building one frame is logged with its stack and the next frame
-	// rebuilds, instead of taking the whole app down.
-	defer logRecover("view")
+	safeView("view", c, func() { a.rootView(c) })
+}
+
+func (a *appState) rootView(c *ui.Context) {
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
@@ -996,7 +1001,10 @@ func (a *appState) view(c *ui.Context) {
 
 	// Global shortcuts.
 	if c.Shortcut(ui.Cmd, ui.KeyO) {
-		go a.pickFolder()
+		safeGo("dialog.pickFolder", a.pickFolder)
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyD) {
+		a.showDiagnostics()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
@@ -1279,22 +1287,7 @@ func (a *appState) view(c *ui.Context) {
 		}
 	}
 
-	if a.SidebarWidth == 0 {
-		a.SidebarWidth = sidebarDefaultWidth
-	}
-	if a.SidebarShown && !a.InLargeView {
-		ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.mainView(c) }).Fill()
-	} else {
-		a.mainView(c)
-	}
-	a.renameDialog(c)
-	a.folderDialog(c)
-	a.batchDialog(c)
-	a.zipDialog(c)
-	a.cropDialog(c)
-	a.trimDialog(c)
-	a.infoDialog(c)
-	a.autoConfigDialog(c)
+	a.browserLayout(c)
 }
 
 func (a *appState) sidebarView(c *ui.Context) {
@@ -1470,7 +1463,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 		}
 		if !a.InLargeView {
 			prevQuery := a.LastQuery
-			search := ui.SearchField(c, &a.Query).Key("query").Width(150)
+			search := ui.SearchField(c.Key("query"), &a.Query).Width(150)
 			if a.FocusSearch {
 				search.Focus()
 				a.FocusSearch = false
@@ -1561,19 +1554,11 @@ func (a *appState) emptyFolderView(c *ui.Context) {
 func (a *appState) gridView(c *ui.Context) {
 	t := c.Theme()
 	root := a.Root
-	a.Grid.Key = a.itemKey
-	a.Grid.Selected = &a.Chosen
-	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string {
-		if item := a.visibleItem(i); item != nil {
-			return item.Name
-		}
-		return ""
-	}
+	state := a.mediaListState()
 	cell := int(a.Thumb + 56)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
-	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
+	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
 			return
@@ -2370,18 +2355,8 @@ func (a *appState) applyFilter() {
 
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
-	a.Grid.Key = a.itemKey
-	a.Grid.Selected = &a.Chosen
-	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string {
-		if item := a.visibleItem(i); item != nil {
-			return item.Name
-		}
-		return ""
-	}
-	a.ListState.Key = a.itemKey
-	a.ListState.Selection = &a.Selected
-	list := ui.List(c, &a.ListState, len(a.Visible), func(i int) {
+	state := a.mediaListState()
+	list := ui.List(c, state.List, len(a.Visible), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
 			return

@@ -375,7 +375,7 @@ func shownFrame(frames []timedFrame, now float64) (show timedFrame, ok bool, ahe
 
 func startFramePump(d *ffmpegDecoder) chan timedFrame {
 	frames := make(chan timedFrame, 6)
-	go d.runPump(frames)
+	safeGo("video.framePump", func() { d.runPump(frames) })
 	return frames
 }
 

@@ -108,3 +108,10 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T13.4 Fix `SIGSEGV` in `popPool`: pin the Objective-C autorelease pool to one OS thread with `runtime.LockOSThread`
 - [x] T13.5 Nil-window safe `update` helper and out-of-range safe `visibleItem` for views racing background scans
 - [x] T13.6 Stress tests (repeated `go test`, threaded share stress, `-race`) and real-window launch check
+
+## Phase 14: Observable and Reusable UI Shell
+- [x] T14.1 Fix grid/list selection-key mismatch and add real MyGo list rendering regression
+- [x] T14.2 Unified browser shell, media selection contract, settings sections and safe view boundaries
+- [x] T14.3 Diagnostic window with recent events, panic counters, runtime metrics, copy and open-log actions
+- [x] T14.4 Route remaining background jobs through the common panic-recording task entry point
+- [x] T14.5 Development guide covering MyGo contracts, isolation, recovery and real-window verification

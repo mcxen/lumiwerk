@@ -80,6 +80,10 @@ func (a *appState) settingsWindow() {
 }
 
 func (a *appState) settingsView(c *ui.Context) {
+	safeView("settings", c, func() { a.settingsBody(c) })
+}
+
+func (a *appState) settingsBody(c *ui.Context) {
 	t := c.Theme()
 	root := ui.Column(c).Fill().Gap(0)
 	root.Children(func() {
@@ -153,6 +157,12 @@ func (a *appState) advancedSettings(c *ui.Context) {
 	ui.Text(c, "高级").FontSize(16).Bold()
 	ui.Slider(c, &a.Settings.CacheCap, 64, 1024).Label("缩略图缓存数量")
 	ui.Slider(c, &a.Settings.Workers, 1, 16).Label("后台解码并发")
+	settingsSection(c, "运行诊断：", func() {
+		ui.Text(c, "查看最近警告、错误、运行指标和日志位置，便于复现与修复问题。").FontSize(12)
+		if ui.Button(c.Key("settings-open-diagnostics"), "打开诊断").Clicked() {
+			a.showDiagnostics()
+		}
+	})
 	if ui.Button(c.Key("settings-save"), "应用").Clicked() {
 		thumbLRU.limit = int(a.Settings.CacheCap)
 	}
@@ -160,12 +170,7 @@ func (a *appState) advancedSettings(c *ui.Context) {
 
 func (a *appState) actionSettings(c *ui.Context) {
 	t := c.Theme()
-	section := func(title string, body func()) {
-		ui.Row(c).FillWidth().Gap(16).AlignItems(ui.Start).Children(func() {
-			ui.Text(c, title).Width(100).FontSize(13).Bold().Padding(5, 0)
-			ui.Column(c).Grow(1).Gap(12).Children(body)
-		})
-	}
+	section := func(title string, body func()) { settingsSection(c, title, body) }
 
 	section("Enter 键：", func() {
 		ui.Row(c).Gap(28).Children(func() {
@@ -177,10 +182,10 @@ func (a *appState) actionSettings(c *ui.Context) {
 	section("操作指引：", func() {
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("operation-guide"), "操作说明").Clicked() {
-				go a.showOperationGuide(false)
+				safeGo("dialog.operationGuide", func() { a.showOperationGuide(false) })
 			}
 			if ui.Button(c.Key("shortcut-guide"), "快捷键对照").Clicked() {
-				go a.showOperationGuide(true)
+				safeGo("dialog.shortcutGuide", func() { a.showOperationGuide(true) })
 			}
 		})
 		ui.Text(c, "点击按钮后会以弹窗显示说明，按 Esc 可先关闭弹窗，再按 Esc 关闭设置窗口。").FontSize(11).TextColor(t.TextMuted)
@@ -225,7 +230,7 @@ func (a *appState) destinationSetting(c *ui.Context, label string, value *string
 		ui.Text(c, label).FontSize(12)
 		ui.TextInput(c, value).Tooltip(*value).Grow(1).MinWidth(160)
 		if ui.Button(c.Key("settings-pick-"+kind), "选择文件夹").Clicked() {
-			go a.pickActionDestination(kind)
+			safeGo("dialog.pickActionDestination", func() { a.pickActionDestination(kind) })
 		}
 	})
 }

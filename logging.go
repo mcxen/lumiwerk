@@ -122,14 +122,15 @@ func rotateLog(path string) {
 }
 
 func logWrite(level logLevel, format string, args ...any) {
-	if level < logMinLevel {
-		return
-	}
 	msg := fmt.Sprintf(format, args...)
 	msg = strings.TrimRight(msg, "\n")
 	caller := "?"
 	if _, file, line, ok := runtime.Caller(2); ok {
 		caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	}
+	recordDiagnostic(level, caller, msg)
+	if level < logMinLevel {
+		return
 	}
 	line := fmt.Sprintf("%s %-5s [%s] %s\n",
 		time.Now().Format("2006-01-02 15:04:05.000"), levelName(level), caller, msg)
@@ -169,6 +170,7 @@ func logErrorf(format string, args ...any) { logWrite(levelError, format, args..
 // and the app keeps running instead of dying.
 func logRecover(where string) {
 	if r := recover(); r != nil {
+		recordPanic()
 		logWrite(levelError, "panic in %s: %v\n%s", where, r, debug.Stack())
 	}
 }
