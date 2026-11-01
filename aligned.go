@@ -165,6 +165,9 @@ type appState struct {
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
+	selAnchor     selectionAnchor
+	revealFrames  int
+	lastUp        time.Time
 	PendingLarge  string
 	KeepLarge     bool
 	NewFolder     bool
@@ -267,7 +270,7 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("raw") }) }},
 			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("videos") }) }},
 			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("archives") }) }},
-			{Label: "返回上一级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
+			{Label: "返回上一级目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
 			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
@@ -365,6 +368,9 @@ func (a *appState) openFolder(path string) {
 func (a *appState) refresh() {
 	a.mu.Lock()
 	root := a.Root
+	// Each scan supersedes the ones before it: a slower, older listing that
+	// lands later must not overwrite a newer one (and its pending selection).
+	a.scanSeq++
 	seq := a.scanSeq
 	a.mu.Unlock()
 	if root == "" {
@@ -436,6 +442,7 @@ func (a *appState) scanFolder(root string, seq int) {
 		if a.Root != root || a.scanSeq != seq {
 			return
 		}
+		a.noteSelectionAnchorLocked()
 		a.Items = files
 		a.applyFilterLocked()
 		a.restorePendingSelection()
@@ -675,7 +682,17 @@ func (a *appState) restorePendingSelection() {
 		for _, path := range a.PendingSelect {
 			want[path] = struct{}{}
 		}
-		a.Selected.Clear()
+		present := false
+		for _, itemIndex := range a.Visible {
+			if _, ok := want[a.Items[itemIndex].Path]; ok {
+				present = true
+				break
+			}
+		}
+		if present {
+			// Items moved elsewhere keep the reconciled selection instead.
+			a.Selected.Clear()
+		}
 		first := -1
 		for visibleIndex, itemIndex := range a.Visible {
 			path := a.Items[itemIndex].Path
@@ -689,6 +706,7 @@ func (a *appState) restorePendingSelection() {
 		}
 		if first >= 0 {
 			a.Chosen = first
+			a.revealFrames = 2
 		}
 		a.PendingSelect = nil
 	}
@@ -731,6 +749,7 @@ func (a *appState) restorePendingSelection() {
 }
 
 func (a *appState) applyFilterLocked() {
+	anchor := a.takeSelectionAnchorLocked()
 	a.Visible = a.Visible[:0]
 	q := strings.ToLower(strings.TrimSpace(a.Query))
 	for i := range a.Items {
@@ -748,12 +767,7 @@ func (a *appState) applyFilterLocked() {
 		}
 		a.Visible = append(a.Visible, i)
 	}
-	if a.Chosen >= len(a.Visible) {
-		a.Chosen = -1
-	}
-	if a.Chosen >= 0 && a.Selected.Len() == 0 {
-		a.Selected.Add(a.Items[a.Visible[a.Chosen]].Path)
-	}
+	a.reconcileSelectionLocked(anchor)
 }
 
 func (a *appState) startWatcher() {
@@ -809,9 +823,18 @@ func (a *appState) goUp() {
 	if a.Root == "" {
 		return
 	}
+	// Cmd+Up reaches both the menu accelerator and the view shortcut on
+	// some desktops; one key press goes up one level only.
+	if now := time.Now(); now.Sub(a.lastUp) < 150*time.Millisecond {
+		return
+	} else {
+		a.lastUp = now
+	}
 	parent := filepath.Dir(a.Root)
 	if parent != a.Root {
+		from := a.Root
 		a.openFolder(parent)
+		a.selectAfterLoad(from)
 	}
 }
 
@@ -824,7 +847,9 @@ func (a *appState) goBack() {
 	a.Cursor--
 	path := a.History[a.Cursor]
 	a.mu.Unlock()
+	from := a.Root
 	a.openFolder(path)
+	a.selectAfterLoad(from)
 }
 
 func (a *appState) goForward() {
@@ -836,7 +861,9 @@ func (a *appState) goForward() {
 	a.Cursor++
 	path := a.History[a.Cursor]
 	a.mu.Unlock()
+	from := a.Root
 	a.openFolder(path)
+	a.selectAfterLoad(from)
 }
 
 func (a *appState) treeChildren(path string) []string {
@@ -941,11 +968,18 @@ func (a *appState) loadThumb(root string, index int) {
 // Views
 // ============================
 
+// headlessUpdate receives update callbacks when there is no window. Only
+// tests set it, to run background results on the test goroutine.
+var headlessUpdate func(fn func())
+
 // update runs fn on the window's main thread when a window exists. Background
 // work that touches the interface goes through it, so headless runs (tests or
 // an early startup failure) do nothing instead of panicking on a nil Window.
 func (a *appState) update(fn func()) {
 	if a.Window == nil {
+		if headlessUpdate != nil {
+			headlessUpdate(fn)
+		}
 		return
 	}
 	a.Window.Update(fn)
@@ -998,6 +1032,12 @@ func (a *appState) rootView(c *ui.Context) {
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
+	}
+	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketLeft) {
+		a.goBack()
+	}
+	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketRight) {
+		a.goForward()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		a.SidebarShown = !a.SidebarShown
@@ -1548,6 +1588,9 @@ func (a *appState) gridView(c *ui.Context) {
 	cell := int(a.Thumb + 56)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
+	if a.takeReveal() {
+		a.Grid.ScrollIntoView(a.Chosen)
+	}
 	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
@@ -1588,6 +1631,7 @@ func (a *appState) gridView(c *ui.Context) {
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)
+		a.cardPointer(card, i)
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
 			a.loadThumb(root, a.Visible[i])
@@ -2359,6 +2403,9 @@ func (a *appState) applyFilter() {
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
 	state := a.mediaListState()
+	if a.takeReveal() {
+		a.ListState.ScrollIntoView(a.Chosen)
+	}
 	list := ui.List(c, state.List, len(a.Visible), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
