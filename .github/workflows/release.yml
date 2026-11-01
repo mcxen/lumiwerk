@@ -29,11 +29,20 @@ jobs:
           go-version-file: go.mod
           cache: true
       # Pinned prebuilt FFmpeg (ffmpeg + ffprobe, evermeet.cx 9.0.2,
-      # SHA-256 checked), ~4s, instead of brew installing a dependency
-      # tree (~20s). The media tests exec `ffmpeg`/`ffprobe` from PATH and
-      # skip without them; these builds decode PNG and encode MJPEG, which
-      # is what those tests need (a brew build was verified equivalent).
+      # SHA-256 checked) instead of brew installing a dependency tree
+      # (~20s). The extracted binaries are cached, so the slow first
+      # download from a small host happens once. The media tests exec
+      # `ffmpeg`/`ffprobe` from PATH and skip without them; these builds
+      # decode PNG and encode MJPEG, which is what those tests need (a
+      # brew build was verified equivalent).
+      - name: Restore prebuilt FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: ffmpeg-evermeet-9.0.2-macos
       - name: Install prebuilt FFmpeg for media tests
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: |
           curl -sSfL --retry 3 -o ffmpeg.zip "https://evermeet.cx/ffmpeg/ffmpeg-9.0.2.zip"
           curl -sSfL --retry 3 -o ffprobe.zip "https://evermeet.cx/ffmpeg/ffprobe-9.0.2.zip"
@@ -43,9 +52,10 @@ jobs:
           SUMS
           unzip -q ffmpeg.zip
           unzip -q ffprobe.zip
-          mkdir -p "$RUNNER_TEMP/bin"
-          mv ffmpeg ffprobe "$RUNNER_TEMP/bin/"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          mkdir bin
+          mv ffmpeg ffprobe bin/
+      - name: Add FFmpeg to PATH
+        run: echo "$(pwd)/bin" >> "$GITHUB_PATH"
       - name: Check the release version
         if: github.ref_type == 'tag'
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
