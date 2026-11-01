@@ -287,8 +287,7 @@ func (a *appState) waterfallView(c *ui.Context) {
 				continue
 			}
 			if !item.InfoLoaded {
-				idx := a.Visible[i]
-				safeGo("loadInfo", func() { a.loadInfo(idx) })
+				a.requestInfo(a.Visible[i])
 			}
 			card := ui.Box(c).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
 			card.Children(func() {
@@ -302,49 +301,56 @@ func (a *appState) waterfallView(c *ui.Context) {
 func (a *appState) justifiedView(c *ui.Context) {
 	root := a.Root
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
-	width := float32(1280)
+	width, height := float32(1280), float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
-		width = bounds.W
+		width, height = bounds.W, bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
 	const gap = float64(flowGap)
 	aspects := make([]float64, len(a.Visible))
 	for i := range a.Visible {
-		item := a.visibleItem(i)
-		if item == nil {
-			continue
-		}
 		aspects[i] = 1
-		if item.Info.Height > 0 && item.Info.Width > 0 {
+		if item := a.visibleItem(i); item != nil && item.Info.Height > 0 && item.Info.Width > 0 {
 			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
-		}
-		if !item.InfoLoaded {
-			idx := a.Visible[i]
-			safeGo("loadInfo", func() { a.loadInfo(idx) })
 		}
 	}
 	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
+	rowH := float32(a.Thumb) + flowLabel
+	stride := rowH + float32(gap)
 	if a.Chosen >= 0 && a.revealFrames > 0 {
-		var boxes []flowBox
-		rowH := float32(a.Thumb) + flowLabel
 		for r, row := range rows {
 			if slices.Contains(row, a.Chosen) {
-				boxes = append(boxes, flowBox{Index: a.Chosen, Y: flowPad + float32(r)*(rowH+float32(gap)), H: rowH})
+				a.revealFlow([]flowBox{{Index: a.Chosen, Y: flowPad + float32(r)*stride, H: rowH}}, height)
+				break
 			}
 		}
-		a.revealFlow(boxes, scroll.LayoutBounds().H)
 	}
+	// Rows have one height, so the visible ones follow from the scroll
+	// offset: build those plus one screen each way, and stand the rest in
+	// with two spacers, as waterfallView does with its canvas.
+	first := int((a.browseScroll.Y - height - flowPad) / stride)
+	last := int((a.browseScroll.Y+height*2-flowPad)/stride) + 1
+	first = max(0, min(first, len(rows)))
+	last = max(first, min(last, len(rows)))
 	scroll.Children(func() {
 		col := ui.Column(c).FillWidth().Gap(float32(gap)).Padding(flowPad)
 		col.Children(func() {
-			for _, r := range rows {
-				r := r
-				rr := ui.Row(c).Gap(flowGap).Height(float32(a.Thumb) + flowLabel)
+			if first > 0 {
+				ui.Box(c).Key("lw-justified-above").Height(float32(first)*stride - float32(gap))
+			}
+			for _, r := range rows[first:last] {
+				rr := ui.Row(c).Key(a.itemKey(r[0])).Gap(flowGap).Height(rowH)
 				rr.Children(func() {
 					for _, i := range r {
+						if item := a.visibleItem(i); item != nil && !item.InfoLoaded {
+							a.requestInfo(a.Visible[i])
+						}
 						a.thumbCard(c, root, i, 0)
 					}
 				})
+			}
+			if last < len(rows) {
+				ui.Box(c).Key("lw-justified-below").Height(float32(len(rows)-last)*stride - float32(gap))
 			}
 		})
 	})
@@ -357,6 +363,7 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		return
 	}
 	thumbCardProbe()
+	a.markSeen(item)
 	card := ui.Column(c).Grow(1).Gap(4)
 	if height > 0 {
 		card.Height(height)

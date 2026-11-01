@@ -18,7 +18,7 @@ func TestPerfMeasure(t *testing.T) {
 		t.Skip("set LUMIWERK_PERF=1")
 	}
 	const n = 3000
-	for _, layout := range []int{0, 1, 2, 3} {
+	for _, layout := range perfLayouts() {
 		t.Setenv("HOME", t.TempDir())
 		a := waterfalTestState(n)
 		a.LayoutMode = layout
@@ -52,6 +52,8 @@ func TestPerfMeasure(t *testing.T) {
 		runtime.GC()
 		runtime.ReadMemStats(&ms)
 		restore()
+		// Steady state once the scrolled-past thumbnails are 5 s old.
+		a.sweepThumbsAt(time.Now().Add(10 * time.Second))
 		retained := 0
 		for i := range a.Items {
 			if a.Items[i].Bitmap != nil {
@@ -62,4 +64,11 @@ func TestPerfMeasure(t *testing.T) {
 			layout, n, first, per, maxG-g0, (float64(ms.HeapInuse)-float64(ms0.HeapInuse))/(1<<20), retained)
 		runtime.KeepAlive(te)
 	}
+}
+
+func perfLayouts() []int {
+	if os.Getenv("LUMIWERK_PERF_LAYOUT") == "3" {
+		return []int{3}
+	}
+	return []int{0, 1, 2, 3}
 }

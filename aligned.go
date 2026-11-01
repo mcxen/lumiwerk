@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -65,6 +66,13 @@ type mediaItem struct {
 	IsDir        bool
 	ThumbEdge    int
 	LoadGen      int
+	// InfoLoading is set while a metadata probe for the item runs, so views
+	// drawn every frame do not start one probe per frame.
+	InfoLoading bool
+	// Seen is when a view last built the item's thumbnail (UnixNano,
+	// atomic): queued decodes for items scrolled away are skipped and
+	// thumbnails long off screen give their bitmap back to the cache.
+	Seen int64
 }
 
 // videoView plays one large-view video on the shared media clock.
@@ -165,9 +173,12 @@ type appState struct {
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
+	treeCache     map[string]treeEntry
 	selAnchor     selectionAnchor
 	revealFrames  int
 	lastUp        time.Time
+	frameNow      int64
+	nextSweep     time.Time
 	PendingLarge  string
 	KeepLarge     bool
 	NewFolder     bool
@@ -866,7 +877,41 @@ func (a *appState) goForward() {
 	a.selectAfterLoad(from)
 }
 
+// treeChildren answers the sidebar outline, which asks for every expanded
+// folder on every frame. Listing a directory on the main thread each frame
+// stalls scrolling and animation on slow or network volumes, so listings are
+// cached: the first one is read at once, later ones are refreshed in the
+// background once they are older than treeTTL.
 func (a *appState) treeChildren(path string) []string {
+	now := time.Now()
+	if e, ok := a.treeCache[path]; ok {
+		if now.Sub(e.at) > treeTTL && !e.refreshing && a.Window != nil {
+			e.refreshing = true
+			a.treeCache[path] = e
+			safeGo("treeChildren", func() {
+				dirs := listSubdirs(path)
+				a.update(func() { a.treeCache[path] = treeEntry{dirs: dirs, at: time.Now()} })
+			})
+		}
+		return e.dirs
+	}
+	if a.treeCache == nil || len(a.treeCache) > 4096 {
+		a.treeCache = map[string]treeEntry{}
+	}
+	dirs := listSubdirs(path)
+	a.treeCache[path] = treeEntry{dirs: dirs, at: now}
+	return dirs
+}
+
+const treeTTL = 3 * time.Second
+
+type treeEntry struct {
+	dirs       []string
+	at         time.Time
+	refreshing bool
+}
+
+func listSubdirs(path string) []string {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil
@@ -932,6 +977,9 @@ func (a *appState) loadThumb(root string, index int) {
 		}
 		thumbGate <- struct{}{}
 		defer func() { <-thumbGate }()
+		if a.thumbAbandoned(index, path, gen) {
+			return
+		}
 		data, err := thumbBytes(path, video, edge)
 		if err != nil && !video {
 			data, err = os.ReadFile(path)
@@ -1019,8 +1067,10 @@ func (a *appState) rootView(c *ui.Context) {
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
+	atomic.StoreInt64(&a.frameNow, time.Now().UnixNano())
 	if !a.InLargeView {
 		a.settleThumbs(c)
+		a.sweepThumbs(c)
 	}
 
 	// Global shortcuts.
@@ -1597,6 +1647,7 @@ func (a *appState) gridView(c *ui.Context) {
 			return
 		}
 		thumbCardProbe()
+		a.markSeen(item)
 		card := ui.Column(c).Grow(1).Gap(4)
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
@@ -2199,7 +2250,7 @@ func (a *appState) ensureMediaInfo(item *mediaItem) {
 	if index < 0 || index >= len(a.Visible) {
 		return
 	}
-	safeGo("loadInfo", func() { a.loadInfo(a.Visible[index]) })
+	a.requestInfo(a.Visible[index])
 }
 
 // largeWidth is the content area width, used for edge-click zones.
