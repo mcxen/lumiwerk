@@ -247,7 +247,9 @@ func (a *appState) updateOrDrop(fn func()) { a.update(fn) }
 
 // headless reports a run with no window and no test hook, where background
 // results could never be applied: operations then run inline as before.
-func (a *appState) headless() bool { return a.Window == nil && headlessUpdate == nil }
+func (a *appState) headless() bool {
+	return a.Window == nil && headlessUpdate.Load() == nil
+}
 
 // busy refuses a file operation while another one runs in the background,
 // so operations apply in the order they were asked for.
@@ -356,13 +358,15 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 	if len(mappings) == 0 {
 		return
 	}
+	// Background decodes read item paths under a.mu (thumbAbandoned), so the
+	// rewrites here hold it too. Window work happens after the lock.
+	retitled := ""
+	a.mu.Lock()
 	if a.Root != "" {
 		next := remapPath(a.Root, mappings)
 		if next != a.Root && isDir(next) {
 			a.Root = next
-			if a.Window != nil {
-				a.setTitle(appName + " — " + pathName(next))
-			}
+			retitled = next
 		}
 	}
 	for i := range a.Items {
@@ -398,6 +402,10 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 	}
 	for i, path := range a.Clip {
 		a.Clip[i] = remapPath(path, mappings)
+	}
+	a.mu.Unlock()
+	if retitled != "" {
+		a.setTitle(appName + " — " + pathName(retitled))
 	}
 }
 

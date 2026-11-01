@@ -1020,17 +1020,19 @@ func (a *appState) loadThumb(root string, index int) {
 // Views
 // ============================
 
-// headlessUpdate receives update callbacks when there is no window. Only
 // tests set it, to run background results on the test goroutine.
-var headlessUpdate func(fn func())
+// headlessUpdate receives update callbacks when there is no window. Tests
+// install one; access is atomic because background jobs call update while a
+// test may still be installing or clearing the hook.
+var headlessUpdate atomic.Pointer[func(fn func())]
 
 // update runs fn on the window's main thread when a window exists. Background
 // work that touches the interface goes through it, so headless runs (tests or
 // an early startup failure) do nothing instead of panicking on a nil Window.
 func (a *appState) update(fn func()) {
 	if a.Window == nil {
-		if headlessUpdate != nil {
-			headlessUpdate(fn)
+		if hook := headlessUpdate.Load(); hook != nil {
+			(*hook)(fn)
 		}
 		return
 	}

@@ -20,8 +20,10 @@ type navHarness struct {
 
 func newNavHarness(t *testing.T) *navHarness {
 	h := &navHarness{}
-	headlessUpdate = func(fn func()) { h.mu.Lock(); h.queue = append(h.queue, fn); h.mu.Unlock() }
-	t.Cleanup(func() { headlessUpdate = nil })
+	hook := func(fn func()) { h.mu.Lock(); h.queue = append(h.queue, fn); h.mu.Unlock() }
+	headlessUpdate.Store(&hook)
+	_ = h
+	t.Cleanup(func() { headlessUpdate.Store(nil) })
 	return h
 }
 
