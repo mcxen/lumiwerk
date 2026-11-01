@@ -291,7 +291,7 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 		if next != a.Root && isDir(next) {
 			a.Root = next
 			if a.Window != nil {
-				a.Window.SetTitle(appName + " — " + pathName(next))
+				a.setTitle(appName + " — " + pathName(next))
 			}
 		}
 	}

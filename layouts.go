@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/egoist/mygo/ui"
+	"slices"
 )
 
 // waterfallColumns sizes columns like Finder's icon view: a thumbnail-sized
@@ -263,6 +264,7 @@ func (a *appState) waterfallView(c *ui.Context) {
 	if contentH < height {
 		contentH = height
 	}
+	a.revealFlow(boxes, height)
 	// The scroll window the cards must cover, grown one screen each way
 	// so fast scrolling shows cards instead of gaps.
 	top := a.browseScroll.Y - height
@@ -323,6 +325,16 @@ func (a *appState) justifiedView(c *ui.Context) {
 		}
 	}
 	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
+	if a.Chosen >= 0 && a.revealFrames > 0 {
+		var boxes []flowBox
+		rowH := float32(a.Thumb) + flowLabel
+		for r, row := range rows {
+			if slices.Contains(row, a.Chosen) {
+				boxes = append(boxes, flowBox{Index: a.Chosen, Y: flowPad + float32(r)*(rowH+float32(gap)), H: rowH})
+			}
+		}
+		a.revealFlow(boxes, scroll.LayoutBounds().H)
+	}
 	scroll.Children(func() {
 		col := ui.Column(c).FillWidth().Gap(float32(gap)).Padding(flowPad)
 		col.Children(func() {
@@ -369,10 +381,8 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 	})
 	a.fileDragSource(card, item.Path)
+	a.cardPointer(card, i)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-	if card.DoubleClicked() {
-		a.openItem(i)
-	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(root, a.Visible[i])
 	}
