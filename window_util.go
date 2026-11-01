@@ -2,12 +2,6 @@ package main
 
 import "github.com/egoist/mygo/ui"
 
-// setTitle tolerates the nil window of headless tests.
-func (a *appState) setTitle(title string) {
-	if a.Window != nil {
-		a.Window.SetTitle(title)
-	}
-}
 
 // cardPointer gives a media card the grid's click contract. The card is a
 // file drag source, and a drag source takes the press, so the grid cell
