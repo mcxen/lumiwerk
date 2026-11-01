@@ -2,7 +2,6 @@ package main
 
 import "github.com/egoist/mygo/ui"
 
-
 // cardPointer gives a media card the grid's click contract. The card is a
 // file drag source, and a drag source takes the press, so the grid cell
 // under it never sees the click or the double click: clicking did not
