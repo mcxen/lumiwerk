@@ -332,6 +332,7 @@ func (a *appState) fitWindowToImage(current bool) {
 	if !item.InfoLoaded {
 		item.Info = loadMediaInfo(item.Path, item.IsVideo)
 		item.InfoLoaded = true
+		a.noteLayoutChanged()
 	}
 	w, h := float64(item.Info.Width), float64(item.Info.Height)
 	if w <= 0 || h <= 0 {
