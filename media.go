@@ -329,6 +329,8 @@ func (a *appState) loadInfo(index int) {
 		if index < len(a.Items) && a.Items[index].Path == path {
 			a.Items[index].Info = full
 			a.Items[index].InfoLoaded = true
+			a.Items[index].InfoLoading = false
+			a.noteLayoutChanged()
 		}
 	})
 }
@@ -371,5 +373,6 @@ func (a *appState) probeVisibleAspects() {
 				a.Items[idx].Info.Width, a.Items[idx].Info.Height = w, h
 			}
 		}
+		a.noteLayoutChanged()
 	})
 }

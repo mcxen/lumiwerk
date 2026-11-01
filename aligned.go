@@ -173,6 +173,9 @@ type appState struct {
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
+	layoutGen     uint64
+	flowCache     flowLayoutCache
+	opBusy        bool
 	treeCache     map[string]treeEntry
 	selAnchor     selectionAnchor
 	revealFrames  int
@@ -778,6 +781,7 @@ func (a *appState) applyFilterLocked() {
 		}
 		a.Visible = append(a.Visible, i)
 	}
+	a.noteLayoutChanged()
 	a.reconcileSelectionLocked(anchor)
 }
 

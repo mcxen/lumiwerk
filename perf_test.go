@@ -116,3 +116,41 @@ func TestTreeChildrenCached(t *testing.T) {
 		t.Fatalf("listing re-read on the next frame: %v", got)
 	}
 }
+
+func TestFlowLayoutCachedAcrossFrames(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, layout := range []int{2, 3} {
+		a := waterfalTestState(2000)
+		a.LayoutMode = layout
+		te := ui.NewTester(a.view, 1280, 820)
+		te.Frame()
+		te.Frame()
+		base := a.flowCache.builds
+		for s := 1; s <= 20; s++ {
+			a.browseScroll.Y = float32(s) * 300
+			te.Frame()
+		}
+		if got := a.flowCache.builds - base; got != 0 {
+			t.Fatalf("layout %d: scrolling repacked %d times", layout, got)
+		}
+		a.Thumb = 200
+		te.Frame()
+		if a.flowCache.builds == base {
+			t.Fatalf("layout %d: thumbnail size change kept the old packing", layout)
+		}
+		base = a.flowCache.builds
+		a.Items[0].Info.Width = 3000
+		a.noteLayoutChanged()
+		te.Frame()
+		if a.flowCache.builds == base {
+			t.Fatalf("layout %d: aspect change kept the old packing", layout)
+		}
+		base = a.flowCache.builds
+		te.SetSize(1000, 820)
+		te.Frame()
+		te.Frame()
+		if a.flowCache.builds == base {
+			t.Fatalf("layout %d: resize kept the old packing", layout)
+		}
+	}
+}

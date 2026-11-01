@@ -545,8 +545,11 @@ func (a *appState) infoOverlay(c *ui.Context, item *mediaItem) {
 		return
 	}
 	if !item.InfoLoaded {
-		item.Info = loadMediaInfo(item.Path, item.IsVideo)
-		item.InfoLoaded = true
+		// Probing spawns processes on macOS: never on the main thread
+		// while drawing. The overlay fills in when the probe answers.
+		if a.LargeIndex >= 0 && a.LargeIndex < len(a.Visible) {
+			a.requestInfo(a.Visible[a.LargeIndex])
+		}
 	}
 	t := c.Theme()
 	lines := []string{}
@@ -562,6 +565,9 @@ func (a *appState) infoOverlay(c *ui.Context, item *mediaItem) {
 		}
 		if item.Info.Duration != "" {
 			lines = append(lines, "时长: "+item.Info.Duration)
+		}
+		if !item.InfoLoaded {
+			lines = append(lines, "读取中…")
 		}
 	}
 	if a.Info.File {

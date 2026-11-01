@@ -90,6 +90,7 @@ func (a *appState) openVideoEditor(mode, path string) bool {
 	if !item.InfoLoaded || item.Info.Width == 0 || item.Info.DurationSec <= 0 {
 		item.Info = probeVideo(item.Path)
 		item.InfoLoaded = true
+		a.noteLayoutChanged()
 	}
 	duration := item.Info.DurationSec
 	if duration <= minSegmentSeconds {

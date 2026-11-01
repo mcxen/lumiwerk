@@ -253,8 +253,7 @@ func (a *appState) waterfallView(c *ui.Context) {
 		height = bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
-	aspects := a.visibleAspects()
-	boxes := waterfallFrames(aspects, width, float32(a.Thumb))
+	boxes := a.cachedWaterfall(width)
 	contentH := float32(0)
 	for _, b := range boxes {
 		if bottom := b.Y + b.H + flowPad; bottom > contentH {
@@ -307,14 +306,7 @@ func (a *appState) justifiedView(c *ui.Context) {
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
 	const gap = float64(flowGap)
-	aspects := make([]float64, len(a.Visible))
-	for i := range a.Visible {
-		aspects[i] = 1
-		if item := a.visibleItem(i); item != nil && item.Info.Height > 0 && item.Info.Width > 0 {
-			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
-		}
-	}
-	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
+	rows := a.cachedJustified(width)
 	rowH := float32(a.Thumb) + flowLabel
 	stride := rowH + float32(gap)
 	if a.Chosen >= 0 && a.revealFrames > 0 {

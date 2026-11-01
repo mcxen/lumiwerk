@@ -296,3 +296,33 @@ func TestMultiSelectionSurvivesRescan(t *testing.T) {
 		t.Fatalf("selection after rescan: %d, chosen %q", a.Selected.Len(), chosenPath(a))
 	}
 }
+
+// Undo runs in the background; a second undo while it runs is refused, and
+// no other file operation starts until it lands.
+func TestUndoInBackgroundIsSequenced(t *testing.T) {
+	root := navTree(t)
+	a, te, h := navApp(t, root)
+	b := filepath.Join(root, "b.png")
+	a.chooseOnly(a.visibleIndexOf(b))
+	if err := a.performTracked(fileOperation{op: opRename, paths: []string{b}, newName: "zz.png"}); err != nil {
+		t.Fatal(err)
+	}
+	zz := filepath.Join(root, "zz.png")
+	h.drain(t, te, func() bool { return chosenPath(a) == zz })
+	if err := a.performTracked(fileOperation{op: opRename, paths: []string{filepath.Join(root, "c.png")}, newName: "yy.png"}); err != nil {
+		t.Fatal(err)
+	}
+	h.drain(t, te, func() bool { return a.visibleIndexOf(filepath.Join(root, "yy.png")) >= 0 })
+	a.undo()
+	if !a.opBusy {
+		t.Fatal("undo ran on the main thread")
+	}
+	a.undo() // refused while the first runs
+	if err := a.performTracked(fileOperation{op: opRename, paths: []string{zz}, newName: "q.png"}); err == nil {
+		t.Fatal("an operation started while undo ran")
+	}
+	h.drain(t, te, func() bool { return !a.opBusy && a.visibleIndexOf(filepath.Join(root, "c.png")) >= 0 })
+	if a.visibleIndexOf(zz) < 0 || len(a.Undo.past) != 1 {
+		t.Fatalf("second undo was not refused: past=%d", len(a.Undo.past))
+	}
+}
