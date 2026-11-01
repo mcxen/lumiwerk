@@ -18,13 +18,47 @@ type profile struct {
 	Destination string  `json:"destination,omitempty"`
 }
 
+type viewPreferences struct {
+	Hidden           bool    `json:"hidden"`
+	AllTypes         bool    `json:"allTypes"`
+	Images           bool    `json:"images"`
+	RAW              bool    `json:"raw"`
+	Videos           bool    `json:"videos"`
+	Archives         bool    `json:"archives"`
+	RecursiveFolders bool    `json:"recursiveFolders"`
+	MediaUnit        bool    `json:"mediaUnit"`
+	AutoPlaySelected bool    `json:"autoPlaySelected"`
+	InternalPlayer   bool    `json:"internalPlayer"`
+	Theme            string  `json:"theme"`
+	AutoScrollSpeed  float64 `json:"autoScrollSpeed"`
+	AutoPlayInterval float64 `json:"autoPlayInterval"`
+}
+
+func defaultViewPreferences() viewPreferences {
+	return viewPreferences{
+		Images: true, RAW: true, Videos: true, Archives: true,
+		AutoPlaySelected: true, InternalPlayer: true,
+		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
+	}
+}
+
 type prefsFile struct {
-	Active         int       `json:"active"`
-	Profiles       []profile `json:"profiles"`
-	QuickRename    string    `json:"quickRename,omitempty"`
-	ZipPassword    string    `json:"zipPassword,omitempty"`
-	ZipUsePassword bool      `json:"zipUsePassword,omitempty"`
-	Favorites      []string  `json:"favorites,omitempty"`
+	Active            int             `json:"active"`
+	Profiles          []profile       `json:"profiles"`
+	QuickRename       string          `json:"quickRename,omitempty"`
+	ZipPassword       string          `json:"zipPassword,omitempty"`
+	ZipUsePassword    bool            `json:"zipUsePassword,omitempty"`
+	Favorites         []string        `json:"favorites,omitempty"`
+	View              viewPreferences `json:"view"`
+	ViewSet           bool            `json:"viewSet"`
+	ImageDestination  string          `json:"imageDestination,omitempty"`
+	VideoDestination  string          `json:"videoDestination,omitempty"`
+	ImageCopyShortcut string          `json:"imageCopyShortcut,omitempty"`
+	VideoCopyShortcut string          `json:"videoCopyShortcut,omitempty"`
+	EnterOpens        bool            `json:"enterOpens,omitempty"`
+	VideoShiftArrow   bool            `json:"videoShiftArrow"`
+	Volume            float64         `json:"videoVolume,omitempty"`
+	PreviousVolume    float64         `json:"previousVideoVolume,omitempty"`
 }
 
 func prefsPath() string {
@@ -36,27 +70,92 @@ func prefsPath() string {
 }
 
 func loadPrefs() prefsFile {
-	var p prefsFile
+	p := prefsFile{View: defaultViewPreferences(), ViewSet: true}
 	data, err := os.ReadFile(prefsPath())
 	if err != nil {
+		if !os.IsNotExist(err) {
+			logWarnf("could not read preferences %s: %v", prefsPath(), err)
+		}
+		normalizePrefs(&p)
 		return p
 	}
-	_ = json.Unmarshal(data, &p)
+	if err := json.Unmarshal(data, &p); err != nil {
+		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
+		p = prefsFile{View: defaultViewPreferences(), ViewSet: true}
+	}
+	normalizePrefs(&p)
+	return p
+}
+
+// normalizePrefs fills in the parts every run needs. It runs on every load
+// path, so a missing file (a first launch) cannot leave Profiles nil: a nil
+// slice marshals to null, which would drop the nine configuration slots and
+// the startup folder on the next save. Existing profiles are kept.
+func normalizePrefs(p *prefsFile) {
 	if len(p.Profiles) != 9 {
-		p.Profiles = make([]profile, 9)
+		profiles := make([]profile, 9)
+		copy(profiles, p.Profiles)
+		p.Profiles = profiles
 	}
 	if strings.TrimSpace(p.QuickRename) == "" {
 		p.QuickRename = "{folder}_{index}"
 	}
-	return p
+	if !p.ViewSet {
+		p.View = defaultViewPreferences()
+		p.ViewSet = true
+	}
+	if p.View.AutoScrollSpeed == 0 {
+		p.View.AutoScrollSpeed = 60
+	}
+	if p.View.AutoPlayInterval <= 0 {
+		p.View.AutoPlayInterval = 2
+	}
+	if p.View.Theme == "" {
+		p.View.Theme = "system"
+	}
+	if p.ImageCopyShortcut == "" {
+		p.ImageCopyShortcut = "N"
+	}
+	if p.VideoCopyShortcut == "" {
+		p.VideoCopyShortcut = "]"
+	}
+	if p.Volume <= 0 || p.Volume > 2 {
+		p.Volume = 1
+	}
+	if p.PreviousVolume <= 0 || p.PreviousVolume > 2 {
+		p.PreviousVolume = 1
+	}
 }
 
 func savePrefs(p prefsFile) {
+	p.ViewSet = true
+	normalizePrefs(&p)
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
+		logErrorf("could not encode preferences: %v", err)
 		return
 	}
 	path := prefsPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	_ = os.WriteFile(path, data, 0o644)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logErrorf("could not create preferences directory %s: %v", dir, err)
+		return
+	}
+
+	// Write to a temporary file first and rename it into place: a crash or a
+	// full disk can otherwise leave a truncated preferences file behind.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		logErrorf("could not write preferences %s: %v", tmp, err)
+		return
+	}
+
+	// Keep one previous generation before replacing it, so an unexpected
+	// overwrite (a bug, a bad run) can still be undone from prefs.json.bak.
+	if _, err := os.Stat(path); err == nil {
+		_ = os.Rename(path, path+".bak")
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		logErrorf("could not install preferences %s: %v", path, err)
+	}
 }

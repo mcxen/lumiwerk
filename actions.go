@@ -29,6 +29,11 @@ type opState struct {
 }
 
 func (a *appState) selectedPaths() []string {
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			return []string{item.Path}
+		}
+	}
 	if a.Selected.Len() > 0 {
 		var out []string
 		for i := range a.Items {
@@ -41,7 +46,11 @@ func (a *appState) selectedPaths() []string {
 	if a.Chosen < 0 || a.Chosen >= len(a.Visible) {
 		return nil
 	}
-	return []string{a.Items[a.Visible[a.Chosen]].Path}
+	item := a.visibleItem(a.Chosen)
+	if item == nil {
+		return nil
+	}
+	return []string{item.Path}
 }
 
 func (a *appState) operationPaths() []string {
@@ -104,15 +113,15 @@ func (a *appState) transferToFolder(kind fileOp) {
 	if kind == opMove {
 		title = "移动到目录"
 	}
-	go func() {
+	safeGo("actions.go:112", func() {
 		dest, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: title, Directory: true})
 		if err != nil || len(dest) == 0 {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			a.beginTransfer(fileOperation{op: kind, paths: paths, dest: dest[0]})
 		})
-	}()
+	})
 }
 
 func (a *appState) doTrash() { a.deleteSelection(false) }
@@ -212,11 +221,11 @@ func (a *appState) commitFolder() {
 }
 
 func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
-	if index >= 0 && index < len(a.Visible) {
+	if item := a.visibleItem(index); item != nil {
 		a.Chosen = index
-		if !a.Selected.Has(a.Items[a.Visible[index]].Path) {
+		if !a.Selected.Has(item.Path) {
 			a.Selected.Clear()
-			a.Selected.Add(a.Items[a.Visible[index]].Path)
+			a.Selected.Add(item.Path)
 		}
 	}
 	a.fileMenu(m, true)
@@ -240,7 +249,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	paths := a.operationPaths()
 	none := len(paths) == 0
 	if canOpen && m.Item("打开").Disabled(none).Chosen() {
-		a.openLargeImage(a.Chosen)
+		a.openItem(a.Chosen)
 	}
 	if len(paths) == 1 && isDir(paths[0]) && m.Item("在新标签页中打开").Chosen() {
 		a.openInNewTab(paths[0])
@@ -671,7 +680,7 @@ func (a *appState) setCopyDestination() {
 	if err != nil || len(dest) == 0 || a.Profiles.Active < 0 || a.Profiles.Active >= len(a.Profiles.Profiles) {
 		return
 	}
-	a.Window.Update(func() {
+	a.update(func() {
 		a.Profiles.Profiles[a.Profiles.Active].Destination = dest[0]
 		savePrefs(a.Profiles)
 	})
@@ -1111,12 +1120,12 @@ func (a *appState) captureCurrentFrame() {
 	at := a.Video.Position
 	dest := flowUnique(filepath.Join(filepath.Dir(item.Path), frameFileName(item.Path, at)), false, nil)
 	path := item.Path
-	go func() {
+	safeGo("actions.go:1119", func() {
 		err := writeVideoFrame(path, at, dest)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if err != nil {
 				a.toast("抓取当前视频帧失败。")
 				return
@@ -1126,7 +1135,7 @@ func (a *appState) captureCurrentFrame() {
 			a.PendingLarge = path
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func rotateImageFile(path string, degrees int) error {
@@ -1165,7 +1174,7 @@ func (a *appState) rotateSelection(degrees int) {
 		a.toast("请先选择图片或视频")
 		return
 	}
-	go func() {
+	safeGo("actions.go:1173", func() {
 		var failed []string
 		for _, path := range media {
 			ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
@@ -1182,7 +1191,7 @@ func (a *appState) rotateSelection(degrees int) {
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			for _, path := range media {
 				forgetThumb(path)
 				for i := range a.Items {
@@ -1211,7 +1220,7 @@ func (a *appState) rotateSelection(degrees int) {
 			}
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func (a *appState) importDropped(files []string) {
@@ -1247,12 +1256,12 @@ func (a *appState) collectSelection() {
 		parent = filepath.Dir(paths[0])
 	}
 	a.toast("正在归集…")
-	go func() {
+	safeGo("actions.go:1255", func() {
 		result, err := collectSubfolderFiles(paths, parent, time.Now())
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if err != nil {
 				a.toast(err.Error())
 				return
@@ -1269,7 +1278,7 @@ func (a *appState) collectSelection() {
 			a.PendingSelect = []string{result.folder}
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func (a *appState) shareMenu(m *ui.Menu, paths []string) {
@@ -1348,7 +1357,7 @@ func (a *appState) runCropRect(paths []string, x, y, width, height int) {
 
 func (a *appState) finishCrop(paths []string, crop func(string) error) {
 	a.toast("正在裁剪…")
-	go func() {
+	safeGo("actions.go:1356", func() {
 		var failed []string
 		for _, path := range paths {
 			if err := crop(path); err != nil {
@@ -1358,7 +1367,7 @@ func (a *appState) finishCrop(paths []string, crop func(string) error) {
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if len(failed) == len(paths) {
 				a.toast("视频裁剪失败。")
 				return
@@ -1371,7 +1380,7 @@ func (a *appState) finishCrop(paths []string, crop func(string) error) {
 			a.closeVideo()
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func (a *appState) promptTrim() {
@@ -1410,12 +1419,12 @@ func (a *appState) commitTrim() {
 	a.TrimAsk = false
 	dest := flowUnique(filepath.Join(filepath.Dir(src), trimOutputName(src, start, end, 0)), false, nil)
 	a.toast("正在导出片段…")
-	go func() {
+	safeGo("actions.go:1418", func() {
 		err := trimVideoLossless(src, dest, start, end)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if err != nil {
 				a.toast("无损裁剪失败。")
 				return
@@ -1429,7 +1438,7 @@ func (a *appState) commitTrim() {
 			a.PendingLarge = src
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func (a *appState) cropDialog(c *ui.Context) {

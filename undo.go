@@ -86,6 +86,8 @@ func inverseOf(op fileOperation) (fileOperation, bool) {
 func (a *appState) performTracked(op fileOperation) error {
 	applied, err := perform(op)
 	if err != nil {
+		logErrorf("file operation %d failed: paths=%d dest=%s err=%v",
+			int(op.op), len(op.paths), op.dest, err)
 		a.toast(err.Error())
 		return err
 	}
@@ -116,12 +118,12 @@ func (a *appState) startArchive(op fileOperation) {
 		a.finishOperation(applied)
 		return
 	}
-	go func() {
+	safeGo("undo.go:119", func() {
 		applied, err := perform(op)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if err != nil && errors.Is(err, errNeedZipPassword) && op.op == opExtract {
 				a.promptZip("extract", op.paths, op.dropSource)
 				return
@@ -135,16 +137,16 @@ func (a *appState) startArchive(op fileOperation) {
 			}
 			a.finishOperation(applied)
 		})
-	}()
+	})
 }
 
 func (a *appState) runOperation(op fileOperation) {
-	go func() {
+	safeGo("undo.go:142", func() {
 		applied, err := perform(op)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if err != nil {
 				a.toast(err.Error())
 				return
@@ -154,7 +156,7 @@ func (a *appState) runOperation(op fileOperation) {
 			}
 			a.finishOperation(applied)
 		})
-	}()
+	})
 }
 
 func (a *appState) undo() {
@@ -253,16 +255,18 @@ func (a *appState) noteDeleted(paths []string) {
 			if _, ok := gone[item.Path]; ok {
 				a.KeepLarge = true
 				a.PendingLarge = ""
-				if a.LargeIndex+1 < len(a.Visible) {
-					next := a.Items[a.Visible[a.LargeIndex+1]].Path
-					if _, drop := gone[next]; !drop {
-						a.PendingLarge = next
+				if next := a.visibleItem(a.LargeIndex + 1); next != nil {
+					nextPath := next.Path
+					if _, drop := gone[nextPath]; !drop {
+						a.PendingLarge = nextPath
 					}
 				}
 				if a.PendingLarge == "" && a.LargeIndex > 0 {
-					prev := a.Items[a.Visible[a.LargeIndex-1]].Path
-					if _, drop := gone[prev]; !drop {
-						a.PendingLarge = prev
+					if prev := a.visibleItem(a.LargeIndex - 1); prev != nil {
+						prevPath := prev.Path
+						if _, drop := gone[prevPath]; !drop {
+							a.PendingLarge = prevPath
+						}
 					}
 				}
 			} else {

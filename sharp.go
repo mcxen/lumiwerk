@@ -353,12 +353,12 @@ func (a *appState) prepareSharp(c *ui.Context, item *mediaItem) bool {
 	if item.IsVideo {
 		at = a.playhead()
 	}
-	go func() {
+	safeGo("sharp.go:356", func() {
 		bmp, err := decodeSharpRegion(path, at, region)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if token != a.sharpToken || a.sharpDueKey != key {
 				return
 			}
@@ -371,7 +371,7 @@ func (a *appState) prepareSharp(c *ui.Context, item *mediaItem) bool {
 			a.SharpKey = key
 			a.SharpPlace = region.place()
 		})
-	}()
+	})
 	return false
 }
 

@@ -475,7 +475,7 @@ func (a *appState) loadEditorThumbs() {
 	path := a.Editor.Path
 	duration := a.Editor.Duration
 	token := a.Editor.Token
-	go func() {
+	safeGo("editor.go:478", func() {
 		thumbs := make([]*ui.Bitmap, editorFilmCount)
 		for i := 0; i < editorFilmCount; i++ {
 			at := 0.05
@@ -489,13 +489,13 @@ func (a *appState) loadEditorThumbs() {
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if !a.Editor.Open || a.Editor.Token != token || a.Editor.Path != path {
 				return
 			}
 			a.Editor.Thumbs = thumbs
 		})
-	}()
+	})
 }
 
 func (a *appState) exportEditor() {
@@ -512,7 +512,7 @@ func (a *appState) exportEditor() {
 	src := a.Editor.Path
 	a.closeEditor()
 	a.toast("正在导出…")
-	go func() {
+	safeGo("editor.go:515", func() {
 		var created []string
 		failed := 0
 		for i, seg := range segments {
@@ -526,7 +526,7 @@ func (a *appState) exportEditor() {
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			if len(created) == 0 {
 				a.toast("视频导出失败。")
 				return
@@ -544,7 +544,7 @@ func (a *appState) exportEditor() {
 			a.PendingLarge = src
 			a.refresh()
 		})
-	}()
+	})
 }
 
 func containBox(viewW, viewH, frameW, frameH float32) editorBox {

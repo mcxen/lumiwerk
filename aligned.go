@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,6 +36,13 @@ var (
 	arrowLeftIcon  = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7"/></svg>`))
 	arrowRightIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>`))
 	sidebarIcon    = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>`))
+
+	// Layout switcher glyphs mirror Finder's view control: icon, list,
+	// gallery-style columns and a mosaic.
+	gridIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`))
+	detailIcon    = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 6h6M14 8.5h4M14 16h6M14 18.5h4"/></svg>`))
+	waterfallIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="5" height="13" rx="1"/><rect x="9.5" y="3" width="5" height="7" rx="1"/><rect x="16" y="3" width="5" height="16" rx="1"/><rect x="9.5" y="12" width="5" height="7" rx="1"/></svg>`))
+	justifiedIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="12" width="8" height="6" rx="1"/><rect x="13" y="12" width="8" height="6" rx="1"/></svg>`))
 )
 
 type mediaItem struct {
@@ -80,14 +88,15 @@ type appState struct {
 	Window *mygo.Window
 	mu     sync.Mutex
 
-	Root       string
-	Items      []mediaItem
-	Visible    []int
-	Recursive  bool
-	scanSeq    int
-	watchCtx   context.Context
-	watchStop  context.CancelFunc
-	refreshing bool
+	Root          string
+	Items         []mediaItem
+	Visible       []int
+	Recursive     bool
+	MediaUnitRoot string
+	scanSeq       int
+	watchCtx      context.Context
+	watchStop     context.CancelFunc
+	refreshing    bool
 
 	History []string
 	Cursor  int
@@ -100,12 +109,16 @@ type appState struct {
 
 	Outline      ui.OutlineState[string]
 	TreeChosen   int
+	treeOpenRoot string
 	SidebarWidth float32
 	SidebarShown bool
 	Breadcrumb   int
 
 	Query        string
 	Sort         string
+	FolderFirst  bool
+	FullPathSort bool
+	sortSalt     int64
 	LayoutMode   int
 	Thumb        float64
 	thumbDue     time.Time
@@ -128,6 +141,11 @@ type appState struct {
 	Undo          undoStack
 	TagFilter     string
 	Pinned        bool
+	AutoScroll    bool
+	AutoPlay      bool
+	autoTick      time.Time
+	AutoConfig    string
+	AutoValue     string
 	PanX, PanY    float32
 	RightDown     bool
 	LargeDrag     dragState
@@ -171,6 +189,8 @@ type appState struct {
 	ShareHold     []shareService
 	SeekFrom      float64
 	ResumePlay    bool
+	VideoVolume   float64
+	PrevVolume    float64
 	StageW        float32
 	StageH        float32
 	Sharp         *ui.Bitmap
@@ -188,56 +208,75 @@ func newAppMenu(a *appState) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.pickFolder() }},
-			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.goUp() }) }},
+			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			mygo.Separator(),
-			{Label: "递归浏览", Type: mygo.MenuItemCheckbox, Click: func(item *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() {
-					a.Recursive = item.IsChecked()
-					a.refresh()
-				})
-			}},
+			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { go a.setCopyDestination() }},
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.openSettings(); a.settingsWindow() })
+				a.update(func() { a.openSettings(); a.settingsWindow() })
 			}},
-			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.copyToConfigured() }) }},
-			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.transferToDownloads(opCopy) }) }},
-			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.transferToDownloads(opMove) }) }},
-			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.newTextFile() }) }},
-			{Label: "快速重命名当前目录", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.Window.Update(func() { a.quickRenameFolder() })
+			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
+			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
+			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
+			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
+			{Label: "快速重命名当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(func() { a.quickRenameFolder() })
 			}},
 			mygo.Separator(),
-			{Label: "快速压缩", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.quickCompress() }) }},
-			{Label: "压缩为 ZIP", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.compressPlain(false) }) }},
-			{Label: "压缩并删除源文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.compressPlain(true) }) }},
-			{Label: "加密压缩…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.encryptCompress(false) }) }},
-			{Label: "解压到当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.extractSelection(false) }) }},
-			{Label: "解压并删除压缩包", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.extractSelection(true) }) }},
+			{Label: "快速压缩", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.quickCompress() }) }},
+			{Label: "压缩为 ZIP", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.compressPlain(false) }) }},
+			{Label: "压缩并删除源文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.compressPlain(true) }) }},
+			{Label: "加密压缩…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.encryptCompress(false) }) }},
+			{Label: "解压到当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.extractSelection(false) }) }},
+			{Label: "解压并删除压缩包", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.extractSelection(true) }) }},
 			mygo.Separator(),
-			{Label: "截存当前画面", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.captureCurrentFrame() }) }},
-			{Label: "旋转文件 90°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.rotateSelection(90) }) }},
-			{Label: "旋转文件 270°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.rotateSelection(270) }) }},
-			{Label: "收藏当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.toggleFavorite(a.Root) }) }},
-			{Label: "提取子文件夹文件并归集", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.collectSelection() }) }},
-			{Label: "裁剪视频尺寸…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.promptCrop(a.operationPaths()) }) }},
-			{Label: "无损裁剪片段…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.promptTrim() }) }},
+			{Label: "截存当前画面", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.captureCurrentFrame() }) }},
+			{Label: "旋转文件 90°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.rotateSelection(90) }) }},
+			{Label: "旋转文件 270°", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.rotateSelection(270) }) }},
+			{Label: "收藏当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleFavorite(a.Root) }) }},
+			{Label: "提取子文件夹文件并归集", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.collectSelection() }) }},
+			{Label: "裁剪视频尺寸…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptCrop(a.operationPaths()) }) }},
+			{Label: "无损裁剪片段…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptTrim() }) }},
 		}},
 		{Label: "编辑", Submenu: []*mygo.MenuItem{
-			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCopy() }) }},
-			{Label: "剪切", Accelerator: "CmdOrCtrl+X", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doCut() }) }},
-			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(false) }) }},
-			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doPaste(true) }) }},
+			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doCopy() }) }},
+			{Label: "剪切", Accelerator: "CmdOrCtrl+X", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doCut() }) }},
+			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(false) }) }},
+			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(true) }) }},
 			mygo.Separator(),
-			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.startRename() }) }},
-			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.doTrash() }) }},
-			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.revealInFinder() }) }},
-			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.showInfo() }) }},
-			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.duplicateSelection() }) }},
-			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.showOriginalFolder() }) }},
+			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
+			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
+			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
+			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
+			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.duplicateSelection() }) }},
+			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
-			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Update(func() { a.SidebarShown = !a.SidebarShown }) }},
+			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
+			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
+			}},
+			{Label: "显示隐藏文件", Accelerator: "CmdOrCtrl+Shift+.", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("hidden") }) }},
+			{Label: "显示所有类型文件", Accelerator: "CmdOrCtrl+Shift+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("all") }) }},
+			{Label: "显示图像文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("images") }) }},
+			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("raw") }) }},
+			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("videos") }) }},
+			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("archives") }) }},
+			{Label: "返回上一级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
+			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
+			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
+			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(func() { a.setMediaUnit(!a.Profiles.View.MediaUnit) })
+			}},
+			{Label: "启用自动滚动", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("scroll") }) }},
+			{Label: "启用自动播放", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("play") }) }},
+			{Label: "最大化窗口", Accelerator: "1", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.ToggleMaximize() }},
+			{Label: "合适窗口大小", Accelerator: "2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
+			{Label: "将窗口居中", Accelerator: "5", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
+			{Label: "跟随系统主题", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("system") }) }},
+			{Label: "浅色模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("light") }) }},
+			{Label: "黑暗模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("dark") }) }},
+			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.SidebarShown = !a.SidebarShown }) }},
 		}},
 	})
 }
@@ -254,6 +293,14 @@ func isImageFile(ext string) bool {
 	return false
 }
 
+func isRawFile(ext string) bool {
+	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
+	case "arw", "cr2", "cr3", "crw", "dng", "erf", "kdc", "mrw", "nef", "nrw", "orf", "pef", "raf", "raw", "rw2", "sr2", "srf", "x3f", "heic", "heif", "avif":
+		return true
+	}
+	return false
+}
+
 func isVideoFile(ext string) bool {
 	switch strings.ToLower(ext) {
 	case "mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "mts":
@@ -262,7 +309,7 @@ func isVideoFile(ext string) bool {
 	return false
 }
 
-func isMediaFile(ext string) bool { return isImageFile(ext) || isVideoFile(ext) }
+func isMediaFile(ext string) bool { return isImageFile(ext) || isRawFile(ext) || isVideoFile(ext) }
 
 func isDir(path string) bool {
 	info, err := os.Stat(path)
@@ -282,8 +329,12 @@ func (a *appState) openFolder(path string) {
 		return
 	}
 	a.stopWatcher()
+	a.stopAutomation()
 	a.mu.Lock()
 	a.Root = path
+	if a.MediaUnitRoot != "" && path != a.MediaUnitRoot && filepath.Dir(path) != a.MediaUnitRoot {
+		a.MediaUnitRoot = ""
+	}
 	a.Query = ""
 	a.Items = nil
 	a.Visible = nil
@@ -303,8 +354,7 @@ func (a *appState) openFolder(path string) {
 	a.mu.Unlock()
 	a.noteTabRoot(path)
 	a.Window.SetTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
-	a.refresh()
-	a.startWatcher()
+	a.refreshView()
 }
 
 func (a *appState) refresh() {
@@ -315,18 +365,38 @@ func (a *appState) refresh() {
 	if root == "" {
 		return
 	}
-	go a.scanFolder(root, seq)
+	safeGo("scanFolder", func() { a.scanFolder(root, seq) })
 }
 
 func (a *appState) scanFolder(root string, seq int) {
 	var files []mediaItem
-	if a.Recursive {
+	view := a.Profiles.View
+	flat := a.Recursive || a.MediaUnitRoot == root
+	includeFile := func(path, ext string) bool {
+		if !view.Hidden && isHiddenPath(root, path) {
+			return false
+		}
+		return view.AllTypes || isEnabledFile(path, ext, view)
+	}
+	if flat {
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != root && !view.Hidden && strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !isHiddenPath(root, path)) {
+					info, statErr := d.Info()
+					if statErr == nil {
+						files = append(files, mediaItem{Path: path, Name: d.Name(), ModTime: info.ModTime().Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
+					}
+				}
 				return nil
 			}
 			ext := strings.TrimPrefix(filepath.Ext(path), ".")
-			if !isMediaFile(ext) {
+			if !includeFile(path, ext) {
 				return nil
 			}
 			info, err := d.Info()
@@ -339,14 +409,15 @@ func (a *appState) scanFolder(root string, seq int) {
 	} else {
 		entries, err := os.ReadDir(root)
 		if err != nil {
+			logErrorf("could not read folder %s: %v", root, err)
 			return
 		}
 		for _, e := range entries {
 			name := e.Name()
+			if !view.Hidden && strings.HasPrefix(name, ".") {
+				continue
+			}
 			if e.IsDir() {
-				if strings.HasPrefix(name, ".") {
-					continue
-				}
 				info, err := e.Info()
 				if err != nil {
 					continue
@@ -355,7 +426,7 @@ func (a *appState) scanFolder(root string, seq int) {
 				continue
 			}
 			ext := strings.TrimPrefix(filepath.Ext(name), ".")
-			if !isMediaFile(ext) {
+			if !includeFile(filepath.Join(root, name), ext) {
 				continue
 			}
 			info, err := e.Info()
@@ -365,23 +436,8 @@ func (a *appState) scanFolder(root string, seq int) {
 			files = append(files, mediaItem{Path: filepath.Join(root, name), Name: name, Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
 		}
 	}
-	slices.SortStableFunc(files, func(x, y mediaItem) int {
-		if x.IsDir != y.IsDir {
-			if x.IsDir {
-				return -1
-			}
-			return 1
-		}
-		switch a.Sort {
-		case "date":
-			return int(y.ModTime - x.ModTime)
-		case "size":
-			return int(y.Size - x.Size)
-		default:
-			return strings.Compare(strings.ToLower(x.Name), strings.ToLower(y.Name))
-		}
-	})
-	a.Window.Update(func() {
+	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })
+	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.Root != root || a.scanSeq != seq {
@@ -390,7 +446,232 @@ func (a *appState) scanFolder(root string, seq int) {
 		a.Items = files
 		a.applyFilterLocked()
 		a.restorePendingSelection()
-		go a.loadTags()
+		if a.InLargeView && (a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible)) {
+			a.closeLargeImage()
+		}
+		safeGo("loadTags", a.loadTags)
+	})
+}
+
+func (a *appState) compareMedia(x, y mediaItem) int {
+	if a.FolderFirst && x.IsDir != y.IsDir {
+		if x.IsDir {
+			return -1
+		}
+		return 1
+	}
+	key := a.Sort
+	desc := strings.HasSuffix(key, "-desc")
+	key = strings.TrimSuffix(key, "-desc")
+
+	cmp := 0
+	switch key {
+	case "size":
+		cmp = compareInt64(x.Size, y.Size)
+	case "type":
+		cmp = strings.Compare(strings.ToLower(x.Ext), strings.ToLower(y.Ext))
+	case "date", "created", "added":
+		cmp = compareInt64(x.ModTime, y.ModTime)
+	case "tag":
+		cmp = strings.Compare(firstTag(x.Tags), firstTag(y.Tags))
+	case "random":
+		cmp = compareUint64(randomSortKey(x.Path, a.sortSalt), randomSortKey(y.Path, a.sortSalt))
+	case "exif":
+		cmp = strings.Compare(x.Info.Created, y.Info.Created)
+		if cmp == 0 {
+			cmp = compareInt64(x.ModTime, y.ModTime)
+		}
+	default:
+		xName, yName := x.Name, y.Name
+		if a.FullPathSort {
+			xName, yName = x.Path, y.Path
+		}
+		cmp = strings.Compare(strings.ToLower(xName), strings.ToLower(yName))
+	}
+	if cmp == 0 {
+		cmp = strings.Compare(strings.ToLower(x.Path), strings.ToLower(y.Path))
+	}
+	if desc {
+		return -cmp
+	}
+	return cmp
+}
+
+func firstTag(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(tags[0]))
+}
+
+func compareInt64(x, y int64) int {
+	switch {
+	case x < y:
+		return -1
+	case x > y:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareUint64(x, y uint64) int {
+	switch {
+	case x < y:
+		return -1
+	case x > y:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func randomSortKey(path string, salt int64) uint64 {
+	h := fnv.New64a()
+	_, _ = fmt.Fprintf(h, "%d:%s", salt, path)
+	return h.Sum64()
+}
+
+func ancestorRoots(path string) []string {
+	path = filepath.Clean(path)
+	if path == "." || path == "" {
+		return []string{"/"}
+	}
+	roots := []string{"/"}
+	current := ""
+	for _, part := range strings.Split(strings.Trim(path, "/"), "/") {
+		if part == "" {
+			continue
+		}
+		current += "/" + part
+		roots = append(roots, current)
+	}
+	return roots
+}
+
+func (a *appState) filterLabel() string {
+	switch a.FilterMode {
+	case 1:
+		return "图片"
+	case 2:
+		return "视频"
+	default:
+		return "全部"
+	}
+}
+
+func (a *appState) layoutLabel() string {
+	switch a.LayoutMode {
+	case 1:
+		return "详情"
+	case 2:
+		return "瀑布"
+	case 3:
+		return "紧凑"
+	default:
+		return "网格"
+	}
+}
+
+// layoutSwitcher draws Finder's view control: four icon segments that pick
+// the media layout (icon view, list, waterfall and justified mosaic).
+func (a *appState) layoutSwitcher(c *ui.Context) {
+	t := c.Theme()
+	layouts := []struct {
+		icon  *ui.SVG
+		label string
+	}{
+		{gridIcon, "网格"},
+		{detailIcon, "详情"},
+		{waterfallIcon, "瀑布"},
+		{justifiedIcon, "紧凑"},
+	}
+	seg := ui.SegmentedBase(c, &a.LayoutMode, len(layouts))
+	seg.Track.AlignItems(ui.Stretch).Padding(2).Gap(2).Radius(6).Background(t.Surface).Children(func() {
+		for i, layout := range layouts {
+			active := a.LayoutMode == i
+			s := seg.Segment(i).Justify(ui.Center).AlignItems(ui.Center).Padding(3, 6).Radius(4)
+			if active {
+				s.Background(t.Accent)
+			}
+			s.Tooltip(layout.label)
+			s.Children(func() {
+				color := t.Text
+				if active {
+					color = t.AccentText
+				}
+				ui.Icon(c, layout.icon).FontSize(13).TextColor(color)
+			})
+		}
+	})
+}
+
+func (a *appState) sortLabel() string {
+	base := strings.TrimSuffix(a.Sort, "-desc")
+	names := map[string]string{
+		"name":    "名称",
+		"size":    "文件大小",
+		"type":    "文件类型",
+		"created": "创建日期",
+		"date":    "修改日期",
+		"added":   "添加日期",
+		"tag":     "Finder 标签",
+		"random":  "随机",
+		"exif":    "Exif 日期",
+	}
+	label := names[base]
+	if label == "" {
+		label = "名称"
+	}
+	return label
+}
+
+func (a *appState) finderSortMenu(m *ui.Menu) {
+	if m.Item("文件夹优先排序").Checked(a.FolderFirst).Chosen() {
+		a.FolderFirst = !a.FolderFirst
+		a.refresh()
+	}
+	if m.Item("集合模式下使用完整路径排序").Checked(a.FullPathSort).Chosen() {
+		a.FullPathSort = !a.FullPathSort
+		a.refresh()
+	}
+	m.Item("说明…").Disabled(true)
+	m.Separator()
+	for _, item := range []struct{ label, value string }{
+		{"文件名", "name"},
+		{"文件名 (降序)", "name-desc"},
+		{"文件大小", "size"},
+		{"文件大小 (降序)", "size-desc"},
+		{"文件类型", "type"},
+		{"文件类型 (降序)", "type-desc"},
+		{"创建日期", "created"},
+		{"创建日期 (降序)", "created-desc"},
+		{"修改日期", "date"},
+		{"修改日期 (降序)", "date-desc"},
+		{"添加日期", "added"},
+		{"添加日期 (降序)", "added-desc"},
+		{"Finder 标签", "tag"},
+		{"Finder 标签 (倒序)", "tag-desc"},
+		{"随机", "random"},
+	} {
+		if m.Item(item.label).Radio(a.Sort == item.value).Chosen() {
+			a.Sort = item.value
+			if item.value == "random" {
+				a.sortSalt = time.Now().UnixNano()
+			}
+			a.refresh()
+		}
+	}
+	m.Submenu("根据 Exif 信息排序", func(sm *ui.Menu) {
+		for _, item := range []struct{ label, value string }{
+			{"拍摄日期", "exif"},
+			{"拍摄日期 (降序)", "exif-desc"},
+		} {
+			if sm.Item(item.label).Radio(a.Sort == item.value).Chosen() {
+				a.Sort = item.value
+				a.refresh()
+			}
+		}
 	})
 }
 
@@ -463,7 +744,8 @@ func (a *appState) applyFilterLocked() {
 			continue
 		}
 		if !a.Items[i].IsDir {
-			if (a.FilterMode == 1 && a.Items[i].IsVideo) || (a.FilterMode == 2 && !a.Items[i].IsVideo) {
+			ext := a.Items[i].Ext
+			if (a.FilterMode == 1 && (!isImageFile(ext) && !isRawFile(ext))) || (a.FilterMode == 2 && !isVideoFile(ext)) {
 				continue
 			}
 			if a.TagFilter != "" && !containsString(a.Items[i].Tags, a.TagFilter) {
@@ -474,6 +756,9 @@ func (a *appState) applyFilterLocked() {
 	}
 	if a.Chosen >= len(a.Visible) {
 		a.Chosen = -1
+	}
+	if a.Chosen >= 0 && a.Selected.Len() == 0 {
+		a.Selected.Add(a.Items[a.Visible[a.Chosen]].Path)
 	}
 }
 
@@ -486,10 +771,10 @@ func (a *appState) startWatcher() {
 	a.watchCtx = ctx
 	a.watchStop = cancel
 	root := a.Root
-	recursive := a.Recursive
+	recursive := a.Recursive || a.MediaUnitRoot == root
 	a.mu.Unlock()
 
-	go func() {
+	safeGo("watchFiles", func() {
 		w, err := mygo.WatchFiles(ctx, root, mygo.FileWatchOptions{Recursive: recursive, Debounce: 100 * time.Millisecond})
 		if err != nil {
 			return
@@ -509,10 +794,10 @@ func (a *appState) startWatcher() {
 				return
 			}
 			if len(events) > 0 {
-				a.Window.Update(func() { a.refresh() })
+				a.update(func() { a.refresh() })
 			}
 		}
-	}()
+	})
 }
 
 func (a *appState) stopWatcher() {
@@ -577,9 +862,12 @@ func (a *appState) treeChildren(path string) []string {
 func (a *appState) pickFolder() {
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Window, Title: "打开媒体目录", Directory: true})
 	if err != nil || len(paths) == 0 {
+		if err != nil {
+			logErrorf("open folder dialog failed: %v", err)
+		}
 		return
 	}
-	a.Window.Update(func() { a.openFolder(paths[0]) })
+	a.update(func() { a.openFolder(paths[0]) })
 }
 
 func (a *appState) loadThumb(root string, index int) {
@@ -601,10 +889,10 @@ func (a *appState) loadThumb(root string, index int) {
 	edge := thumbBand(thumbEdge(a.Thumb))
 	a.mu.Unlock()
 
-	go func() {
+	safeGo("loadThumb", func() {
 		key := thumbCacheKey(path, edge)
 		if bitmap := thumbLRU.Get(key); bitmap != nil {
-			a.Window.Update(func() {
+			a.update(func() {
 				a.mu.Lock()
 				defer a.mu.Unlock()
 				if a.Root != root || index >= len(a.Items) || a.Items[index].Path != path {
@@ -631,7 +919,7 @@ func (a *appState) loadThumb(root string, index int) {
 		if err == nil {
 			bitmap, err = ui.DecodeBitmap(data)
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if a.Root != root || index >= len(a.Items) || a.Items[index].Path != path {
@@ -643,6 +931,7 @@ func (a *appState) loadThumb(root string, index int) {
 			}
 			if err != nil {
 				current.Failed = true
+				logDebugf("thumbnail decode failed for %s: %v", path, err)
 			} else {
 				current.Bitmap = bitmap
 				current.Decoded = true
@@ -651,16 +940,56 @@ func (a *appState) loadThumb(root string, index int) {
 			}
 			current.Loading = false
 		})
-	}()
+	})
 }
 
 // ============================
 // Views
 // ============================
 
+// update runs fn on the window's main thread when a window exists. Background
+// work that touches the interface goes through it, so headless runs (tests or
+// an early startup failure) do nothing instead of panicking on a nil Window.
+func (a *appState) update(fn func()) {
+	if a.Window == nil {
+		return
+	}
+	a.Window.Update(fn)
+}
+
+// visibleItem returns the item at visible index i, or nil when either index is
+// out of range. Visible and Items are rewritten by background scans, so a view
+// that runs while a scan swaps them can see a stale index; this keeps that from
+// panicking with an out-of-range slice access.
+func (a *appState) visibleItem(i int) *mediaItem {
+	if i < 0 || i >= len(a.Visible) {
+		return nil
+	}
+	itemIndex := a.Visible[i]
+	if itemIndex < 0 || itemIndex >= len(a.Items) {
+		return nil
+	}
+	return &a.Items[itemIndex]
+}
+
+// itemKey is the identity a media row carries in selection state. Grid and list
+// rows must use the same string keys as a.Selected (a Selection[string]); a
+// default row key is the row index, and mixing those panics in mygo with
+// "a row's key is a int, not the string of its Selection".
+func (a *appState) itemKey(i int) any {
+	if item := a.visibleItem(i); item != nil {
+		return item.Path
+	}
+	return fmt.Sprintf("!missing:%d", i)
+}
+
 func (a *appState) view(c *ui.Context) {
+	// A panic building one frame is logged with its stack and the next frame
+	// rebuilds, instead of taking the whole app down.
+	defer logRecover("view")
 	t := c.Theme()
 	c.Root().Background(t.Background)
+	a.tickAutomation(c)
 	if !a.InLargeView {
 		a.settleThumbs(c)
 	}
@@ -676,17 +1005,33 @@ func (a *appState) view(c *ui.Context) {
 		a.SidebarShown = !a.SidebarShown
 	}
 	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyLeft) || (a.InLargeView && c.Shortcut(0, ui.KeyLeft))) {
-		if a.InLargeView {
+		if a.InLargeView && !a.videoLargeView() {
 			a.prevImage()
 		} else {
 			a.goBack()
 		}
 	}
 	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyRight) || (a.InLargeView && c.Shortcut(0, ui.KeyRight))) {
-		if a.InLargeView {
+		if a.InLargeView && !a.videoLargeView() {
 			a.nextImage()
 		} else {
 			a.goForward()
+		}
+	}
+	// Video seek with arrow keys in large view.
+	if a.InLargeView && !a.Editor.Open && a.videoLargeView() {
+		if c.Shortcut(0, ui.KeyLeft) {
+			a.seekVideo(max(0, a.playhead()-5))
+		}
+		if c.Shortcut(0, ui.KeyRight) {
+			a.seekVideo(min(a.videoDuration(), a.playhead()+5))
+		}
+		// Cmd+arrow = frame-by-frame seek.
+		if c.Shortcut(ui.Cmd, ui.KeyLeft) {
+			a.seekVideo(max(0, a.playhead()-1.0/30))
+		}
+		if c.Shortcut(ui.Cmd, ui.KeyRight) {
+			a.seekVideo(min(a.videoDuration(), a.playhead()+1.0/30))
 		}
 	}
 	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
@@ -700,8 +1045,98 @@ func (a *appState) view(c *ui.Context) {
 		a.Window.Center()
 	}
 	if c.Shortcut(0, ui.KeyT) && !a.InLargeView {
-		a.Pinned = !a.Pinned
-		a.Window.SetAlwaysOnTop(a.Pinned)
+		a.togglePinned()
+	}
+	// Large-view single-key shortcuts matching FlowVision.
+	if a.InLargeView && !a.Editor.Open && !a.modalOpen() {
+		if c.Shortcut(0, ui.KeyZ) {
+			a.zoom100()
+		}
+		if c.Shortcut(0, ui.KeyX) {
+			a.resetZoom()
+		}
+		if c.Shortcut(0, ui.KeyM) {
+			a.transferToDownloads(opMove)
+		}
+		if c.Shortcut(0, ui.KeyHome) {
+			a.openLargeImage(0)
+		}
+		if c.Shortcut(0, ui.KeyEnd) {
+			a.openLargeImage(len(a.Visible) - 1)
+		}
+		if c.Shortcut(0, ui.KeyW) {
+			a.zoomStep(1.25)
+		}
+		if c.Shortcut(0, ui.KeyS) {
+			a.zoomStep(1 / 1.25)
+		}
+	}
+	// F3 = search, F5 = refresh.
+	if c.Shortcut(0, ui.KeyF3) && !a.InLargeView {
+		a.FocusSearch = true
+	}
+	if c.Shortcut(0, ui.KeyF5) {
+		a.refresh()
+	}
+	// Cmd+Down opens selected item or enters folder.
+	if c.Shortcut(ui.Cmd, ui.KeyDown) && !a.InLargeView && !a.modalOpen() {
+		if a.Chosen >= 0 && a.Chosen < len(a.Visible) {
+			a.openItem(a.Chosen)
+		}
+	}
+	// Alt+Enter toggles fullscreen.
+	if c.Shortcut(ui.Alt, ui.KeyEnter) {
+		a.Window.ToggleFullScreen()
+	}
+	// Cmd+1~9 toggles Finder tags on selection.
+	if !a.InLargeView && !a.modalOpen() {
+		for i := 0; i < 9; i++ {
+			key := ui.Key1 + ui.Key(i)
+			if c.Shortcut(ui.Cmd, key) {
+				names := finderLabelNames()
+				if i < len(names) {
+					paths := a.operationPaths()
+					if len(paths) > 0 {
+						a.toggleTag(paths, names[i])
+					}
+				}
+			}
+		}
+	}
+	// Ctrl+1~5 sets rating, Ctrl+0 clears.
+	if !a.InLargeView && !a.modalOpen() {
+		for i := 0; i <= 5; i++ {
+			var key ui.Key
+			if i == 0 {
+				key = ui.Key0
+			} else {
+				key = ui.Key1 + ui.Key(i-1)
+			}
+			if c.Shortcut(ui.Ctrl, key) {
+				paths := a.operationPaths()
+				if len(paths) > 0 {
+					a.setRating(paths, i)
+				}
+			}
+		}
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyPeriod) && !a.modalOpen() {
+		a.toggleViewOption("hidden")
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyComma) && !a.modalOpen() {
+		a.toggleViewOption("all")
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		a.setRecursive(!a.Recursive)
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+		a.toggleViewOption("folders")
+	}
+	if c.Shortcut(0, ui.Key3) && a.InLargeView {
+		a.fitWindowToImage(false)
+	}
+	if c.Shortcut(0, ui.Key4) && a.InLargeView {
+		a.fitWindowToImage(true)
 	}
 	if !a.InLargeView && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		switch {
@@ -728,6 +1163,8 @@ func (a *appState) view(c *ui.Context) {
 		}
 	}
 	if c.Shortcut(0, ui.KeyEscape) && a.modalOpen() {
+		a.AutoConfig = ""
+		a.AutoValue = ""
 		a.ZipAsk = false
 		a.ZipPass = ""
 		a.CropAsk = false
@@ -743,7 +1180,7 @@ func (a *appState) view(c *ui.Context) {
 				a.toggleVideoPlayback()
 			}
 		} else if a.Chosen >= 0 {
-			a.openLargeImage(a.Chosen)
+			a.openItem(a.Chosen)
 		}
 	}
 	if c.Shortcut(0, ui.KeyI) && a.InLargeView {
@@ -796,9 +1233,6 @@ func (a *appState) view(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyR) {
 		a.refresh()
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.InLargeView && !a.Renaming && !a.NewFolder && !a.modalOpen() {
-		a.quickRenameFolder()
-	}
 	for i := 0; i < 9; i++ {
 		key := ui.Key1 + ui.Key(i)
 		if c.Shortcut(ui.Alt, key) {
@@ -812,13 +1246,42 @@ func (a *appState) view(c *ui.Context) {
 		a.doCut()
 	}
 
+	// Configured copy shortcuts: image folder and video folder.
+	if !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
+		if key, ok := shortcutKey(a.Profiles.ImageCopyShortcut); ok && c.Shortcut(0, key) {
+			a.copyToImageFolder()
+		}
+		if key, ok := shortcutKey(a.Profiles.VideoCopyShortcut); ok && c.Shortcut(0, key) {
+			a.copyToVideoFolder()
+		}
+	}
+
+	// Video Shift+arrow switches to previous/next file.
+	if a.InLargeView && a.Profiles.VideoShiftArrow && !a.Editor.Open {
+		if c.Shortcut(ui.Shift, ui.KeyLeft) {
+			a.prevImage()
+		}
+		if c.Shortcut(ui.Shift, ui.KeyRight) {
+			a.nextImage()
+		}
+	}
+
+	// Enter key: rename or open/close depending on preference.
+	if c.Shortcut(0, ui.KeyEnter) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
+		if a.InLargeView {
+			a.closeLargeImage()
+		} else if a.Chosen >= 0 {
+			if a.Profiles.EnterOpens {
+				a.openItem(a.Chosen)
+			} else {
+				a.startRename()
+			}
+		}
+	}
+
 	if a.SidebarWidth == 0 {
 		a.SidebarWidth = sidebarDefaultWidth
 	}
-	if !a.SidebarShown && !a.InLargeView {
-		a.SidebarShown = true
-	}
-
 	if a.SidebarShown && !a.InLargeView {
 		ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.mainView(c) }).Fill()
 	} else {
@@ -831,6 +1294,7 @@ func (a *appState) view(c *ui.Context) {
 	a.cropDialog(c)
 	a.trimDialog(c)
 	a.infoDialog(c)
+	a.autoConfigDialog(c)
 }
 
 func (a *appState) sidebarView(c *ui.Context) {
@@ -841,9 +1305,6 @@ func (a *appState) sidebarView(c *ui.Context) {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "收藏夹").FontSize(11).Bold().TextColor(t.TextMuted)
 		})
-		if len(a.Profiles.Favorites) == 0 {
-			ui.Text(c, "无").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		}
 		for _, fav := range a.Profiles.Favorites {
 			fav := fav
 			if !isDir(fav) {
@@ -867,18 +1328,22 @@ func (a *appState) sidebarView(c *ui.Context) {
 		}
 		a.Outline.List.Selected = &a.TreeChosen
 		a.Outline.List.Key = func(row int) any { return a.Outline.Item(row) }
-		roots := []string{"/", a.Root}
-		roots = slices.Compact(slices.Sorted(slices.Values(roots)))
+		roots := []string{"/"}
+		if a.treeOpenRoot != a.Root {
+			for _, ancestor := range ancestorRoots(a.Root) {
+				if ancestor != filepath.Clean(a.Root) {
+					a.Outline.Open.Add(ancestor)
+				}
+			}
+			a.treeOpenRoot = a.Root
+		}
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
 		// History section: recent folders visited in this session.
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "历史记录").FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, "History").FontSize(11).Bold().TextColor(t.TextMuted)
 		})
-		if len(a.History) == 0 {
-			ui.Text(c, "无").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-		}
 		for i, h := range a.History {
 			hist := h
 			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
@@ -896,7 +1361,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 		// Finder tags section (placeholder groups matching FlowVision sidebar).
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "Finder标签").FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, "Finder 标签").FontSize(11).Bold().TextColor(t.TextMuted)
 		})
 		for _, tag := range finderLabelNames() {
 			name := tag
@@ -909,7 +1374,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 					a.TagFilter = ""
 				} else {
 					a.TagFilter = name
-					go a.loadTags()
+					safeGo("loadTags", a.loadTags)
 				}
 				a.applyFilter()
 			})
@@ -952,6 +1417,9 @@ func (a *appState) mainView(c *ui.Context) {
 		a.tabsBar(c)
 		a.toolbarView(c)
 		ui.Divider(c)
+		if !a.InLargeView && a.Root != "" && len(a.Visible) > 0 {
+			ui.Text(c, pathName(a.Root)).FontSize(20).Bold().Padding(8, 12)
+		}
 		if a.InLargeView {
 			a.largeImageView(c)
 		} else if a.Root == "" {
@@ -998,7 +1466,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 			items := strings.Split(strings.ReplaceAll(a.breadcrumbPath(), " › ", "/"), "/")
 			chosen := len(items) - 1
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
-			ui.Textf(c, "(%d 图像)", a.mediaCount()).FontSize(11).TextColor(t.TextMuted)
+			ui.Textf(c, "(%d 媒体)", a.mediaCount()).FontSize(11).TextColor(t.TextMuted)
 		}
 		if !a.InLargeView {
 			prevQuery := a.LastQuery
@@ -1013,7 +1481,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.applyFilterLocked()
 				a.mu.Unlock()
 			}
-			ui.MenuButton(c, "类型", func(m *ui.Menu) {
+			ui.MenuButton(c, a.filterLabel(), func(m *ui.Menu) {
 				for i, name := range []string{"全部", "图片", "视频"} {
 					idx := i
 					if m.Item(name).Radio(a.FilterMode == idx).Chosen() {
@@ -1024,14 +1492,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 			})
 		}
 		if !a.InLargeView {
-			ui.MenuButton(c, "布局", func(m *ui.Menu) {
-				for i, name := range []string{"网格", "详情", "瀑布", "紧凑"} {
-					idx := i
-					if m.Item(name).Radio(a.LayoutMode == idx).Chosen() {
-						a.LayoutMode = idx
-					}
-				}
-			})
+			a.layoutSwitcher(c)
 			oldThumb := a.Thumb
 			beforeBand := thumbBand(thumbEdge(a.Thumb))
 			box := a.browseBox
@@ -1039,17 +1500,9 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.noteThumbBand(beforeBand)
 				a.anchorBrowse(oldThumb, a.Thumb, 0, 0, false, box)
 			}
-			ui.MenuButton(c, "排序", func(m *ui.Menu) {
-				for _, item := range []struct{ label, value string }{
-					{"名称", "name"}, {"日期", "date"}, {"大小", "size"},
-				} {
-					if m.Item(item.label).Radio(a.Sort == item.value).Chosen() {
-						a.Sort = item.value
-						a.refresh()
-					}
-				}
-			})
+			ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
 		}
+		ui.MenuButton(c, "•••", a.viewMenu).Tooltip("显示与浏览")
 	}).Padding(6, 10).Background(t.Surface)
 	_ = bar
 }
@@ -1108,15 +1561,23 @@ func (a *appState) emptyFolderView(c *ui.Context) {
 func (a *appState) gridView(c *ui.Context) {
 	t := c.Theme()
 	root := a.Root
-	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
+	a.Grid.Key = a.itemKey
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
-	cell := int(a.Thumb + 64)
+	a.Grid.Label = func(i int) string {
+		if item := a.visibleItem(i); item != nil {
+			return item.Name
+		}
+		return ""
+	}
+	cell := int(a.Thumb + 56)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
-	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+24), func(i int) {
-		item := &a.Items[a.Visible[i]]
+	grid := ui.GridView(c, &a.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
+		item := a.visibleItem(i)
+		if item == nil {
+			return
+		}
 		card := ui.Column(c).Grow(1).Gap(4)
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
@@ -1125,7 +1586,7 @@ func (a *appState) gridView(c *ui.Context) {
 			card.Border(2, t.Accent)
 		}
 		card.Children(func() {
-			thumb := ui.Box(c).Grow(1).Radius(6).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
+			thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 			thumb.Children(func() {
 				if dots := tagDots(item.Tags); len(dots) > 0 {
 					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
@@ -1145,7 +1606,7 @@ func (a *appState) gridView(c *ui.Context) {
 					ui.Spinner(c)
 				}
 			})
-			ui.Text(c, item.Name).FontSize(11).MaxLines(1).SingleLine().TextAlign(ui.Start)
+			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)
@@ -1164,7 +1625,7 @@ func (a *appState) gridView(c *ui.Context) {
 		a.noteBrowseBox(bounds, cols, gridStride(a.Thumb, gap), gap, contentW, len(a.Visible))
 	}
 	if grid.Submitted() && a.Chosen >= 0 && a.Chosen < len(a.Visible) {
-		a.openLargeImage(a.Chosen)
+		a.openItem(a.Chosen)
 	}
 }
 
@@ -1174,7 +1635,7 @@ func (a *appState) statusBar(c *ui.Context) {
 	bar.Children(func() {
 		label := "未打开目录"
 		if a.Root != "" {
-			label = fmt.Sprintf("%s (%d 图像)", a.Root, a.mediaCount())
+			label = fmt.Sprintf("%s (%d 媒体)", a.Root, a.mediaCount())
 		}
 		ui.Text(c, label).FontSize(11).TextColor(t.TextMuted)
 	})
@@ -1356,7 +1817,7 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		case ui.KeyQ:
 			a.Rotation -= 90
 			return true
-		case ui.KeyM, ui.KeyF:
+		case ui.KeyF:
 			a.Mirror = !a.Mirror
 			return true
 		case ui.KeySpace:
@@ -1457,7 +1918,7 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 	})
 }
 
-// videoControlsBar is the floating 520px playback strip above the video.
+// videoControlsBar is the FlowVision-style floating playback strip.
 func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 	if a.Video == nil {
 		return
@@ -1468,24 +1929,82 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 		duration = 1
 	}
 	pos := a.playhead()
-	bar := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Width(520).Height(67).Margin(14, 0).Padding(8, 12).
-		Gap(8).AlignItems(ui.Center).Background(t.Surface).Radius(8).Border(1, t.Border)
+	bar := ui.Column(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Width(820).Height(96).Margin(24, 0).
+		Padding(12, 14).Gap(8).Background(t.Surface).Radius(10).Border(1, t.Border)
 	bar.Children(func() {
-		label := "播放"
-		if a.Video.playing {
-			label = "暂停"
-		}
-		if ui.Button(c.Key("video-play"), label).Clicked() {
-			a.toggleVideoPlayback()
-		}
-		if ui.Slider(c, &pos, 0, duration).Width(210).Tooltip("进度").Changed() {
-			a.seekVideo(pos)
-		}
-		if ui.Button(c.Key("video-frame"), "帧").Tooltip("截存当前画面").Clicked() {
-			a.captureCurrentFrame()
-		}
-		ui.Textf(c, "%s / %s", shortTime(a.Video.Position), shortTime(duration)).FontSize(11).TextColor(t.TextMuted)
+		// Progress row with hover time and a clickable/draggable slider.
+		progress := ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Padding(0, 2)
+		progress.Children(func() {
+			ui.Text(c, shortTime(pos)).Width(46).FontSize(11).TextColor(t.TextMuted)
+			if ui.Slider(c.Key("video-progress"), &pos, 0, duration).Grow(1).Height(18).Tooltip("进度").Changed() {
+				a.seekVideo(pos)
+			}
+			ui.Text(c, shortTime(duration)).Width(46).FontSize(11).TextColor(t.TextMuted)
+		})
+		controls := ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Center).Justify(ui.SpaceBetween)
+		controls.Children(func() {
+			left := ui.Row(c).Gap(14).AlignItems(ui.Center)
+			left.Children(func() {
+				if ui.Button(c.Key("video-skip-back"), "-15").Tooltip("后退 15 秒").Clicked() {
+					a.seekVideo(max(0, a.playhead()-15))
+				}
+				if ui.Button(c.Key("video-play"), "播放").Tooltip("播放/暂停").Clicked() {
+					a.toggleVideoPlayback()
+				}
+				if ui.Button(c.Key("video-skip-forward"), "+15").Tooltip("前进 15 秒").Clicked() {
+					a.seekVideo(min(duration, a.playhead()+15))
+				}
+			})
+			center := ui.Row(c).Gap(10).AlignItems(ui.Center)
+			center.Children(func() {
+				if ui.Button(c.Key("video-volume"), "音量").Tooltip("静音/恢复音量").Clicked() {
+					a.toggleVideoVolume()
+				}
+				if ui.Slider(c.Key("video-volume-slider"), &a.VideoVolume, 0, 1).Width(90).Height(18).Tooltip("音量").Changed() {
+					a.setVideoVolume(a.VideoVolume)
+				}
+			})
+			right := ui.Row(c).Gap(8).AlignItems(ui.Center)
+			right.Children(func() {
+				if ui.Button(c.Key("video-trim"), "裁剪").Tooltip("无损裁剪片段").Clicked() {
+					a.promptTrim()
+				}
+				if ui.Button(c.Key("video-frame"), "截帧").Tooltip("截存当前画面").Clicked() {
+					a.captureCurrentFrame()
+				}
+			})
+		})
 	})
+}
+
+func (a *appState) toggleVideoVolume() {
+	if a.Video == nil {
+		return
+	}
+	if a.Video.sound != nil {
+		if a.Video.sound.Volume() > 0 {
+			a.PrevVolume = a.Video.sound.Volume()
+			a.Video.sound.SetVolume(0)
+		} else {
+			volume := a.PrevVolume
+			if volume <= 0 || volume > 2 {
+				volume = 1
+			}
+			a.Video.sound.SetVolume(volume)
+		}
+	}
+}
+
+func (a *appState) setVideoVolume(volume float64) {
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 2 {
+		volume = 2
+	}
+	if a.Video != nil && a.Video.sound != nil {
+		a.Video.sound.SetVolume(volume)
+	}
 }
 
 // edgeArrows mirrors FlowVision's left/right media switching hints.
@@ -1507,6 +2026,12 @@ func (a *appState) edgeArrows(c *ui.Context) {
 	}
 }
 
+// videoLargeView reports whether the current large-view item is a video.
+func (a *appState) videoLargeView() bool {
+	item := a.currentItem()
+	return item != nil && item.IsVideo
+}
+
 func shortTime(seconds float64) string {
 	if seconds < 0 {
 		seconds = 0
@@ -1515,12 +2040,138 @@ func shortTime(seconds float64) string {
 	return fmt.Sprintf("%02d:%02d", total/60, total%60)
 }
 
+// shortcutKey maps a configured shortcut string to a ui.Key.
+func shortcutKey(name string) (ui.Key, bool) {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "A":
+		return ui.KeyA, true
+	case "B":
+		return ui.KeyB, true
+	case "C":
+		return ui.KeyC, true
+	case "D":
+		return ui.KeyD, true
+	case "E":
+		return ui.KeyE, true
+	case "F":
+		return ui.KeyF, true
+	case "G":
+		return ui.KeyG, true
+	case "H":
+		return ui.KeyH, true
+	case "J":
+		return ui.KeyJ, true
+	case "K":
+		return ui.KeyK, true
+	case "L":
+		return ui.KeyL, true
+	case "N":
+		return ui.KeyN, true
+	case "O":
+		return ui.KeyO, true
+	case "P":
+		return ui.KeyP, true
+	case "V":
+		return ui.KeyV, true
+	case "Y":
+		return ui.KeyY, true
+	case "0":
+		return ui.Key0, true
+	case "6":
+		return ui.Key6, true
+	case "7":
+		return ui.Key7, true
+	case "8":
+		return ui.Key8, true
+	case "9":
+		return ui.Key9, true
+	case "=":
+		return ui.KeyEqual, true
+	case "-":
+		return ui.KeyMinus, true
+	case ",":
+		return ui.KeyComma, true
+	case ".":
+		return ui.KeyPeriod, true
+	case "[":
+		return ui.KeyBracketLeft, true
+	case "]":
+		return ui.KeyBracketRight, true
+	case "F1":
+		return ui.KeyF1, true
+	case "F4":
+		return ui.KeyF4, true
+	case "F6":
+		return ui.KeyF6, true
+	case "F7":
+		return ui.KeyF7, true
+	case "F8":
+		return ui.KeyF8, true
+	case "F9":
+		return ui.KeyF9, true
+	case "F10":
+		return ui.KeyF10, true
+	case "F11":
+		return ui.KeyF11, true
+	case "F12":
+		return ui.KeyF12, true
+	}
+	return 0, false
+}
+
+func (a *appState) copyToImageFolder() {
+	dest := strings.TrimSpace(a.Profiles.ImageDestination)
+	if dest == "" || !isDir(dest) {
+		a.toast("请先在设置中配置图片文件夹")
+		return
+	}
+	paths := a.selectedPaths()
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil {
+			paths = []string{item.Path}
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
+}
+
+func (a *appState) copyToVideoFolder() {
+	dest := strings.TrimSpace(a.Profiles.VideoDestination)
+	if dest == "" || !isDir(dest) {
+		a.toast("请先在设置中配置视频文件夹")
+		return
+	}
+	var paths []string
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil && item.IsVideo {
+			paths = []string{item.Path}
+		}
+	} else {
+		for _, path := range a.selectedPaths() {
+			if isVideoFile(strings.TrimPrefix(filepath.Ext(path), ".")) {
+				paths = append(paths, path)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		a.toast("请先选择至少一个视频")
+		return
+	}
+	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
+}
+
 // ensureMediaInfo loads EXIF dimensions for ratio math.
 func (a *appState) ensureMediaInfo(item *mediaItem) {
 	if item.InfoLoaded && item.Info.Width > 0 {
 		return
 	}
-	go a.loadInfo(a.Visible[a.LargeIndex])
+	index := a.LargeIndex
+	if index < 0 || index >= len(a.Visible) {
+		return
+	}
+	safeGo("loadInfo", func() { a.loadInfo(a.Visible[index]) })
 }
 
 // largeWidth is the content area width, used for edge-click zones.
@@ -1549,7 +2200,7 @@ func (a *appState) ensureVideo(path string) {
 	if path == "" || (a.Video != nil && a.Video.path == path) {
 		return
 	}
-	a.openPlayback(path, 0, true)
+	a.openPlayback(path, 0, a.Profiles.View.AutoPlaySelected)
 }
 
 // seekVideo restarts the real ffmpeg stream at seconds so the control bar
@@ -1615,12 +2266,12 @@ func (a *appState) ensureLarge(index int) {
 	item.LargeLoading = true
 	path := item.Path
 	root := a.Root
-	go func() {
+	safeGo("loadLarge", func() {
 		bmp, err := decodeLargeBitmap(path)
 		if a.Window == nil {
 			return
 		}
-		a.Window.Update(func() {
+		a.update(func() {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if a.Root != root || itemIndex >= len(a.Items) || a.Items[itemIndex].Path != path {
@@ -1636,7 +2287,7 @@ func (a *appState) ensureLarge(index int) {
 			}
 			current.Large = bmp
 		})
-	}()
+	})
 }
 
 func (a *appState) openLargeImage(index int) {
@@ -1666,6 +2317,8 @@ func (a *appState) openLargeImage(index int) {
 }
 
 func (a *appState) closeLargeImage() {
+	a.AutoPlay = false
+	a.autoTick = time.Time{}
 	a.closeEditor()
 	a.clearSharp()
 	a.InLargeView = false
@@ -1698,7 +2351,7 @@ func (a *appState) prevImage() {
 func (a *appState) mediaCount() int {
 	n := 0
 	for _, index := range a.Visible {
-		if index >= 0 && index < len(a.Items) && !a.Items[index].IsDir {
+		if index >= 0 && index < len(a.Items) && isMediaFile(a.Items[index].Ext) {
 			n++
 		}
 	}
@@ -1706,7 +2359,7 @@ func (a *appState) mediaCount() int {
 }
 
 func (a *appState) modalOpen() bool {
-	return a.ZipAsk || a.CropAsk || a.TrimAsk || a.InfoAsk || a.Editor.Open
+	return a.ZipAsk || a.CropAsk || a.TrimAsk || a.InfoAsk || a.Editor.Open || a.AutoConfig != ""
 }
 
 func (a *appState) applyFilter() {
@@ -1717,13 +2370,22 @@ func (a *appState) applyFilter() {
 
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
-	a.Grid.Key = func(i int) any { return a.Items[a.Visible[i]].Path }
+	a.Grid.Key = a.itemKey
 	a.Grid.Selected = &a.Chosen
 	a.Grid.Selection = &a.Selected
-	a.Grid.Label = func(i int) string { return a.Items[a.Visible[i]].Name }
+	a.Grid.Label = func(i int) string {
+		if item := a.visibleItem(i); item != nil {
+			return item.Name
+		}
+		return ""
+	}
+	a.ListState.Key = a.itemKey
 	a.ListState.Selection = &a.Selected
 	list := ui.List(c, &a.ListState, len(a.Visible), func(i int) {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			return
+		}
 		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
 		if a.Chosen == i {
 			row.Background(t.Accent).TextColor(t.AccentText)
@@ -1747,10 +2409,10 @@ func (a *appState) detailView(c *ui.Context) {
 			row.Opacity(0.4)
 		}
 		if row.DoubleClicked() {
-			a.openLargeImage(i)
+			a.openItem(i)
 		}
 	})
-	list.Grow(1)
+	list.Grow(1).TrackScroll(&a.browseScroll)
 }
 
 func (a *appState) currentProfile() profile {
@@ -1780,6 +2442,7 @@ func (a *appState) applyProfile(i int) {
 	a.Thumb = p.Thumb
 	a.Sort = p.Sort
 	a.Recursive = p.Recursive
+	a.MediaUnitRoot = ""
 	savePrefs(a.Profiles)
 	if p.Root != "" && isDir(p.Root) {
 		a.openFolder(p.Root)

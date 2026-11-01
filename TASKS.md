@@ -89,3 +89,22 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T11.3 Thumbnail images cover their card so letterbox/pillarbox white edges cannot appear
 - [x] T11.4 Finder-sized multi-column waterfall with uneven column heights and shortest-column packing
 - [x] T11.5 Real-window acceptance on Qxpicture: uneven columns, no UI white frame, responsive thumb sizing
+
+## Phase 12: Display and Browsing Capabilities
+- [x] T12.1 More menu with pin, settings, file visibility and window controls
+- [x] T12.2 Independent hidden, image, RAW, video, archive and all-type filters
+- [x] T12.3 Recursive folder inclusion and current-folder media-unit browsing
+- [x] T12.4 Selected-video autoplay, internal/external player preference
+- [x] T12.5 Configurable auto scroll and large-view slideshow with end stop
+- [x] T12.6 System/light/dark appearance, persisted preferences and shortcuts
+- [x] T12.7 Window maximize, suitable size, center, actual/current image size
+- [x] T12.8 Finder-style sorting menu, folder-first/full-path and EXIF order
+- [x] T12.9 Regression tests and isolated real-window acceptance
+
+## Phase 13: Logging and Crash Hardening
+- [x] T13.1 Rotating file log at `~/Library/Logs/Lumiwerk/lumiwerk.log` with `LUMIWERK_LOG` level override and stderr mirror
+- [x] T13.2 Log startup/shutdown, preference, decode and file-operation failures
+- [x] T13.3 `logRecover` and `safeGo` so panics in render and background jobs are logged, not fatal
+- [x] T13.4 Fix `SIGSEGV` in `popPool`: pin the Objective-C autorelease pool to one OS thread with `runtime.LockOSThread`
+- [x] T13.5 Nil-window safe `update` helper and out-of-range safe `visibleItem` for views racing background scans
+- [x] T13.6 Stress tests (repeated `go test`, threaded share stress, `-race`) and real-window launch check

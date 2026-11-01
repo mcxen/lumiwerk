@@ -29,30 +29,30 @@ func systemFinderLabels() []string {
 	if classWorkspace == 0 {
 		return nil
 	}
-	pool := pushPool()
-	defer popPool(pool)
-	labels := objcMsg(objcMsg(classWorkspace, selSharedSpace), selFileLabels)
-	n := int(objcMsg(labels, selCount))
-	if n == 0 {
-		return nil
-	}
-	order := []int{6, 7, 5, 2, 4, 3, 1}
-	if n < 8 {
-		order = nil
-		for i := 1; i < n; i++ {
-			order = append(order, i)
-		}
-	}
 	var out []string
-	for _, index := range order {
-		if index < 0 || index >= n {
-			continue
+	withAutoreleasePool(func() {
+		labels := objcMsg(objcMsg(classWorkspace, selSharedSpace), selFileLabels)
+		n := int(objcMsg(labels, selCount))
+		if n == 0 {
+			return
 		}
-		name := goNSString(objcMsg(labels, selObject, uintptr(index)))
-		if name != "" {
-			out = append(out, name)
+		order := []int{6, 7, 5, 2, 4, 3, 1}
+		if n < 8 {
+			order = nil
+			for i := 1; i < n; i++ {
+				order = append(order, i)
+			}
 		}
-	}
+		for _, index := range order {
+			if index < 0 || index >= n {
+				continue
+			}
+			name := goNSString(objcMsg(labels, selObject, uintptr(index)))
+			if name != "" {
+				out = append(out, name)
+			}
+		}
+	})
 	return out
 }
 
@@ -94,26 +94,26 @@ func openerApps(path string) []openerApp {
 	if classWorkspace == 0 {
 		return nil
 	}
-	pool := pushPool()
-	defer popPool(pool)
-	url := objcMsg(classURL, selFileURL, nsString(path))
-	list := objcMsg(objcMsg(classWorkspace, selSharedSpace), selAppsForURL, url)
-	n := int(objcMsg(list, selCount))
-	if n > 12 {
-		n = 12
-	}
 	var apps []openerApp
-	seen := map[string]bool{}
-	for i := 0; i < n; i++ {
-		item := objcMsg(list, selObject, uintptr(i))
-		appPath := goNSString(objcMsg(item, selURLPath))
-		name := strings.TrimSuffix(goNSString(objcMsg(item, selLastComp)), ".app")
-		if appPath == "" || name == "" || seen[appPath] {
-			continue
+	withAutoreleasePool(func() {
+		url := objcMsg(classURL, selFileURL, nsString(path))
+		list := objcMsg(objcMsg(classWorkspace, selSharedSpace), selAppsForURL, url)
+		n := int(objcMsg(list, selCount))
+		if n > 12 {
+			n = 12
 		}
-		seen[appPath] = true
-		apps = append(apps, openerApp{Name: name, Path: appPath})
-	}
+		seen := map[string]bool{}
+		for i := 0; i < n; i++ {
+			item := objcMsg(list, selObject, uintptr(i))
+			appPath := goNSString(objcMsg(item, selURLPath))
+			name := strings.TrimSuffix(goNSString(objcMsg(item, selLastComp)), ".app")
+			if appPath == "" || name == "" || seen[appPath] {
+				continue
+			}
+			seen[appPath] = true
+			apps = append(apps, openerApp{Name: name, Path: appPath})
+		}
+	})
 	return apps
 }
 

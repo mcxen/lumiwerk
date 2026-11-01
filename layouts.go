@@ -74,7 +74,7 @@ const (
 	flowPad    float32 = 12
 	flowGap    float32 = 12
 	flowMargin float32 = 0
-	flowLabel  float32 = 24
+	flowLabel  float32 = 30
 )
 
 func (a *appState) visibleAspects() []float32 {
@@ -247,9 +247,13 @@ func (a *appState) waterfallView(c *ui.Context) {
 	cols := waterfallColumns(width, float32(a.Thumb))
 	groups := waterfallGroups(aspects, cols)
 	for i := range a.Visible {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			continue
+		}
 		if !item.InfoLoaded {
-			go a.loadInfo(a.Visible[i])
+			idx := a.Visible[i]
+			safeGo("loadInfo", func() { a.loadInfo(idx) })
 		}
 	}
 	scroll.Children(func() {
@@ -261,7 +265,10 @@ func (a *appState) waterfallView(c *ui.Context) {
 				group := groups[ci]
 				col.Children(func() {
 					for _, i := range group {
-						item := &a.Items[a.Visible[i]]
+						item := a.visibleItem(i)
+						if item == nil {
+							continue
+						}
 						ar := float32(1)
 						if item.Info.Height > 0 && item.Info.Width > 0 {
 							ar = float32(item.Info.Width) / float32(item.Info.Height)
@@ -289,13 +296,17 @@ func (a *appState) justifiedView(c *ui.Context) {
 	const gap = float64(flowGap)
 	aspects := make([]float64, len(a.Visible))
 	for i := range a.Visible {
-		item := &a.Items[a.Visible[i]]
+		item := a.visibleItem(i)
+		if item == nil {
+			continue
+		}
 		aspects[i] = 1
 		if item.Info.Height > 0 && item.Info.Width > 0 {
 			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
 		}
 		if !item.InfoLoaded {
-			go a.loadInfo(a.Visible[i])
+			idx := a.Visible[i]
+			safeGo("loadInfo", func() { a.loadInfo(idx) })
 		}
 	}
 	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
@@ -317,7 +328,10 @@ func (a *appState) justifiedView(c *ui.Context) {
 
 func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) {
 	t := c.Theme()
-	item := &a.Items[a.Visible[i]]
+	item := a.visibleItem(i)
+	if item == nil {
+		return
+	}
 	card := ui.Column(c).Grow(1).Gap(4)
 	if height > 0 {
 		card.Height(height)
@@ -326,7 +340,7 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		card.Opacity(0.4)
 	}
 	card.Children(func() {
-		thumb := ui.Box(c).Grow(1).Radius(6).Background(t.Background).Justify(ui.Center).AlignItems(ui.Center)
+		thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 		thumb.Children(func() {
 			if item.IsDir {
 				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
@@ -338,12 +352,12 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 				ui.Spinner(c)
 			}
 		})
-		ui.Text(c, item.Name).FontSize(11).MaxLines(1).SingleLine().TextAlign(ui.Start)
+		ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 	})
 	a.fileDragSource(card, item.Path)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 	if card.DoubleClicked() {
-		a.openLargeImage(i)
+		a.openItem(i)
 	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(root, a.Visible[i])
