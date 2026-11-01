@@ -290,7 +290,6 @@ func (a *appState) waterfallView(c *ui.Context) {
 			}
 			card := ui.Box(c).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
 			card.Children(func() {
-				thumbCardProbe()
 				a.thumbCard(c, root, i, b.H)
 			})
 		}
@@ -345,6 +344,7 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 	if item == nil {
 		return
 	}
+	thumbCardProbe()
 	card := ui.Column(c).Grow(1).Gap(4)
 	if height > 0 {
 		card.Height(height)

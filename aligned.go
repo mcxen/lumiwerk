@@ -1553,6 +1553,7 @@ func (a *appState) gridView(c *ui.Context) {
 		if item == nil {
 			return
 		}
+		thumbCardProbe()
 		card := ui.Column(c).Grow(1).Gap(4)
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
