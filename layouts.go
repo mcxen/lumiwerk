@@ -234,53 +234,66 @@ func flowHit(boxes []flowBox, x, y float32) (flowBox, bool) {
 	return best, found
 }
 
+// thumbCardProbe lets tests count cards the flow views build. Tests swap it
+// and restore; production never reads it.
+var thumbCardProbe = func() {}
+
 // waterfallView packs items into N columns, each appended to the shortest.
+// The canvas is one fixed-height spacer; cards are absolutely positioned
+// children built only for the visible window, so a folder of 100k photos
+// builds tens of widgets a frame instead of all of them.
 func (a *appState) waterfallView(c *ui.Context) {
 	root := a.Root
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
 	width := float32(1280)
+	height := float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
 		width = bounds.W
+		height = bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
 	aspects := a.visibleAspects()
-	cols := waterfallColumns(width, float32(a.Thumb))
-	groups := waterfallGroups(aspects, cols)
-	for i := range a.Visible {
-		item := a.visibleItem(i)
-		if item == nil {
-			continue
-		}
-		if !item.InfoLoaded {
-			idx := a.Visible[i]
-			safeGo("loadInfo", func() { a.loadInfo(idx) })
+	boxes := waterfallFrames(aspects, width, float32(a.Thumb))
+	contentH := float32(0)
+	for _, b := range boxes {
+		if bottom := b.Y + b.H + flowPad; bottom > contentH {
+			contentH = bottom
 		}
 	}
+	if contentH < height {
+		contentH = height
+	}
+	// The scroll window the cards must cover, grown one screen each way
+	// so fast scrolling shows cards instead of gaps.
+	top := a.browseScroll.Y - height
+	if top < 0 {
+		top = 0
+	}
+	bottom := a.browseScroll.Y + height*2
+	if bottom > contentH {
+		bottom = contentH
+	}
 	scroll.Children(func() {
-		row := ui.Row(c).FillWidth().Gap(flowGap).Padding(flowPad)
-		row.Children(func() {
-			for ci := 0; ci < cols; ci++ {
-				col := ui.Column(c).Grow(1).Gap(flowGap)
-				_, basis := waterfallColumnWidth(width, cols)
-				group := groups[ci]
-				col.Children(func() {
-					for _, i := range group {
-						item := a.visibleItem(i)
-						if item == nil {
-							continue
-						}
-						ar := float32(1)
-						if item.Info.Height > 0 && item.Info.Width > 0 {
-							ar = float32(item.Info.Width) / float32(item.Info.Height)
-						}
-						if ar < 0.2 {
-							ar = 0.2
-						}
-						a.thumbCard(c, root, i, basis/ar+flowLabel)
-					}
-				})
+		ui.Box(c).Width(width).Height(contentH)
+		for _, b := range boxes {
+			if b.Y+b.H < top || b.Y > bottom {
+				continue
 			}
-		})
+			i := b.Index
+			item := a.visibleItem(i)
+			if item == nil {
+				continue
+			}
+			if !item.InfoLoaded {
+				idx := a.Visible[i]
+				safeGo("loadInfo", func() { a.loadInfo(idx) })
+			}
+			card := ui.Box(c).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
+			card.Children(func() {
+				thumbCardProbe()
+				a.thumbCard(c, root, i, b.H)
+			})
+		}
 	})
 }
 

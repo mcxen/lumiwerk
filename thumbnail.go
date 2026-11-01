@@ -4,9 +4,6 @@ import (
 	"container/list"
 	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -99,97 +96,29 @@ func thumbCacheKey(path string, edge int) string {
 	return fmt.Sprintf("%s#thumb#%d", path, thumbBand(edge))
 }
 
-// thumbBytes builds a JPEG thumbnail. Images go through sips; videos take
-// one scaled frame. Callers fall back to the original bytes if this fails.
+// thumbBytes builds a JPEG thumbnail. Images go through the vfs pipeline
+// (sips on macOS, in-process Go elsewhere); videos take one scaled frame.
+// Callers fall back to the original bytes if this fails.
 func thumbBytes(path string, video bool, edge int) ([]byte, error) {
-	if edge < 64 {
-		edge = 64
-	}
-	if video {
-		return videoThumbJPEG(path, edge)
-	}
-	return imageThumbJPEG(path, edge)
-}
-
-func imageThumbJPEG(path string, edge int) ([]byte, error) {
-	file, err := os.CreateTemp("", "lumiwerk-thumb-*.jpg")
-	if err != nil {
-		return nil, err
-	}
-	name := file.Name()
-	_ = file.Close()
-	defer os.Remove(name)
-	quality := "70"
-	if edge >= 768 {
-		quality = "82"
-	}
-	cmd := exec.Command("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
-	}
-	return os.ReadFile(name)
-}
-
-func videoThumbJPEG(path string, edge int) ([]byte, error) {
-	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path,
-		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("empty video thumbnail")
-	}
-	return out, nil
-}
-
-func pixelSize(path string) (int, int) {
-	out, err := exec.Command("sips", "-g", "pixelWidth", "-g", "pixelHeight", path).Output()
-	if err != nil {
-		return 0, 0
-	}
-	var w, h int
-	for _, line := range strings.Split(string(out), "\n") {
-		key, val, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "pixelWidth":
-			w = n
-		case "pixelHeight":
-			h = n
-		}
-	}
-	return w, h
+	return mediaThumbJPEG(path, video, edge)
 }
 
 // decodeLargeBitmap decodes the original for 1:1 zoom. Images larger than
 // 12000px on a side are resampled so one photo cannot exhaust memory.
 func decodeLargeBitmap(path string) (*ui.Bitmap, error) {
-	w, h := pixelSize(path)
-	if w > 12000 || h > 12000 {
-		data, err := imageThumbJPEG(path, 12000)
-		if err != nil {
-			return nil, err
-		}
-		return ui.DecodeBitmap(data)
-	}
-	data, err := os.ReadFile(path)
+	data, err := decodeLargeImage(path)
 	if err != nil {
 		return nil, err
 	}
 	if bmp, err := ui.DecodeBitmap(data); err == nil {
 		return bmp, nil
 	}
-	data, err = imageThumbJPEG(path, 12000)
+	data, err = imageResampleJPEG(path, 12000, "82")
 	if err != nil {
 		return nil, err
 	}
 	return ui.DecodeBitmap(data)
 }
+
+// _ keeps os available for tests that embed this file's helpers.
+var _ = os.Getpid

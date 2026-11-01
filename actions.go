@@ -781,8 +781,7 @@ func (a *appState) openInTerminal() {
 	if path == "" {
 		return
 	}
-	cmd := exec.Command("open", "-a", "Terminal", path)
-	if err := cmd.Start(); err != nil {
+	if err := openTerminalAt(path); err != nil {
 		a.toast("无法打开终端")
 	}
 }
@@ -797,7 +796,7 @@ func (a *appState) revealInFinder() {
 	if len(paths) == 0 {
 		return
 	}
-	_ = exec.Command("open", "-R", paths[0]).Start()
+	_ = revealInFileBrowser(paths[0])
 }
 
 func (a *appState) copyPath() {
@@ -1144,7 +1143,7 @@ func rotateImageFile(path string, degrees int) error {
 	default:
 		return fmt.Errorf("不支持的旋转角度")
 	}
-	cmd := exec.Command("sips", "-r", strconv.Itoa(degrees), path)
+	cmd := execCommand("sips", "-r", strconv.Itoa(degrees), path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

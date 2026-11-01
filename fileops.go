@@ -227,20 +227,6 @@ func hasNameConflict(paths []string, dest string) bool {
 	return false
 }
 
-func sameDevice(a, b string) bool {
-	infoA, errA := os.Stat(a)
-	infoB, errB := os.Stat(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	statA, okA := infoA.Sys().(*syscall.Stat_t)
-	statB, okB := infoB.Sys().(*syscall.Stat_t)
-	if !okA || !okB {
-		return false
-	}
-	return statA.Dev == statB.Dev
-}
-
 // placePath copies or moves src into destDir. Same-folder copies become
 // name_copy. Existing names are renumbered unless replace is set, in which
 // case a file is swapped in safely and a folder is merged.

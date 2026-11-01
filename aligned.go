@@ -383,19 +383,14 @@ func (a *appState) scanFolder(root string, seq int) {
 		return view.AllTypes || isEnabledFile(path, ext, view)
 	}
 	if flat {
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if path != root && !view.Hidden && strings.HasPrefix(d.Name(), ".") {
+		_ = walkDirMedia(root, func(entry scanEntry) error {
+			path := entry.Path
+			if entry.IsDir {
+				if path != root && !view.Hidden && entry.Hidden {
 					return filepath.SkipDir
 				}
-				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !isHiddenPath(root, path)) {
-					info, statErr := d.Info()
-					if statErr == nil {
-						files = append(files, mediaItem{Path: path, Name: d.Name(), ModTime: info.ModTime().Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
-					}
+				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
+					files = append(files, mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
 				}
 				return nil
 			}
@@ -403,41 +398,34 @@ func (a *appState) scanFolder(root string, seq int) {
 			if !includeFile(path, ext) {
 				return nil
 			}
-			info, err := d.Info()
-			if err != nil {
+			if entry.Info == nil {
 				return nil
 			}
-			files = append(files, mediaItem{Path: path, Name: filepath.Base(path), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
+			files = append(files, mediaItem{Path: path, Name: entry.Name, Ext: strings.ToLower(ext), Size: entry.Size, ModTime: entry.ModTime.Unix(), IsVideo: isVideoFile(ext)})
 			return nil
 		})
 	} else {
-		entries, err := os.ReadDir(root)
+		entries, err := scanDir(root)
 		if err != nil {
 			logErrorf("could not read folder %s: %v", root, err)
 			return
 		}
 		for _, e := range entries {
-			name := e.Name()
-			if !view.Hidden && strings.HasPrefix(name, ".") {
+			if !view.Hidden && e.Hidden {
 				continue
 			}
-			if e.IsDir() {
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				files = append(files, mediaItem{Path: filepath.Join(root, name), Name: name, ModTime: info.ModTime().Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
+			if e.IsDir {
+				files = append(files, mediaItem{Path: e.Path, Name: e.Name, ModTime: e.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
 				continue
 			}
-			ext := strings.TrimPrefix(filepath.Ext(name), ".")
-			if !includeFile(filepath.Join(root, name), ext) {
+			ext := strings.TrimPrefix(filepath.Ext(e.Name), ".")
+			if !includeFile(e.Path, ext) {
 				continue
 			}
-			info, err := e.Info()
-			if err != nil {
+			if e.Info == nil {
 				continue
 			}
-			files = append(files, mediaItem{Path: filepath.Join(root, name), Name: name, Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
+			files = append(files, mediaItem{Path: e.Path, Name: e.Name, Ext: strings.ToLower(ext), Size: e.Size, ModTime: e.ModTime.Unix(), IsVideo: isVideoFile(ext)})
 		}
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })

@@ -209,7 +209,7 @@ func TestRotateImageFileSwapsEdges(t *testing.T) {
 	if err := rotateImageFile(path, 90); err != nil {
 		t.Fatal(err)
 	}
-	w, h := pixelSize(path)
+	w, h := probeImageSize(path)
 	if w != 10 || h != 30 {
 		t.Fatalf("rotated = %dx%d", w, h)
 	}
@@ -352,12 +352,25 @@ func TestPinchKeepsTheFlowItemUnderThePointer(t *testing.T) {
 			if a.browseBox.H < 10 {
 				t.Fatalf("browse box = %+v", a.browseBox)
 			}
+			// Flow views build only the scroll window now, so scroll until
+			// frame-17 is genuinely on screen before pinching it.
 			te.Wheel(a.browseBox.X+40, a.browseBox.Y+80, 0, 280)
 			te.Advance(400 * time.Millisecond)
 			te.Frame()
-			before, ok := te.Find("frame-17.jpg")
+			var before ui.Rect
+			var ok bool
+			for hop := 0; hop < 60; hop++ {
+				if before, ok = te.Find("frame-17.jpg"); ok {
+					break
+				}
+				a.browseScroll.Y += 120
+				// Stay past the pinch-settle wait so thumb rebanding never
+				// rebuilds cards mid-approach.
+				te.Advance(zoomSettle + 10*time.Millisecond)
+				te.Frame()
+			}
 			if !ok {
-				t.Fatalf("frame-17 not visible, texts %v scroll %v mode %d", te.Texts(), a.browseScroll.Y, mode)
+				t.Fatalf("frame-17 not found, texts %v scroll %v mode %d", te.Texts(), a.browseScroll.Y, mode)
 			}
 			anchorY := before.Y + before.H/2
 			te.Pinch(before.X+before.W/2, anchorY, 1.6)

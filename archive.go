@@ -18,7 +18,10 @@ var errNeedZipPassword = errors.New("需要密码。")
 
 // discardPath removes a source after a successful archive operation.
 // FlowVision moves it to the Trash. Tests replace this.
-var discardPath = trashPath
+var discardPath = func(path string) error {
+	_, err := trashPaths([]string{path})
+	return err
+}
 
 func isArchiveName(name string) bool {
 	lower := strings.ToLower(name)
