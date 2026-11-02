@@ -121,3 +121,10 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T15.2 Unified Go playback session with libmpv and FFmpeg picture/sound fallback
 - [x] T15.3 Preserve screenshot, crop/trim, frame stepping, playback speed and previous/next media
 - [x] T15.4 Fake-backend state tests, real FFmpeg decoding tests and `ui.NewTester` interaction coverage
+
+## Phase 16: Density and Localization
+- [x] T16.1 Folder named once (breadcrumb); no in-content title, no count beside search
+- [x] T16.2 Status bar shows the selection (name · size · W×H · modified, or count and total) from in-memory fields only; dimensions probe async
+- [x] T16.3 New windows default to justified layout, thumb 150; justified cards sized by aspect ratio and rows filled; grid uses fit (no crop), tighter padding/gaps
+- [x] T16.4 App declares zh-Hans (`mygo.App.SetLanguages`) so MyGo controls, menus and the updater speak Chinese; no remaining English UI literals
+- [x] T16.5 Platform labels (`src/labels.go`): root (Macintosh HD / 此电脑 / /), reveal (Finder / 资源管理器 / 文件管理器); Finder tags hidden off macOS; "在 Lumiwerk 中打开所在文件夹" distinct from reveal
