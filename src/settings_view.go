@@ -17,12 +17,26 @@ type settingsPage struct {
 	icon  *ui.SVG
 }
 
-var settingsPages = []settingsPage{
+var settingsPages = visibleSettingsPages([]settingsPage{
 	{"general", "通用", lucideSliders},
 	{"view", "查看", lucideImage},
 	{"actions", "操作", lucideMouse},
 	{"tags", "标签", lucideTag},
 	{"advanced", "高级", lucideTerminal},
+})
+
+// visibleSettingsPages drops the tags page where the OS has no file tags.
+func visibleSettingsPages(all []settingsPage) []settingsPage {
+	if tagsSupported {
+		return all
+	}
+	out := all[:0:0]
+	for _, p := range all {
+		if p.id != "tags" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type settingsSearch struct {
@@ -279,7 +293,7 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"actions", "视频复制目标", "copy destination video 复制 视频"},
 		{"actions", "复制快捷键", "copy shortcut 快捷键"},
 		{"actions", "ZIP 默认密码", "zip password archive 压缩 密码"},
-		{"tags", "Finder 标签", "finder tag 标签 评分"},
+		{"tags", tagsLabel, "finder tag 标签 评分"},
 		{"advanced", "缩略图缓存数量", "cache limit 缓存"},
 		{"advanced", "后台解码并发", "workers decode 并发 解码"},
 		{"advanced", "清理缓存", "clear cache 清理"},

@@ -259,7 +259,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item("刷新").Disabled(a.Root == "").Chosen() {
 		a.refresh()
 	}
-	if m.Item("在 Finder 中显示").Disabled(none).Chosen() {
+	if m.Item(revealLabel).Disabled(none).Chosen() {
 		a.revealInFinder()
 	}
 	if m.Item("在终端中打开").Disabled(a.Root == "" && none).Chosen() {
@@ -274,7 +274,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item("制作副本").Disabled(none).Chosen() {
 		a.duplicateSelection()
 	}
-	if len(paths) == 1 && filepath.Dir(paths[0]) != a.Root && m.Item("在原文件夹中显示").Chosen() {
+	if len(paths) == 1 && filepath.Dir(paths[0]) != a.Root && m.Item(openParentLabel).Chosen() {
 		a.showOriginalFolder()
 	}
 	if len(paths) == 1 {
@@ -1620,12 +1620,12 @@ func (a *appState) clearTags(paths []string) {
 }
 
 func (a *appState) tagMenu(m *ui.Menu, paths []string) {
-	if len(paths) == 0 {
+	if len(paths) == 0 || !tagsSupported {
 		return
 	}
 	active := a.sharedTags(paths)
 	kept := append([]string(nil), paths...)
-	m.Submenu("Finder 标签", func(sub *ui.Menu) {
+	m.Submenu(tagsLabel, func(sub *ui.Menu) {
 		for _, name := range finderLabelNames() {
 			name := name
 			if sub.Item(name).Checked(containsString(active, name)).Chosen() {

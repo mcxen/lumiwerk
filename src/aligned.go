@@ -21,7 +21,6 @@ import (
 const (
 	appName                     = "Lumiwerk"
 	appVersion                  = "0.3.3"
-	rootName                    = "Macintosh HD"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -267,10 +266,10 @@ func newAppMenu(a *appState) *mygo.Menu {
 			mygo.Separator(),
 			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
 			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
-			{Label: "在 Finder 中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
+			{Label: revealLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
 			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
 			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.duplicateSelection() }) }},
-			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
+			{Label: openParentLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
 			{Label: "运行诊断…", Accelerator: "CmdOrCtrl+Shift+D", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
@@ -658,7 +657,7 @@ func (a *appState) sortLabel() string {
 		"created": "创建日期",
 		"date":    "修改日期",
 		"added":   "添加日期",
-		"tag":     "Finder 标签",
+		"tag":     tagsLabel,
 		"random":  "随机",
 		"exif":    "Exif 日期",
 	}
@@ -697,6 +696,9 @@ func (a *appState) finderSortMenu(m *ui.Menu) {
 		{"Finder 标签 (倒序)", "tag-desc"},
 		{"随机", "random"},
 	} {
+		if !tagsSupported && strings.HasPrefix(item.value, "tag") {
+			continue
+		}
 		if m.Item(item.label).Radio(a.Sort == item.value).Chosen() {
 			a.Sort = item.value
 			if item.value == "random" {
@@ -1457,7 +1459,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 		// History section: recent folders visited in this session.
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "History").FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted)
 		})
 		for i, h := range a.History {
 			hist := h
@@ -1472,11 +1474,14 @@ func (a *appState) sidebarView(c *ui.Context) {
 			a.folderDropTarget(c, row, hist)
 			row.OnClick(func() { a.openFolder(hist) })
 		}
+		if !tagsSupported {
+			return
+		}
 		ui.Divider(c)
 		// Finder tags section (placeholder groups matching FlowVision sidebar).
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "Finder 标签").FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, tagsLabel).FontSize(11).Bold().TextColor(t.TextMuted)
 		})
 		for _, tag := range finderLabelNames() {
 			name := tag
@@ -2162,7 +2167,7 @@ func (a *appState) videoMoreMenu(m *ui.Menu, snapshot playbackSnapshot) {
 	if m.Item("显示媒体信息").Chosen() {
 		a.Info.File = !a.Info.File
 	}
-	if m.Item("在 Finder 中显示").Chosen() {
+	if m.Item(revealLabel).Chosen() {
 		a.revealInFinder()
 	}
 }

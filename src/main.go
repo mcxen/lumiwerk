@@ -21,6 +21,7 @@ func main() {
 
 	mygo.App.SetName(appName)
 	mygo.App.SetVersion(appVersion)
+	mygo.App.SetLanguages(appLanguage)
 	// The update window checks in the background once a day and offers to
 	// install what it finds; it needs a build signed with the update key,
 	// so development builds never check (updater.CheckForUpdates says why).
