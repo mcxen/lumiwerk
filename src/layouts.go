@@ -399,6 +399,9 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
+	if a.Chosen == i || a.Selected.Has(item.Path) {
+		card.Border(2, t.Accent) // same highlight as the icon grid
+	}
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 		a.thumbHero(thumb, item.Path)
