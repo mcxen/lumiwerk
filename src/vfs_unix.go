@@ -96,7 +96,8 @@ func imageResampleJPEG(path string, edge int, quality string) ([]byte, error) {
 	return goThumbnailJPEG(path, edge)
 }
 
-func decodeLargeImage(path string) ([]byte, error) {
+func decodeLargeImage(path string, edge int) ([]byte, error) {
+	_ = edge
 	return os.ReadFile(path)
 }
 

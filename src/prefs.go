@@ -59,6 +59,11 @@ type prefsFile struct {
 	VideoShiftArrow   bool            `json:"videoShiftArrow"`
 	Volume            float64         `json:"videoVolume,omitempty"`
 	PreviousVolume    float64         `json:"previousVideoVolume,omitempty"`
+	// RestoreSession holds the inverse of the stored opt-out; an absent
+	// field means restore (the zero false is flipped by RestoreOff below).
+	RestoreSession bool `json:"restoreSession"`
+	// RestoreOff is the persisted opt-out for restoring the last session.
+	RestoreOff bool `json:"restoreOff,omitempty"`
 }
 
 func prefsPath() string {
@@ -125,6 +130,18 @@ func normalizePrefs(p *prefsFile) {
 	if p.PreviousVolume <= 0 || p.PreviousVolume > 2 {
 		p.PreviousVolume = 1
 	}
+	// Restoring the last session is the expected default for a media
+	// browser; the setting only records an explicit opt-out.
+	p.RestoreSession = !p.RestoreOff
+}
+
+// restoreSession reports whether this run should reopen the last session's
+// folder: the stored choice unless the environment opted out.
+func (p *prefsFile) restoreSession() bool {
+	if os.Getenv("LUMIWERK_NO_RESTORE") == "1" {
+		return false
+	}
+	return !p.RestoreOff
 }
 
 func savePrefs(p prefsFile) {

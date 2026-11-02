@@ -59,7 +59,7 @@ func TestThumbBytesStaySmall(t *testing.T) {
 	if bounds.Dx() > 128 || bounds.Dy() > 128 {
 		t.Fatalf("thumb = %dx%d", bounds.Dx(), bounds.Dy())
 	}
-	large, err := decodeLargeBitmap(path)
+	large, err := decodeLargeBitmap(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -34,6 +34,17 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			a.update(func() { a.refresh() })
 		}
 	}
+	settingsGroup(c, pal, "启动", "", func() {
+		settingsRow(c, pal, "restore", "记住上次浏览位置", "再次打开 Lumiwerk 时回到上次浏览的目录；侧栏的历史记录也会跨启动保留。", func() {
+			on := !a.Profiles.RestoreOff
+			settingsToggle(c, "restore-toggle", &on, pal)
+			if on == a.Profiles.RestoreOff {
+				a.Profiles.RestoreOff = !on
+				a.Profiles.RestoreSession = on
+				savePrefs(a.Profiles)
+			}
+		})
+	})
 }
 
 func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {

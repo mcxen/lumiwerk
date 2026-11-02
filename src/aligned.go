@@ -20,7 +20,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.2"
+	appVersion                  = "0.3.3"
 	rootName                    = "Macintosh HD"
 	sidebarDefaultWidth float32 = 279
 )
@@ -226,6 +226,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 		}},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.pickFolder", a.pickFolder) }},
+			// RoleOpenRecent fills from mygo's persisted recent documents,
+			// which openFolder records; entries open through OnOpenFile.
+			{Role: mygo.RoleOpenRecent},
 			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			mygo.Separator(),
 			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
@@ -344,6 +347,31 @@ func pathName(path string) string {
 	return filepath.Base(path)
 }
 
+// lastLargePath is the path of the image the large view last showed, for
+// the session record; "" when none was opened.
+func (a *appState) lastLargePath() string {
+	if !a.InLargeView || a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible) {
+		return ""
+	}
+	item := a.visibleItem(a.LargeIndex)
+	if item == nil || item.IsDir {
+		return ""
+	}
+	return item.Path
+}
+
+// noteRecentFolder records a browsed folder with mygo's recent documents
+// and with the system (the Dock menu on macOS). Best-effort: a failure
+// only means the folder is missing from the system list.
+func (a *appState) noteRecentFolder(path string) {
+	if a.Window == nil || path == "" {
+		return
+	}
+	if err := mygo.App.AddRecentDocument(path); err != nil {
+		logDebugf("recent document %s: %v", path, err)
+	}
+}
+
 func (a *appState) openFolder(path string) {
 	path = filepath.Clean(path)
 	if path == "" || !isDir(path) || path == a.Root {
@@ -374,6 +402,7 @@ func (a *appState) openFolder(path string) {
 	}
 	a.mu.Unlock()
 	a.noteTabRoot(path)
+	a.noteRecentFolder(path)
 	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
 	a.refreshView()
 }
@@ -2422,7 +2451,8 @@ func (a *appState) dropLargeBitmaps(keep string) {
 }
 
 // ensureLarge decodes the original beside the small thumbnail so 1:1 zoom
-// is sharp. The grid keeps using the thumbnail.
+// is sharp. The grid keeps using the thumbnail. edge is the decode edge
+// (see largeStageEdge); the sharp resample covers beyond it.
 func (a *appState) ensureLarge(index int) {
 	if a.Window == nil || index < 0 || index >= len(a.Visible) {
 		return
@@ -2438,8 +2468,9 @@ func (a *appState) ensureLarge(index int) {
 	item.LargeLoading = true
 	path := item.Path
 	root := a.Root
+	edge := largeStageEdge(max(a.largeSize()))
 	safeGo("loadLarge", func() {
-		bmp, err := decodeLargeBitmap(path)
+		bmp, err := decodeLargeBitmap(path, edge)
 		if a.Window == nil {
 			return
 		}
@@ -2487,6 +2518,75 @@ func (a *appState) openLargeImage(index int) {
 	if !item.IsVideo {
 		a.ensureLarge(index)
 	}
+	// The neighbors are the likeliest next opens: decode them while the
+	// current picture shows, so stepping through a folder feels instant.
+	a.ensureNeighborLarge(index - 1)
+	a.ensureNeighborLarge(index + 1)
+}
+
+// ensureNeighborLarge prefetches one adjacent picture's large bitmap
+// without disturbing the visible item. Skips videos and anything already
+// loaded or loading; a keep-flag protects prefetches from the drop when
+// the view moves.
+func (a *appState) ensureNeighborLarge(index int) {
+	if index < 0 || index >= len(a.Visible) {
+		return
+	}
+	itemIndex := a.Visible[index]
+	if itemIndex < 0 || itemIndex >= len(a.Items) {
+		return
+	}
+	item := &a.Items[itemIndex]
+	if item.IsVideo || item.IsDir || item.Large != nil || item.LargeLoading {
+		return
+	}
+	item.LargeLoading = true
+	path := item.Path
+	root := a.Root
+	edge := largeStageEdge(max(a.largeSize()))
+	safeGo("prefetchLarge", func() {
+		bmp, err := decodeLargeBitmap(path, edge)
+		if a.Window == nil {
+			return
+		}
+		a.update(func() {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.Root != root || itemIndex >= len(a.Items) || a.Items[itemIndex].Path != path {
+				return
+			}
+			current := &a.Items[itemIndex]
+			current.LargeLoading = false
+			// Only keep the pixels while the prefetch is still adjacent;
+			// dropLargeBitmaps clears the rest when the view moves.
+			if err != nil || !a.InLargeView {
+				return
+			}
+			if !a.largeNeighborWanted(itemIndex) {
+				return
+			}
+			current.Large = bmp
+		})
+	})
+}
+
+// largeNeighborWanted reports whether itemIndex neighbors the item the
+// large view currently shows (or is that item).
+func (a *appState) largeNeighborWanted(itemIndex int) bool {
+	if a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible) {
+		return false
+	}
+	current := a.Visible[a.LargeIndex]
+	if current == itemIndex {
+		return true
+	}
+	for _, d := range []int{-1, 1} {
+		n := a.LargeIndex + d
+		if n >= 0 && n < len(a.Visible) && a.Visible[n] == itemIndex {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *appState) closeLargeImage() {

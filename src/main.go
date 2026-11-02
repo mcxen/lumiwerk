@@ -36,6 +36,14 @@ func main() {
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Profiles.View.Theme))
 	logInfof("preferences loaded: prefs=%s profiles=%d active=%d view=%s",
 		prefsPath(), len(a.Profiles.Profiles), a.Profiles.Active, a.Profiles.View.Theme)
+	// The browsing trail outlives the process: load it before any open so
+	// goBack/goForward and the sidebar already span past sessions.
+	saved := loadHistory()
+	a.History, a.Cursor = saved.History, saved.Cursor
+	history := saved
+	if a.History == nil {
+		history.Cursor = -1
+	}
 	// An open event can arrive before WhenReady has built the window; remember
 	// it so the folder is not silently dropped.
 	pendingOpen := ""
@@ -88,10 +96,34 @@ func main() {
 				})
 			}
 		}
-		if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
-			if p := a.Profiles.Profiles[a.Profiles.Active]; p.Root != "" && isDir(p.Root) {
+		opened := false
+		if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
+			if p := a.Profiles.Profiles[active]; p.Root != "" && isDir(p.Root) {
 				openPath(p.Root)
+				opened = true
 			}
+		}
+		// No configured startup folder (or the run below replaces it): fall
+		// back to where the last session stopped, so a reopening app shows
+		// the folder the user left instead of an empty view.
+		if !opened && a.Profiles.restoreSession() {
+			if last := history.CursorPath(); last != "" && a.Root == "" {
+				openPath(last)
+			}
+		}
+	})
+
+	// The window's own openFolder records folders in a.History; persist that
+	// trail when the process ends. OnWillQuit runs on the main thread after
+	// the windows are gone and before the event loop stops, so the write
+	// completes before exit.
+	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) {
+		a.mu.Lock()
+		history.History, history.Cursor = a.History, a.Cursor
+		history.LastImage = a.lastLargePath()
+		a.mu.Unlock()
+		if len(history.History) > 0 {
+			saveHistory(history)
 		}
 	})
 

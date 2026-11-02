@@ -112,7 +112,8 @@ func imageResampleJPEG(path string, edge int, quality string) ([]byte, error) {
 }
 
 // decodeLargeImage reads the original for 1:1 zoom.
-func decodeLargeImage(path string) ([]byte, error) {
+func decodeLargeImage(path string, edge int) ([]byte, error) {
+	_ = edge
 	return os.ReadFile(path)
 }
 
