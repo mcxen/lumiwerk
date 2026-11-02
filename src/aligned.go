@@ -20,7 +20,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.1"
+	appVersion                  = "0.3.2"
 	rootName                    = "Macintosh HD"
 	sidebarDefaultWidth float32 = 279
 )

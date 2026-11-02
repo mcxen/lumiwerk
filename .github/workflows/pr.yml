@@ -99,5 +99,14 @@ jobs:
       - run: go test -count=1 ./...
       - run: go vet ./...
       # lint the tracked sources only: the workspace also holds the Go
-      # caches, which contain third-party module sources.
-      - run: git ls-files '*.go' | xargs gofmt -l | tee /dev/stderr | (! grep .)
+      # caches, which contain third-party module sources. Collected into a
+      # variable and tested for emptiness because bash 3.2 (the macOS
+      # runner's /bin/bash) propagates a stale failure status out of
+      # `(! grep .)` under `set -e` when the input is empty, which failed
+      # the step on perfectly formatted trees with no output to explain it.
+      - run: |
+          unformatted="$(git ls-files '*.go' | xargs gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted" >&2
+            exit 1
+          fi
