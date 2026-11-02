@@ -8,14 +8,19 @@ for the shared UI and diagnostics contracts.
 
 ## Required Checks
 
-Before committing a code change:
+Before committing a code change (sources live in `src/`; the Go code is
+package main in `github.com/mcxen/lumiwerk/src`):
 
 ```sh
 gofmt -w <changed-go-files>
 go build ./...
-go vet ./...
-go test -count=1 ./...
+go vet -tags nocgo ./...
+go test -tags nocgo -count=1 ./...
 ```
+
+`-tags nocgo` selects go-mpv's purego variant — the same code path mygo
+release builds ship (`CGO_ENABLED=0`). Without it, the cgo variant needs
+libmpv headers most machines lack.
 
 For UI changes, add or update a `ui.NewTester` regression that exercises the
 changed behavior. For a crash, first reproduce the original panic in a test,
