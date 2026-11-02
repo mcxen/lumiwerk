@@ -232,12 +232,8 @@ func (a *appState) editorTimeline(c *ui.Context) {
 func (a *appState) editorBar(c *ui.Context, t *ui.Theme) {
 	bar := ui.Row(c).Height(44).Padding(6, 10).Gap(6).AlignItems(ui.Center).Background(t.Surface)
 	bar.Children(func() {
-		label := "播放"
 		playing := a.videoPlaying()
-		if playing {
-			label = "暂停"
-		}
-		if ui.Button(c.Key("editor-play"), label).Clicked() {
+		if lucideIconButton(c, "editor-play", playbackButtonLabel(playing), playbackButtonIcon(playing)).Clicked() {
 			a.toggleEditorPlayback()
 		}
 		seg := a.selectedSegment()
@@ -441,7 +437,7 @@ func (a *appState) toggleEditorPlayback() {
 	}
 	if a.videoPlaying() {
 		a.holdVideo(false)
-		a.Editor.Playhead = a.Video.Position
+		a.Editor.Playhead = a.playhead()
 		return
 	}
 	seg := a.selectedSegment()
@@ -460,10 +456,7 @@ func (a *appState) tickEditorPlayback() {
 	if a.Editor.Playhead >= seg.End-0.03 {
 		a.holdVideo(false)
 		a.Editor.Playhead = seg.End
-		if a.Video != nil {
-			a.Video.clock.seek(seg.End, false, time.Now())
-			a.Video.Position = seg.End
-		}
+		a.seekVideo(seg.End)
 	}
 }
 

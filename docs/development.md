@@ -10,6 +10,10 @@ split by responsibility:
   recoverable view boundaries.
 - `aligned.go`: application state, browser behavior and feature composition.
 - `layouts.go`, `largeview.go`, `video.go`: media presentation and playback.
+- `playback.go`, `playback_mpv_darwin.go`: the Go playback kernel, its libmpv
+  backend and the FFmpeg picture/sound fallback. The native controller uses
+  `playbackSession`, never a second view-owned playhead. `LUMIWERK_MPV` may
+  point to a bundled or locally installed libmpv; FFmpeg is used otherwise.
 - `actions.go`, `fileops.go`, `undo.go`: file operations and their inverses.
 - `logging.go`, `diagnostics.go`: persistent logs, in-memory events, runtime
   metrics and the diagnostic report UI.

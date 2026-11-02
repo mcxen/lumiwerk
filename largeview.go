@@ -206,7 +206,7 @@ func (a *appState) requestSharpFrame() {
 		return
 	}
 	path := a.Video.path
-	at := a.Video.Position
+	at := a.playhead()
 	a.Video.stillToken++
 	token := a.Video.stillToken
 	safeGo("largeview.go:212", func() {
@@ -219,7 +219,7 @@ func (a *appState) requestSharpFrame() {
 			if a.Video == nil || a.Video.stillToken != token || a.Video.path != path {
 				return
 			}
-			if a.Video.playing {
+			if a.videoPlaying() {
 				return
 			}
 			a.Video.Still = bitmap

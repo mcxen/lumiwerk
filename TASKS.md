@@ -115,3 +115,9 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T14.3 Diagnostic window with recent events, panic counters, runtime metrics, copy and open-log actions
 - [x] T14.4 Route remaining background jobs through the common panic-recording task entry point
 - [x] T14.5 Development guide covering MyGo contracts, isolation, recovery and real-window verification
+
+## Phase 15: Native Playback
+- [x] T15.1 IINA-style bottom controller with full-width timeline, transport, time, volume and more menu
+- [x] T15.2 Unified Go playback session with libmpv and FFmpeg picture/sound fallback
+- [x] T15.3 Preserve screenshot, crop/trim, frame stepping, playback speed and previous/next media
+- [x] T15.4 Fake-backend state tests, real FFmpeg decoding tests and `ui.NewTester` interaction coverage

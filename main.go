@@ -23,6 +23,8 @@ func main() {
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192, FolderFirst: true}
 	a.Profiles = loadPrefs()
+	a.VideoVolume = normalizedPlaybackVolume(a.Profiles.Volume)
+	a.PrevVolume = normalizedPlaybackVolume(a.Profiles.PreviousVolume)
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Profiles.View.Theme))
 	logInfof("preferences loaded: prefs=%s profiles=%d active=%d view=%s",
 		prefsPath(), len(a.Profiles.Profiles), a.Profiles.Active, a.Profiles.View.Theme)

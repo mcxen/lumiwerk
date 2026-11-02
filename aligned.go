@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -28,21 +27,21 @@ var (
 	thumbLRU  = newLRUCache(512)
 	thumbGate = make(chan struct{}, 8)
 
-	dirIcon        = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`))
-	imageIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-7 7"/></svg>`))
-	videoIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="12" height="14" rx="2"/><path d="m21 8-6 4 6 4z"/></svg>`))
-	starIcon       = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.9 5.9 6.1.9-4.5 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.8l6.1-.9z"/></svg>`))
-	clockIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`))
-	arrowLeftIcon  = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7"/></svg>`))
-	arrowRightIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>`))
-	sidebarIcon    = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>`))
+	dirIcon        = lucideFolder
+	imageIcon      = lucideImage
+	videoIcon      = lucideVideo
+	starIcon       = lucideStar
+	clockIcon      = lucideClock
+	arrowLeftIcon  = lucideChevronLeft
+	arrowRightIcon = lucideChevronRight
+	sidebarIcon    = lucideSidebar
 
 	// Layout switcher glyphs mirror Finder's view control: icon, list,
 	// gallery-style columns and a mosaic.
-	gridIcon      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`))
-	detailIcon    = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 6h6M14 8.5h4M14 16h6M14 18.5h4"/></svg>`))
-	waterfallIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="5" height="13" rx="1"/><rect x="9.5" y="3" width="5" height="7" rx="1"/><rect x="16" y="3" width="5" height="16" rx="1"/><rect x="9.5" y="12" width="5" height="7" rx="1"/></svg>`))
-	justifiedIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="12" width="8" height="6" rx="1"/><rect x="13" y="12" width="8" height="6" rx="1"/></svg>`))
+	gridIcon      = lucideGrid
+	detailIcon    = lucideList
+	waterfallIcon = lucideColumns
+	justifiedIcon = lucideGallery
 )
 
 type mediaItem struct {
@@ -67,21 +66,14 @@ type mediaItem struct {
 	LoadGen      int
 }
 
-// videoView plays one large-view video on the shared media clock.
+// videoView binds the native bitmap cache to one Go playback kernel.
 type videoView struct {
-	dec        *ffmpegDecoder
+	kernel     *playbackSession
 	path       string
-	err        error
-	Position   float64
-	clock      mediaClock
-	playing    bool
 	frame      *ui.Bitmap
-	frameAt    float64
-	held       *timedFrame
-	frames     chan timedFrame
 	Still      *ui.Bitmap
 	stillToken int
-	sound      *audio.Player
+	err        error
 }
 
 type appState struct {
@@ -134,7 +126,6 @@ type appState struct {
 	Rotation      float32
 	Mirror        bool
 	Video         *videoView
-	audioGen      int
 	videoEdgeDue  time.Time
 	Info          infoState
 	Gesture       gestureState
@@ -152,7 +143,6 @@ type appState struct {
 	HUD           string
 	HUDUntil      time.Time
 	Settings      settingsState
-	Diagnostics   diagnosticsState
 	Tabs          tabState
 	Profiles      prefsFile
 	Batch         batchState
@@ -253,9 +243,6 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
-			{Label: "运行诊断…", Accelerator: "CmdOrCtrl+Shift+D", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.update(a.showDiagnostics)
-			}},
 			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
 			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
@@ -731,8 +718,8 @@ func (a *appState) restorePendingSelection() {
 	item := &a.Items[a.Visible[found]]
 	if a.Video != nil && item.IsVideo {
 		a.Video.path = item.Path
-		if a.Video.dec != nil {
-			a.Video.dec.path = item.Path
+		if a.Video.kernel != nil {
+			a.Video.kernel.retarget(item.Path)
 		}
 	}
 	if a.Window != nil {
@@ -1003,9 +990,6 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyO) {
 		safeGo("dialog.pickFolder", a.pickFolder)
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyD) {
-		a.showDiagnostics()
-	}
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
 	}
@@ -1036,10 +1020,10 @@ func (a *appState) rootView(c *ui.Context) {
 		}
 		// Cmd+arrow = frame-by-frame seek.
 		if c.Shortcut(ui.Cmd, ui.KeyLeft) {
-			a.seekVideo(max(0, a.playhead()-1.0/30))
+			a.stepVideo(-1)
 		}
 		if c.Shortcut(ui.Cmd, ui.KeyRight) {
-			a.seekVideo(min(a.videoDuration(), a.playhead()+1.0/30))
+			a.stepVideo(1)
 		}
 	}
 	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
@@ -1439,13 +1423,13 @@ func (a *appState) mainView(c *ui.Context) {
 func (a *appState) toolbarView(c *ui.Context) {
 	t := c.Theme()
 	bar := ui.Toolbar(c, func() {
-		if ui.Button(c.Key("sidebar"), "").Children(func() { ui.Icon(c, sidebarIcon).FontSize(14) }).Tooltip("显示/隐藏侧栏").Clicked() {
+		if lucideIconButton(c, "sidebar", "显示/隐藏侧栏", sidebarIcon).Clicked() {
 			a.SidebarShown = !a.SidebarShown
 		}
-		if ui.Button(c.Key("back"), "").Children(func() { ui.Icon(c, arrowLeftIcon).FontSize(14) }).Tooltip("后退").Clicked() {
+		if lucideIconButton(c, "back", "后退", arrowLeftIcon).Clicked() {
 			a.goBack()
 		}
-		if ui.Button(c.Key("forward"), "").Children(func() { ui.Icon(c, arrowRightIcon).FontSize(14) }).Tooltip("前进").Clicked() {
+		if lucideIconButton(c, "forward", "前进", arrowRightIcon).Clicked() {
 			a.goForward()
 		}
 		if a.InLargeView {
@@ -1495,7 +1479,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 			}
 			ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
 		}
-		ui.MenuButton(c, "•••", a.viewMenu).Tooltip("显示与浏览")
+		lucideMenuButton(c, "显示与浏览", a.viewMenu)
 	}).Padding(6, 10).Background(t.Surface)
 	_ = bar
 }
@@ -1879,117 +1863,185 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 	t := c.Theme()
 	controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Margin(16, 0).Gap(6).Padding(6).Background(t.Surface).Radius(8)
 	controls.Children(func() {
-		if ui.Button(c.Key("zoom-out"), "−").Tooltip("缩小").Clicked() {
+		if lucideIconButton(c, "zoom-out", "缩小", lucideMinus).Clicked() {
 			a.zoomStep(1 / 1.25)
 		}
 		if ui.Button(c.Key("fit"), "适应").Tooltip("适应窗口").Clicked() {
 			a.resetZoom()
 		}
-		if ui.Button(c.Key("zoom-in"), "+").Tooltip("放大").Clicked() {
+		if lucideIconButton(c, "zoom-in", "放大", lucidePlus).Clicked() {
 			a.zoomStep(1.25)
 		}
 		if ui.Button(c.Key("zoom-100"), "1:1").Tooltip("实际大小").Clicked() {
 			a.zoom100()
 		}
-		if ui.Button(c.Key("rotate"), "⟳").Tooltip("顺时针旋转").Clicked() {
+		if lucideIconButton(c, "rotate", "顺时针旋转", lucideRotateCW).Clicked() {
 			a.Rotation += 90
 		}
-		if ui.Button(c.Key("rotate-ccw"), "⟲").Tooltip("逆时针旋转").Clicked() {
+		if lucideIconButton(c, "rotate-ccw", "逆时针旋转", lucideRotateCCW).Clicked() {
 			a.Rotation -= 90
 		}
-		if ui.Button(c.Key("mirror"), "⇔").Tooltip("镜像").Clicked() {
+		if lucideIconButton(c, "mirror", "镜像", lucideMirror).Clicked() {
 			a.Mirror = !a.Mirror
 		}
 	})
 }
 
-// videoControlsBar is the FlowVision-style floating playback strip.
+// videoControlsBar follows IINA's native on-screen controller: a full-width
+// timeline above a compact transport row. The video remains visible behind it.
 func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
-	if a.Video == nil {
+	if a.Video == nil || a.Video.kernel == nil {
 		return
 	}
-	t := c.Theme()
-	duration := item.Info.DurationSec
+	snapshot := a.videoSnapshot()
+	duration := snapshot.Duration
+	if duration <= 0 {
+		duration = item.Info.DurationSec
+	}
 	if duration <= 0 {
 		duration = 1
 	}
-	pos := a.playhead()
-	bar := ui.Column(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Width(820).Height(96).Margin(24, 0).
-		Padding(12, 14).Gap(8).Background(t.Surface).Radius(10).Border(1, t.Border)
+	pos := clampPlaybackTime(snapshot.Position, duration)
+	remaining := max(0, duration-pos)
+	bar := ui.Column(c).Attach(ui.AnchorBottom, ui.AnchorBottom).
+		FillWidth().Padding(8, 18, 10).Gap(5).Background(ui.RGB(18, 18, 20).Alpha(0.96))
 	bar.Children(func() {
-		// Progress row with hover time and a clickable/draggable slider.
-		progress := ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Padding(0, 2)
-		progress.Children(func() {
-			ui.Text(c, shortTime(pos)).Width(46).FontSize(11).TextColor(t.TextMuted)
-			if ui.Slider(c.Key("video-progress"), &pos, 0, duration).Grow(1).Height(18).Tooltip("进度").Changed() {
-				a.seekVideo(pos)
-			}
-			ui.Text(c, shortTime(duration)).Width(46).FontSize(11).TextColor(t.TextMuted)
-		})
-		controls := ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Center).Justify(ui.SpaceBetween)
+		progress := ui.SliderBase(c.Key("video-progress"), &pos, 0, duration).FillWidth().Height(18).
+			Step(max(0.001, duration/1000)).Label("播放进度").
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				track := ui.Rect{X: r.X + 6, Y: r.Y + 7, W: max(0, r.W-12), H: 4}
+				p.Fill(track, ui.RGB(255, 255, 255).Alpha(0.26), 2)
+				fraction := float32(pos / duration)
+				x := track.X + track.W*min(max(fraction, 0), 1)
+				p.Fill(ui.Rect{X: track.X, Y: track.Y, W: max(0, x-track.X), H: track.H}, ui.RGB(245, 245, 247), 2)
+				p.Fill(ui.Rect{X: x - 5, Y: r.Y + 4, W: 10, H: 10}, ui.RGB(255, 255, 255), 5)
+			})
+		if progress.Changed() {
+			a.seekVideo(pos)
+		}
+		controls := ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center)
 		controls.Children(func() {
-			left := ui.Row(c).Gap(14).AlignItems(ui.Center)
+			left := ui.Row(c).Gap(1).AlignItems(ui.Center)
 			left.Children(func() {
-				if ui.Button(c.Key("video-skip-back"), "-15").Tooltip("后退 15 秒").Clicked() {
-					a.seekVideo(max(0, a.playhead()-15))
-				}
-				if ui.Button(c.Key("video-play"), "播放").Tooltip("播放/暂停").Clicked() {
+				if playerIconButton(c, "video-play", playbackButtonLabel(snapshot.Playing), "播放 / 暂停（空格）", playbackButtonIcon(snapshot.Playing)).Clicked() {
 					a.toggleVideoPlayback()
 				}
-				if ui.Button(c.Key("video-skip-forward"), "+15").Tooltip("前进 15 秒").Clicked() {
-					a.seekVideo(min(duration, a.playhead()+15))
+				if playerIconButton(c, "video-previous", "上一个媒体", "上一个媒体", lucideSkipBack).Clicked() {
+					a.prevImage()
+				}
+				if playerIconButton(c, "video-next", "下一个媒体", "下一个媒体", lucideSkipForward).Clicked() {
+					a.nextImage()
+				}
+				if playerIconButton(c, "video-skip-back", "后退 5 秒", "后退 5 秒（←）", lucideRotateCCW).Clicked() {
+					a.seekVideo(a.playhead() - 5)
+				}
+				if playerIconButton(c, "video-skip-forward", "前进 5 秒", "前进 5 秒（→）", lucideRotateCW).Clicked() {
+					a.seekVideo(a.playhead() + 5)
 				}
 			})
-			center := ui.Row(c).Gap(10).AlignItems(ui.Center)
-			center.Children(func() {
-				if ui.Button(c.Key("video-volume"), "音量").Tooltip("静音/恢复音量").Clicked() {
+			ui.Box(c).Grow(1)
+			times := ui.Row(c).Gap(5).AlignItems(ui.Center)
+			times.Children(func() {
+				ui.Text(c, shortTime(pos)).FontSize(12).TextColor(ui.RGB(245, 245, 247))
+				ui.Text(c, "/ −"+shortTime(remaining)).FontSize(12).TextColor(ui.RGB(180, 180, 185))
+			})
+			ui.Box(c).Grow(1)
+			right := ui.Row(c).Gap(1).AlignItems(ui.Center)
+			right.Children(func() {
+				if playerIconButton(c, "video-volume", "静音", "静音 / 恢复音量", volumeButtonIcon(a.VideoVolume)).Clicked() {
 					a.toggleVideoVolume()
 				}
-				if ui.Slider(c.Key("video-volume-slider"), &a.VideoVolume, 0, 1).Width(90).Height(18).Tooltip("音量").Changed() {
-					a.setVideoVolume(a.VideoVolume)
+				volume := a.VideoVolume
+				if ui.Slider(c.Key("video-volume-slider"), &volume, 0, 1).Width(76).Height(22).
+					Step(0.01).Label("音量").Changed() {
+					a.setVideoVolume(volume)
 				}
-			})
-			right := ui.Row(c).Gap(8).AlignItems(ui.Center)
-			right.Children(func() {
-				if ui.Button(c.Key("video-trim"), "裁剪").Tooltip("无损裁剪片段").Clicked() {
-					a.promptTrim()
-				}
-				if ui.Button(c.Key("video-frame"), "截帧").Tooltip("截存当前画面").Clicked() {
+				if playerIconButton(c, "video-screenshot", "截存当前画面", "截存当前画面", lucideCamera).Clicked() {
 					a.captureCurrentFrame()
 				}
+				if playerIconButton(c, "video-crop", "裁剪画面", "裁剪画面 / 片段", lucideCrop).Clicked() {
+					a.promptCrop([]string{item.Path})
+				}
+				if playerIconButton(c, "video-step-forward", "下一帧", "下一帧（⌘→）", lucideStepForward).Clicked() {
+					a.stepVideo(1)
+				}
+				more := playerIconButton(c, "video-more", "更多播放操作", "更多播放操作", lucideMore)
+				more.PopoverMenuButton(func(m *ui.Menu) { a.videoMoreMenu(m, snapshot) })
 			})
 		})
 	})
+}
+
+func (a *appState) videoMoreMenu(m *ui.Menu, snapshot playbackSnapshot) {
+	if m.Item("上一帧").Chosen() {
+		a.stepVideo(-1)
+	}
+	if m.Item("下一帧").Chosen() {
+		a.stepVideo(1)
+	}
+	if m.Item("裁剪片段").Chosen() {
+		a.promptTrim()
+	}
+	m.Separator()
+	for _, speed := range []float64{0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4} {
+		speed := speed
+		label := fmt.Sprintf("倍速 %.2g×", speed)
+		if speed == 1 {
+			label = "正常速度"
+		}
+		if m.Item(label).Checked(snapshot.Speed == speed).Chosen() {
+			a.Video.kernel.SetSpeed(speed)
+		}
+	}
+	m.Separator()
+	if m.Item("适应窗口").Chosen() {
+		a.resetZoom()
+	}
+	if m.Item("实际大小").Chosen() {
+		a.zoom100()
+	}
+	if m.Item("顺时针旋转").Chosen() {
+		a.Rotation += 90
+	}
+	if m.Item("水平翻转").Checked(a.Mirror).Chosen() {
+		a.Mirror = !a.Mirror
+	}
+	m.Separator()
+	if m.Item("显示媒体信息").Chosen() {
+		a.Info.File = !a.Info.File
+	}
+	if m.Item("在 Finder 中显示").Chosen() {
+		a.revealInFinder()
+	}
 }
 
 func (a *appState) toggleVideoVolume() {
 	if a.Video == nil {
 		return
 	}
-	if a.Video.sound != nil {
-		if a.Video.sound.Volume() > 0 {
-			a.PrevVolume = a.Video.sound.Volume()
-			a.Video.sound.SetVolume(0)
-		} else {
-			volume := a.PrevVolume
-			if volume <= 0 || volume > 2 {
-				volume = 1
-			}
-			a.Video.sound.SetVolume(volume)
-		}
+	if a.VideoVolume > 0 {
+		a.PrevVolume = a.VideoVolume
+		a.setVideoVolume(0)
+		return
 	}
+	volume := a.PrevVolume
+	if volume <= 0 || volume > 2 {
+		volume = 1
+	}
+	a.setVideoVolume(volume)
 }
 
 func (a *appState) setVideoVolume(volume float64) {
-	if volume < 0 {
-		volume = 0
+	a.VideoVolume = normalizedPlaybackVolume(volume)
+	if a.VideoVolume > 0 {
+		a.PrevVolume = a.VideoVolume
 	}
-	if volume > 2 {
-		volume = 2
+	if a.Video != nil && a.Video.kernel != nil {
+		a.Video.kernel.SetVolume(a.VideoVolume)
 	}
-	if a.Video != nil && a.Video.sound != nil {
-		a.Video.sound.SetVolume(volume)
-	}
+	a.Profiles.Volume = a.VideoVolume
+	a.Profiles.PreviousVolume = a.PrevVolume
+	savePrefs(a.Profiles)
 }
 
 // edgeArrows mirrors FlowVision's left/right media switching hints.
@@ -2194,7 +2246,8 @@ func (a *appState) seekVideo(seconds float64) {
 	if a.Video == nil || a.Video.path == "" {
 		return
 	}
-	a.openPlayback(a.Video.path, seconds, a.Video.playing)
+	a.Video.kernel.Seek(seconds)
+	a.Video.Still = nil
 }
 
 // restartVideo rebuilds the decoder at the zoom-sized edge.
@@ -2202,18 +2255,29 @@ func (a *appState) restartVideo(seconds float64, playing bool) {
 	if a.Video == nil || a.Video.path == "" {
 		return
 	}
-	a.openPlayback(a.Video.path, seconds, playing)
+	if a.videoPlaying() != playing && a.Video.kernel != nil {
+		a.Video.kernel.SetPlaying(playing)
+	}
+	a.seekVideo(seconds)
 }
 
 // settleVideoEdge waits until a zoom gesture stops before restarting the
 // decoder. The current frame stays on screen, scaled by the view transform.
 func (a *appState) settleVideoEdge(c *ui.Context) {
-	if a.Video == nil || a.Video.dec == nil || !a.Video.playing {
+	if a.Video == nil || a.Video.kernel == nil || !a.videoPlaying() {
 		a.videoEdgeDue = time.Time{}
 		return
 	}
-	if !shouldRestartVideoEdge(a.Video.dec.edge, a.Zoom, a.videoEdgeDue, time.Now()) {
-		if a.Video.dec.edge == playbackEdge(a.Zoom) {
+	backend, ok := a.Video.kernel.backend.(*ffmpegBackend)
+	if !ok {
+		a.videoEdgeDue = time.Time{}
+		return
+	}
+	backend.mu.Lock()
+	decodedEdge := backend.edge
+	backend.mu.Unlock()
+	if !shouldRestartVideoEdge(decodedEdge, a.Zoom, a.videoEdgeDue, time.Now()) {
+		if decodedEdge == playbackEdge(a.Zoom) {
 			a.videoEdgeDue = time.Time{}
 		} else if !a.videoEdgeDue.IsZero() {
 			c.After(time.Until(a.videoEdgeDue))
@@ -2291,7 +2355,9 @@ func (a *appState) openLargeImage(index int) {
 	a.HUD, a.HUDUntil = "", time.Time{}
 	a.closeVideo()
 	item := &a.Items[a.Visible[index]]
-	a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
+	if a.Window != nil {
+		a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
+	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(a.Root, a.Visible[index])
 	}
@@ -2310,7 +2376,7 @@ func (a *appState) closeLargeImage() {
 	a.LargeIndex = -1
 	a.dropLargeBitmaps("")
 	a.closeVideo()
-	if a.Root != "" {
+	if a.Root != "" && a.Window != nil {
 		a.Window.SetTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))
 	}
 }

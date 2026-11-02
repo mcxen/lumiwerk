@@ -1117,7 +1117,7 @@ func (a *appState) captureCurrentFrame() {
 	if a.videoPlaying() {
 		a.toggleVideoPlayback()
 	}
-	at := a.Video.Position
+	at := a.playhead()
 	dest := flowUnique(filepath.Join(filepath.Dir(item.Path), frameFileName(item.Path, at)), false, nil)
 	path := item.Path
 	safeGo("actions.go:1119", func() {

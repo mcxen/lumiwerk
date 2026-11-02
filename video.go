@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -428,20 +427,32 @@ type soundtrack struct {
 	cmd     *exec.Cmd
 	stdout  io.ReadCloser
 	pending []byte
+	speed   float64
+	volume  float64
 	mu      sync.Mutex
 	closed  bool
 }
 
 var errSoundtrackLate = errors.New("soundtrack late")
 
-func newSoundtrack(path string, at float64) (*soundtrack, error) {
+func newSoundtrackRate(path string, at, speed float64) (*soundtrack, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, err
 	}
 	if at < 0 {
 		at = 0
 	}
-	return &soundtrack{path: path, base: at}, nil
+	return &soundtrack{path: path, base: at, speed: normalizedPlaybackSpeed(speed), volume: 1}, nil
+}
+
+func newSoundtrack(path string, at float64) (*soundtrack, error) {
+	return newSoundtrackRate(path, at, 1)
+}
+
+func (d *soundtrack) SetVolume(volume float64) {
+	d.mu.Lock()
+	d.volume = normalizedPlaybackVolume(volume)
+	d.mu.Unlock()
 }
 
 func (d *soundtrack) SampleRate() int { return soundtrackRate }
@@ -540,6 +551,7 @@ func (d *soundtrack) Read(buf []float32) (int, error) {
 		d.mu.Unlock()
 		return 0, io.EOF
 	}
+	volume := d.volume
 	if len(d.pending) >= 8 {
 		n := len(d.pending)
 		if n > need*4 {
@@ -549,7 +561,7 @@ func (d *soundtrack) Read(buf []float32) (int, error) {
 		raw := append([]byte(nil), d.pending[:n]...)
 		d.pending = d.pending[n:]
 		d.mu.Unlock()
-		return decodeSamples(buf, raw), nil
+		return scaleSamples(buf, decodeSamples(buf, raw), volume), nil
 	}
 	if d.stdout == nil {
 		if err := d.startLocked(d.base); err != nil {
@@ -563,12 +575,21 @@ func (d *soundtrack) Read(buf []float32) (int, error) {
 	n, err := io.ReadFull(stdout, raw)
 	n -= n % 8
 	if n >= 8 {
-		return decodeSamples(buf, raw[:n]), nil
+		return scaleSamples(buf, decodeSamples(buf, raw[:n]), volume), nil
 	}
 	if err == nil || err == io.EOF || err == io.ErrUnexpectedEOF {
 		return 0, io.EOF
 	}
 	return 0, err
+}
+
+func scaleSamples(buf []float32, n int, volume float64) int {
+	if volume != 1 {
+		for i := 0; i < n; i++ {
+			buf[i] = float32(float64(buf[i]) * volume)
+		}
+	}
+	return n
 }
 
 func (d *soundtrack) SetPosition(frame int64) error {
@@ -606,27 +627,10 @@ func (d *soundtrack) Close() error {
 	return nil
 }
 
-func (a *appState) stopAudio() {
-	if a.Video == nil || a.Video.sound == nil {
-		return
-	}
-	a.Video.sound.Pause()
-	a.Video.sound.Close()
-	a.Video.sound = nil
-}
-
 func (a *appState) shutdownVideo() {
-	a.audioGen++
-	if a.Video == nil {
-		return
+	if a.Video != nil && a.Video.kernel != nil {
+		a.Video.kernel.Close()
 	}
-	a.stopAudio()
-	if a.Video.dec != nil {
-		_ = a.Video.dec.Close()
-		a.Video.dec = nil
-	}
-	a.Video.frames = nil
-	a.Video.held = nil
 }
 
 func (a *appState) closeVideo() {
@@ -634,105 +638,48 @@ func (a *appState) closeVideo() {
 	a.Video = nil
 }
 
-// syncAudio starts the soundtrack at the shared playhead, or stops it.
-// The clock itself stays put until the first samples are ready.
-func (a *appState) syncAudio(playing bool) {
-	a.audioGen++
-	gen := a.audioGen
-	a.stopAudio()
-	if !playing || a.Video == nil || a.Video.path == "" {
-		return
+func (a *appState) videoSnapshot() playbackSnapshot {
+	if a.Video == nil || a.Video.kernel == nil {
+		return playbackSnapshot{}
 	}
-	a.armSoundtrack(gen)
-}
-
-func (a *appState) armSoundtrack(gen int) {
-	if a.Video == nil {
-		return
-	}
-	path := a.Video.path
-	at := soundtrackAt(a.Video.clock)
-	safeGo("video.go:655", func() {
-		dec, err := newSoundtrack(path, at)
-		if err == nil {
-			err = dec.prime()
-		}
-		if err != nil && dec != nil {
-			_ = dec.Close()
-			dec = nil
-		}
-		publish := func() {
-			if a.audioGen != gen || a.Video == nil || !a.Video.playing {
-				if dec != nil {
-					_ = dec.Close()
-				}
-				return
-			}
-			now := time.Now()
-			if dec == nil {
-				a.Video.clock.play(now)
-				return
-			}
-			player := audio.NewPlayer(dec)
-			player.Play()
-			a.Video.sound = player
-			a.Video.clock.origin = at
-			a.Video.clock.wall = time.Time{}
-			a.Video.clock.play(now)
-		}
-		if a.Window == nil {
-			publish()
-			return
-		}
-		a.update(publish)
-	})
+	return a.Video.kernel.Snapshot()
 }
 
 func (a *appState) videoPlaying() bool {
-	return a.Video != nil && a.Video.playing
+	return a.Video != nil && a.Video.kernel != nil && a.videoSnapshot().Playing
 }
 
 func (a *appState) playhead() float64 {
-	if a.Video == nil {
-		return 0
-	}
-	t := a.Video.clock.at(time.Now())
-	if limit, ok := a.knownDuration(); ok && t > limit {
-		t = limit
-	}
-	if t < 0 {
-		t = 0
-	}
-	a.Video.Position = t
-	return t
+	return a.videoSnapshot().Position
 }
 
 func (a *appState) holdVideo(sharp bool) {
-	if a.Video == nil || !a.Video.playing {
+	if a.Video == nil || a.Video.kernel == nil {
 		return
 	}
-	a.Video.clock.pause(time.Now())
-	a.Video.playing = false
-	a.Video.Position = a.Video.clock.origin
-	a.syncAudio(false)
+	a.Video.kernel.SetPlaying(false)
 	if sharp {
 		a.requestSharpFrame()
 	}
 }
 
 func (a *appState) playVideo() {
-	if a.Video == nil || a.Video.playing {
-		return
-	}
-	if a.Video.dec != nil && a.Video.dec.edge != playbackEdge(a.Zoom) {
-		at := a.Video.clock.origin
-		path := a.Video.path
-		a.openPlayback(path, at, true)
+	if a.Video == nil || a.Video.kernel == nil {
 		return
 	}
 	a.Video.Still = nil
-	a.Video.playing = true
-	a.syncAudio(true)
+	a.Video.err = nil
+	a.Video.kernel.SetPlaying(true)
+}
+
+func (a *appState) stepVideo(direction int) {
+	if a.Video == nil || a.Video.kernel == nil {
+		return
+	}
+	a.Video.Still = nil
+	if err := a.Video.kernel.Step(direction); err != nil {
+		a.toast("逐帧播放不可用")
+	}
 }
 
 func shouldRestartVideoEdge(decodedEdge int, zoom float32, due, now time.Time) bool {
@@ -743,10 +690,17 @@ func shouldRestartVideoEdge(decodedEdge int, zoom float32, due, now time.Time) b
 }
 
 func (a *appState) noteVideoZoom() {
-	if a.Video == nil || a.Video.dec == nil || !a.Video.playing {
+	if a.Video == nil || a.Video.kernel == nil || !a.videoPlaying() {
 		return
 	}
-	if a.Video.dec.edge == playbackEdge(a.Zoom) {
+	backend, ok := a.Video.kernel.backend.(*ffmpegBackend)
+	if !ok {
+		return
+	}
+	backend.mu.Lock()
+	decodedEdge := backend.edge
+	backend.mu.Unlock()
+	if decodedEdge == playbackEdge(a.Zoom) {
 		a.videoEdgeDue = time.Time{}
 		return
 	}
@@ -758,105 +712,47 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 		return
 	}
 	a.videoEdgeDue = time.Time{}
-	if at < 0 {
-		at = 0
-	}
 	a.shutdownVideo()
-	dec := newFFmpegDecoderAt(path, at)
-	dec.edge = playbackEdge(a.Zoom)
-	a.Video = &videoView{
-		dec:      dec,
-		path:     path,
-		frames:   startFramePump(dec),
-		playing:  playing,
-		clock:    mediaClock{origin: at},
-		Position: at,
+	volume := a.VideoVolume
+	if volume < 0 {
+		volume = 0
 	}
-	if playing {
-		a.syncAudio(true)
+	kernel := newPlaybackSession()
+	kernel.SetVolume(volume)
+	v := &videoView{kernel: kernel, path: path}
+	a.Video = v
+	if err := kernel.Open(path, at, playing); err != nil {
+		v.err = err
+		logErrorf("video.open: path=%s err=%v", path, err)
 		return
 	}
-	a.requestSharpFrame()
+	if edgeBackend, ok := kernel.backend.(*ffmpegBackend); ok {
+		edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
+		edgeBackend.SetNotify(func() {
+			a.update(func() {})
+		})
+	}
+	if !playing {
+		a.requestSharpFrame()
+	}
 }
 
-func (a *appState) takeDueFrames(now float64) {
-	v := a.Video
-	if v == nil {
-		return
-	}
-	var batch []timedFrame
-	if v.held != nil {
-		batch = append(batch, *v.held)
-		v.held = nil
-	}
-	if v.frames != nil {
-		for {
-			select {
-			case frame := <-v.frames:
-				batch = append(batch, frame)
-			default:
-				goto picked
-			}
-		}
-	}
-picked:
-	show, ok, ahead, hasAhead := shownFrame(batch, now)
-	if hasAhead {
-		held := ahead
-		v.held = &held
-	}
-	if !ok {
-		return
-	}
-	if show.err != nil {
-		if v.frame == nil && !errors.Is(show.err, io.EOF) {
-			v.err = show.err
-			logWarnf("video decode failed for %s: %v", v.path, show.err)
-		}
-		if v.playing {
-			a.holdVideo(v.frame != nil)
-		}
-		return
-	}
-	if show.img == nil {
-		return
-	}
-	if v.frame == nil {
-		v.frame = ui.NewBitmap(show.img)
-	} else {
-		v.frame.Update(show.img)
-	}
-	v.frameAt = show.at
-}
-
-// presentVideo shows the frame the shared clock says is due.
-func (a *appState) presentVideo(c *ui.Context) *ui.Bitmap {
+func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bitmap {
 	v := a.Video
 	if v == nil {
 		return nil
 	}
-	now := time.Now()
-	t := v.clock.at(now)
-	if limit, ok := a.knownDuration(); ok && v.playing && t >= limit-0.01 {
-		v.clock.seek(limit, false, now)
-		v.playing = false
-		v.Position = limit
-		a.syncAudio(false)
-		a.requestSharpFrame()
-		t = limit
-	} else {
-		v.Position = t
+	v.err = snapshot.Err
+	if snapshot.Playing || snapshot.Frame != nil || !snapshot.Ready {
+		c.After(33 * time.Millisecond)
 	}
-	a.takeDueFrames(t)
-	if v.playing {
-		wait := 16 * time.Millisecond
-		if v.held != nil {
-			due := time.Duration((v.held.at - t) * float64(time.Second))
-			if due > time.Millisecond && due < wait {
-				wait = due
-			}
-		}
-		c.After(wait)
+	if snapshot.Frame == nil {
+		return v.frame
+	}
+	if v.frame == nil {
+		v.frame = ui.NewBitmap(snapshot.Frame)
+	} else {
+		v.frame.Update(snapshot.Frame)
 	}
 	return v.frame
 }
@@ -866,15 +762,16 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 		ui.Spinner(c)
 		return
 	}
+	snapshot := a.videoSnapshot()
 	var pic *ui.Bitmap
-	if a.Video.Still != nil && !a.Video.playing {
+	if a.Video.Still != nil && !snapshot.Playing {
 		pic = a.Video.Still
 	} else {
-		pic = a.presentVideo(c)
+		pic = a.presentVideo(c, snapshot)
 	}
 	if pic == nil {
-		if a.Video.err != nil {
-			ui.Textf(c, "视频解码失败: %v", a.Video.err).TextColor(c.Theme().Danger)
+		if snapshot.Err != nil {
+			ui.Textf(c, "视频解码失败: %v", snapshot.Err).TextColor(c.Theme().Danger)
 			return
 		}
 		ui.Spinner(c)

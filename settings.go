@@ -157,12 +157,6 @@ func (a *appState) advancedSettings(c *ui.Context) {
 	ui.Text(c, "高级").FontSize(16).Bold()
 	ui.Slider(c, &a.Settings.CacheCap, 64, 1024).Label("缩略图缓存数量")
 	ui.Slider(c, &a.Settings.Workers, 1, 16).Label("后台解码并发")
-	settingsSection(c, "运行诊断：", func() {
-		ui.Text(c, "查看最近警告、错误、运行指标和日志位置，便于复现与修复问题。").FontSize(12)
-		if ui.Button(c.Key("settings-open-diagnostics"), "打开诊断").Clicked() {
-			a.showDiagnostics()
-		}
-	})
 	if ui.Button(c.Key("settings-save"), "应用").Clicked() {
 		thumbLRU.limit = int(a.Settings.CacheCap)
 	}

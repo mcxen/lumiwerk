@@ -81,7 +81,7 @@ func (a *appState) tabsBar(c *ui.Context) {
 			}
 			tab.Children(func() {
 				ui.Text(c, tb.Name).FontSize(11).MaxLines(1)
-				if ui.Button(c.Key(fmt.Sprintf("tab-close-%d", i)), "×").Clicked() {
+				if lucideIconButton(c, fmt.Sprintf("tab-close-%d", i), "关闭标签页", lucideClose).Clicked() {
 					a.closeTab(i)
 				}
 			})

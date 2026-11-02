@@ -89,11 +89,40 @@ func TestLargeViewZoomControls(t *testing.T) {
 	if a.Zoom != 1 || a.PanX != 0 || a.PanY != 0 {
 		t.Fatalf("fit state = zoom %v pan (%v,%v)", a.Zoom, a.PanX, a.PanY)
 	}
-	if err := te.Click("+"); err != nil {
+	if err := te.Click("放大"); err != nil {
 		t.Fatalf("click zoom in: %v", err)
 	}
 	if a.Zoom != 1.25 {
 		t.Fatalf("zoom in = %v, want 1.25", a.Zoom)
+	}
+	for _, label := range []string{"缩小", "顺时针旋转", "逆时针旋转", "镜像"} {
+		if !te.HasText(label) {
+			t.Fatalf("Lucide control is missing accessible label %q: %v", label, te.Texts())
+		}
+	}
+	if err := te.Click("缩小"); err != nil {
+		t.Fatalf("click zoom out: %v", err)
+	}
+	if a.Zoom != 1 {
+		t.Fatalf("zoom out = %v, want 1", a.Zoom)
+	}
+	if err := te.Click("顺时针旋转"); err != nil {
+		t.Fatal(err)
+	}
+	if a.Rotation != 90 {
+		t.Fatalf("rotation = %v, want 90", a.Rotation)
+	}
+	if err := te.Click("逆时针旋转"); err != nil {
+		t.Fatal(err)
+	}
+	if a.Rotation != 0 {
+		t.Fatalf("counterclockwise rotation = %v, want 0", a.Rotation)
+	}
+	if err := te.Click("镜像"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.Mirror {
+		t.Fatal("mirror button did not change the view")
 	}
 }
 

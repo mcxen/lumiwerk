@@ -119,7 +119,7 @@ func normalizePrefs(p *prefsFile) {
 	if p.VideoCopyShortcut == "" {
 		p.VideoCopyShortcut = "]"
 	}
-	if p.Volume <= 0 || p.Volume > 2 {
+	if p.Volume < 0 || p.Volume > 2 {
 		p.Volume = 1
 	}
 	if p.PreviousVolume <= 0 || p.PreviousVolume > 2 {

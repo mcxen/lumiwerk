@@ -315,8 +315,8 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 	if a.Video != nil {
 		next := remapPath(a.Video.path, mappings)
 		a.Video.path = next
-		if a.Video.dec != nil {
-			a.Video.dec.path = next
+		if a.Video.kernel != nil {
+			a.Video.kernel.retarget(next)
 		}
 	}
 	if len(a.Cut) > 0 {
