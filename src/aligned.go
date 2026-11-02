@@ -1580,7 +1580,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 			}
 			ui.Text(c, title).FontSize(12).Bold().Grow(1).MaxLines(1)
 		} else {
-			items := strings.Split(strings.ReplaceAll(a.breadcrumbPath(), " › ", "/"), "/")
+			items := strings.Split(a.breadcrumbPath(), " › ")
 			chosen := len(items) - 1
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
 		}

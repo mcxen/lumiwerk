@@ -339,7 +339,7 @@ func (a *appState) justifiedView(c *ui.Context) {
 						if item := a.visibleItem(i); item != nil && !item.InfoLoaded {
 							a.requestInfo(a.Visible[i])
 						}
-						a.thumbCardWidth(c, root, i, 0, widths[k])
+						a.thumbCardWidth(c, root, i, rowH, widths[k])
 					}
 				})
 			}
@@ -406,7 +406,10 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 			if item.IsDir {
 				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 			} else if item.Bitmap != nil {
-				ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+				img := ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+				if width > 0 {
+					img.Width(width) // the centred box would keep the bitmap's own width
+				}
 				releaseShownPixels(item)
 			} else if item.Failed {
 				ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
