@@ -11,11 +11,11 @@ split by responsibility:
 - `aligned.go`: application state, browser behavior and feature composition.
 - `layouts.go`, `largeview.go`, `video.go`: media presentation and playback.
 - `playback.go`, `playback_mpv.go`: the Go playback kernel, its libmpv
-  backend (via `gen2brain/go-mpv`, built with `-tags nocgo` so the purego
-  path compiles on every platform without libmpv headers) and the FFmpeg
-  picture/sound fallback. The native controller uses
-  `playbackSession`, never a second view-owned playhead. FFmpeg is used
-  when libmpv is unavailable.
+  backend (via `gen2brain/go-mpv`, compiled only with `-tags mpvbackend`
+  because the library loads in package init; release builds set
+  `GOFLAGS=-tags=mpvbackend`) and the FFmpeg picture/sound fallback. The
+  native controller uses `playbackSession`, never a second view-owned
+  playhead. FFmpeg is used when libmpv is unavailable.
 - `actions.go`, `fileops.go`, `undo.go`: file operations and their inverses.
 - `logging.go`, `diagnostics.go`: persistent logs, in-memory events, runtime
   metrics and the diagnostic report UI.

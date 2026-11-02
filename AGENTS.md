@@ -14,13 +14,16 @@ package main in `github.com/mcxen/lumiwerk/src`):
 ```sh
 gofmt -w <changed-go-files>
 go build ./...
-go vet -tags nocgo ./...
-go test -tags nocgo -count=1 ./...
+go vet ./...
+go test -count=1 ./...
 ```
 
-`-tags nocgo` selects go-mpv's purego variant — the same code path mygo
-release builds ship (`CGO_ENABLED=0`). Without it, the cgo variant needs
-libmpv headers most machines lack.
+The default build excludes gen2brain/go-mpv: its package init loads
+libmpv and panics when the library is missing, so the real backend
+compiles in only with `-tags mpvbackend` (release builds set
+`GOFLAGS=-tags=mpvbackend`). Playback tests run against the fake
+backend in either build; to exercise the real one, build with the tag
+and make libmpv discoverable (e.g. `DYLD_LIBRARY_PATH`).
 
 For UI changes, add or update a `ui.NewTester` regression that exercises the
 changed behavior. For a crash, first reproduce the original panic in a test,

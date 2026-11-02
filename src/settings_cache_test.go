@@ -36,7 +36,7 @@ func TestAdvancedSettingsClearsCaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	te := ui.NewTester(a.advancedSettings, 900, 640)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsAdvancedPage(c, settingsPaletteFor(c)) }, 900, 640)
 	te.Frame()
 	te.Frame()
 	if !te.HasText("清理缓存") || !te.HasText("清理") {
