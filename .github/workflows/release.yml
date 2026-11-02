@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # the draft release that `mygo build -upload` fills
 
 concurrency:
   group: desktop-release-${{ github.ref }}
@@ -106,6 +106,13 @@ jobs:
       # workspace and why the cache keys include the matrix platform.
       GOCACHE: ${{ github.workspace }}/.gocache
       GOPATH: ${{ github.workspace }}/.gopath
+      # -upload signs each platform's update archive with this key and
+      # uploads installers, update archives, deltas and manifests (last) to
+      # the draft release of mygo.json's version. Publishing the draft makes
+      # installed apps see the update; the publish job does that once every
+      # platform is there.
+      GH_TOKEN: ${{ github.token }}
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -163,11 +170,12 @@ jobs:
       # missing (a 2.3 MB zip, ~2s), which beats a choco dependency walk.
       # Build the pinned mygo CLI once into the setup-go caches (module +
       # build), then invoke the binary: go run would re-resolve and relink
-      # it in every build job.
-      - name: Build application packages
+      # it in every build job. -sign - keeps macOS ad-hoc (no Developer ID
+      # on this repository yet); updates need only the Ed25519 update key.
+      - name: Build and upload to the draft release
         run: |
           go install "github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
-          "$(go env GOPATH)/bin/mygo" build -platform "${{ matrix.platform }}" -sign -
+          "$(go env GOPATH)/bin/mygo" build -platform "${{ matrix.platform }}" -sign - -upload
       - name: Check macOS bundle and signature
         if: matrix.kind == 'macos'
         run: |
@@ -186,18 +194,13 @@ jobs:
         run: |
           test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.deb' -type f -print -quit)"
           test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.tar.gz' -type f -print -quit)"
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-${{ matrix.directory }}
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            dist/darwin-universal/*.dmg
-            dist/windows-*/*-setup-*.exe
-            dist/linux-*/*.deb
-            dist/linux-*/*.tar.gz
-            dist/linux-amd64/install.sh
+      - name: Check the update files
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(jq -r .version mygo.json)"
+          target="${{ matrix.directory }}"
+          test -s "dist/${target}/lumiwerk-${version}-${target}.tar.gz"
+          test -s "dist/${target}/update-${target}.json"
 
   publish:
     name: Publish GitHub Release
@@ -208,50 +211,36 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: package-*
-          path: release-downloads
-          merge-multiple: true
-      - name: Collect and verify release assets
-        run: |
-          mkdir release-assets
-          while IFS= read -r -d '' asset; do
-            target="release-assets/$(basename "$asset")"
-            if [ -e "$target" ]; then
-              echo "Duplicate release asset: $(basename "$asset")" >&2
-              exit 1
-            fi
-            mv "$asset" "$target"
-          done < <(find release-downloads -type f -print0)
-
-          patterns=(
-            'lumiwerk-*.dmg'
-            'lumiwerk-setup-*-amd64.exe'
-            'lumiwerk-setup-*-arm64.exe'
-            'lumiwerk_*_amd64.deb'
-            'lumiwerk_*_arm64.deb'
-            'lumiwerk-*-linux-amd64.tar.gz'
-            'lumiwerk-*-linux-arm64.tar.gz'
-            'install.sh'
-          )
-          for pattern in "${patterns[@]}"; do
-            mapfile -d '' matches < <(find release-assets -maxdepth 1 -type f -name "$pattern" -print0)
-            if [ "${#matches[@]}" -ne 1 ]; then
-              echo "Expected exactly one asset matching $pattern, found ${#matches[@]}" >&2
-              exit 1
-            fi
-            test -s "${matches[0]}"
-          done
-          (cd release-assets && sha256sum -- * > SHA256SUMS)
-      - name: Create or update the release
+      # The build jobs uploaded installers, update archives, deltas and
+      # manifests to the draft release. Verify the set is complete — a
+      # release without a platform's manifest would strand its apps —
+      # then publish it, which makes installed apps see the update.
+      - name: Verify and publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -d '' assets < <(find release-assets -maxdepth 1 -type f -print0)
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --verify-tag --title "Lumiwerk $GITHUB_REF_NAME" --generate-notes
+          set -eu
+          version="$(jq -r .version mygo.json)"
+          tag="$GITHUB_REF_NAME"
+          draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != "true" ]; then
+            echo "::error::$tag is published already; bump the version in mygo.json to release again" >&2
+            exit 1
           fi
+          names="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          want="install.sh SHA256SUMS lumiwerk-$version.dmg"
+          for p in darwin-universal windows-amd64 windows-arm64 linux-amd64 linux-arm64; do
+            a="lumiwerk-$version-$p.tar.gz"
+            want="$want $a update-$p.json"
+            case "$p" in
+              windows-*) want="$want lumiwerk-setup-$version-${p#windows-}.exe" ;;
+              linux-amd64) want="$want lumiwerk_${version}_amd64.deb" ;;
+              linux-arm64) want="$want lumiwerk_${version}_arm64.deb" ;;
+            esac
+          done
+          missing=0
+          for w in $want; do
+            echo "$names" | grep -qxF "$w" || { echo "::error::$tag has no $w" >&2; missing=1; }
+          done
+          [ "$missing" = 0 ] || exit 1
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --title "Lumiwerk $tag"

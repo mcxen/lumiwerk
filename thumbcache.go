@@ -170,6 +170,24 @@ func (c *thumbCache) Size() int {
 	return c.size
 }
 
+// Limit reports the byte budget the cache keeps.
+func (c *thumbCache) Limit() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.limit
+}
+
+// Clear drops every live and weak entry; bitmaps still referenced by grid
+// items stay alive until the items change, and re-enter nothing here.
+func (c *thumbCache) Clear() {
+	c.mu.Lock()
+	c.art = map[string]*cachedThumb{}
+	c.gone = map[string]weak.Pointer[cachedThumb]{}
+	c.ll = list.New()
+	c.size = 0
+	c.mu.Unlock()
+}
+
 // Busy claims a decode slot for key so concurrent folder walks decode each
 // thumbnail once; it reports whether the claim was won.
 func (c *thumbCache) Busy(key string) bool {

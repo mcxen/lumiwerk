@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -20,6 +21,13 @@ func main() {
 
 	mygo.App.SetName(appName)
 	mygo.App.SetVersion(appVersion)
+	// The update window checks in the background once a day and offers to
+	// install what it finds; it needs a build signed with the update key,
+	// so development builds never check (updater.CheckForUpdates says why).
+	mygo.Use(updater.Plugin)
+	// Media steps leave temporaries only while they run; anything older
+	// than an hour was left by a crashed run, so sweep it in the background.
+	safeGo("main.tempSweep", sweepTempLeftovers)
 
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192, FolderFirst: true}
 	a.Profiles = loadPrefs()

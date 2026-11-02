@@ -15,6 +15,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -225,6 +226,13 @@ type appState struct {
 
 func newAppMenu(a *appState) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "Lumiwerk", Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout},
+			updater.MenuItem(),
+			mygo.Separator(),
+			{Role: mygo.RoleHide},
+			{Role: mygo.RoleQuit},
+		}},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.pickFolder", a.pickFolder) }},
 			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
