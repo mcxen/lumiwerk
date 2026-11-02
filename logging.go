@@ -128,6 +128,7 @@ func logWrite(level logLevel, format string, args ...any) {
 	if _, file, line, ok := runtime.Caller(2); ok {
 		caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
 	}
+	recordDiagnostic(level, caller, msg)
 	if level < logMinLevel {
 		return
 	}
@@ -169,6 +170,7 @@ func logErrorf(format string, args ...any) { logWrite(levelError, format, args..
 // and the app keeps running instead of dying.
 func logRecover(where string) {
 	if r := recover(); r != nil {
+		recordPanic()
 		logWrite(levelError, "panic in %s: %v\n%s", where, r, debug.Stack())
 	}
 }

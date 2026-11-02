@@ -14,14 +14,13 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.2.0"
+	appVersion                  = "0.3.0"
 	rootName                    = "Macintosh HD"
 	sidebarDefaultWidth float32 = 279
 )
