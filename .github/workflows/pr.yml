@@ -1,12 +1,19 @@
-name: PR Checks
+name: CI Checks
 
-# Every push to an open pull request runs the full test suite. Superseded
-# runs of the same branch are cancelled, so the latest push decides.
-# Docs-only changes change nothing the checks observe, so they skip CI
-# entirely; the release workflow keeps running on every tag and every push
-# to the default branch, and this workflow cannot gate a merge there.
+# Every push to main and to an open pull request runs the full test suite.
+# Superseded runs of the same branch are cancelled, so the latest push
+# decides. Docs-only changes change nothing the checks observe, so they skip
+# CI entirely; the release workflow keeps running on every tag.
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES.md"
+      - ".gitignore"
   pull_request:
     paths-ignore:
       - "**.md"
