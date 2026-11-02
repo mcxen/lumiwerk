@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/go-text/typesetting v0.3.5 // indirect
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

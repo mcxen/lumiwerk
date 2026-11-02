@@ -45,6 +45,7 @@ func probeImage(path string) mediaInfo {
 	if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."); ext != "" {
 		info.Format = ext
 	}
+	probeExif(path, &info)
 	return info
 }
 
