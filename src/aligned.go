@@ -1537,9 +1537,6 @@ func (a *appState) mainView(c *ui.Context) {
 		a.tabsBar(c)
 		a.toolbarView(c)
 		ui.Divider(c)
-		if !a.InLargeView && a.Root != "" && len(a.Visible) > 0 {
-			ui.Text(c, pathName(a.Root)).FontSize(20).Bold().Padding(8, 12)
-		}
 		if a.InLargeView {
 			a.largeImageView(c)
 		} else if a.Root == "" {
@@ -1586,7 +1583,6 @@ func (a *appState) toolbarView(c *ui.Context) {
 			items := strings.Split(strings.ReplaceAll(a.breadcrumbPath(), " › ", "/"), "/")
 			chosen := len(items) - 1
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
-			ui.Textf(c, "(%d 媒体)", a.mediaCount()).FontSize(11).TextColor(t.TextMuted)
 		}
 		if !a.InLargeView {
 			prevQuery := a.LastQuery
@@ -1682,7 +1678,7 @@ func (a *appState) gridView(c *ui.Context) {
 	t := c.Theme()
 	root := a.Root
 	state := a.mediaListState()
-	cell := int(a.Thumb + 56)
+	cell := int(a.Thumb + gridCellPad)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
 	if a.takeReveal() {
@@ -1717,7 +1713,7 @@ func (a *appState) gridView(c *ui.Context) {
 				if item.IsDir {
 					ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 				} else if item.Bitmap != nil {
-					ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+					ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
 					releaseShownPixels(item)
 				} else if item.Failed {
 					ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
@@ -1753,11 +1749,7 @@ func (a *appState) statusBar(c *ui.Context) {
 	t := c.Theme()
 	bar := ui.Row(c).Padding(4, 12).Background(t.Surface)
 	bar.Children(func() {
-		label := "未打开目录"
-		if a.Root != "" {
-			label = fmt.Sprintf("%s (%d 媒体)", a.Root, a.mediaCount())
-		}
-		ui.Text(c, label).FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxLines(1)
 	})
 }
 

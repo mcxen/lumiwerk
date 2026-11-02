@@ -227,7 +227,7 @@ func gridColumnCount(viewW, cell, gap float32) int {
 }
 
 func gridStride(thumb float64, gap float32) float32 {
-	row := float32(int(thumb+56) + 30)
+	row := float32(int(thumb+gridCellPad) + 30)
 	if gap > 0 {
 		row += gap
 	}
@@ -335,7 +335,7 @@ func (a *appState) anchorBrowse(oldThumb, newThumb float64, x, y float32, hasPoi
 		if width <= 0 {
 			width = box.W
 		}
-		cell := float32(int(newThumb + 64))
+		cell := float32(int(newThumb + gridCellPad + 8))
 		cols := gridColumnCount(width, cell, gap)
 		oldStride := box.Stride
 		if oldStride <= 0 {

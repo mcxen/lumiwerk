@@ -72,8 +72,8 @@ type flowBox struct {
 }
 
 const (
-	flowPad    float32 = 12
-	flowGap    float32 = 12
+	flowPad    float32 = 8
+	flowGap    float32 = 6
 	flowMargin float32 = 0
 	flowLabel  float32 = 30
 )
@@ -307,6 +307,7 @@ func (a *appState) justifiedView(c *ui.Context) {
 	}
 	const gap = float64(flowGap)
 	rows := a.cachedJustified(width)
+	aspects := a.visibleAspects()
 	rowH := float32(a.Thumb) + flowLabel
 	stride := rowH + float32(gap)
 	if a.Chosen >= 0 && a.revealFrames > 0 {
@@ -331,13 +332,14 @@ func (a *appState) justifiedView(c *ui.Context) {
 				ui.Box(c).Key("lw-justified-above").Height(float32(first)*stride - float32(gap))
 			}
 			for _, r := range rows[first:last] {
+				widths := justifiedWidths(aspects, r, float64(width-flowPad*2), float64(a.Thumb), gap, r[len(r)-1] == len(a.Visible)-1)
 				rr := ui.Row(c).Key(a.itemKey(r[0])).Gap(flowGap).Height(rowH)
 				rr.Children(func() {
-					for _, i := range r {
+					for k, i := range r {
 						if item := a.visibleItem(i); item != nil && !item.InfoLoaded {
 							a.requestInfo(a.Visible[i])
 						}
-						a.thumbCard(c, root, i, 0)
+						a.thumbCardWidth(c, root, i, 0, widths[k])
 					}
 				})
 			}
@@ -349,6 +351,35 @@ func (a *appState) justifiedView(c *ui.Context) {
 }
 
 func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) {
+	a.thumbCardWidth(c, root, i, height, 0)
+}
+
+// justifiedWidths sizes the cards of one row by their aspect ratio, scaled
+// so full rows fill viewW exactly; the last row keeps the nominal height.
+func justifiedWidths(aspects []float32, row []int, viewW, rowH, gap float64, last bool) []float32 {
+	out := make([]float32, len(row))
+	var sum float64
+	for k, i := range row {
+		ar := 1.0
+		if i >= 0 && i < len(aspects) && aspects[i] > 0 {
+			ar = float64(aspects[i])
+		}
+		w := ar * rowH
+		out[k] = float32(w)
+		sum += w
+	}
+	free := viewW - gap*float64(len(row)-1)
+	if sum <= 0 || free <= 0 || (last && sum < free) {
+		return out
+	}
+	scale := free / sum
+	for k := range out {
+		out[k] = float32(float64(out[k]) * scale)
+	}
+	return out
+}
+
+func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, width float32) {
 	t := c.Theme()
 	item := a.visibleItem(i)
 	if item == nil {
@@ -356,7 +387,12 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 	}
 	thumbCardProbe()
 	a.markSeen(item)
-	card := ui.Column(c).Grow(1).Gap(4)
+	card := ui.Column(c).Gap(4)
+	if width > 0 {
+		card.Width(width).Shrink(0)
+	} else {
+		card.Grow(1)
+	}
 	if height > 0 {
 		card.Height(height)
 	}
