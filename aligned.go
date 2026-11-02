@@ -10,9 +10,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/audio"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -24,7 +27,7 @@ const (
 )
 
 var (
-	thumbLRU  = newLRUCache(512)
+	thumbLRU  = newThumbCache(thumbBudget)
 	thumbGate = make(chan struct{}, 8)
 
 	dirIcon        = lucideFolder
@@ -64,6 +67,13 @@ type mediaItem struct {
 	IsDir        bool
 	ThumbEdge    int
 	LoadGen      int
+	// InfoLoading is set while a metadata probe for the item runs, so views
+	// drawn every frame do not start one probe per frame.
+	InfoLoading bool
+	// Seen is when a view last built the item's thumbnail (UnixNano,
+	// atomic): queued decodes for items scrolled away are skipped and
+	// thumbnails long off screen give their bitmap back to the cache.
+	Seen int64
 }
 
 // videoView binds the native bitmap cache to one Go playback kernel.
@@ -121,6 +131,7 @@ type appState struct {
 	columnY      float32
 
 	InLargeView   bool
+	Hero          heroState
 	LargeIndex    int
 	Zoom          float32
 	Rotation      float32
@@ -143,6 +154,7 @@ type appState struct {
 	HUD           string
 	HUDUntil      time.Time
 	Settings      settingsState
+	Diagnostics   diagnosticsState
 	Tabs          tabState
 	Profiles      prefsFile
 	Batch         batchState
@@ -154,6 +166,15 @@ type appState struct {
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
+	layoutGen     uint64
+	flowCache     flowLayoutCache
+	opBusy        bool
+	treeCache     map[string]treeEntry
+	selAnchor     selectionAnchor
+	revealFrames  int
+	lastUp        time.Time
+	frameNow      int64
+	nextSweep     time.Time
 	PendingLarge  string
 	KeepLarge     bool
 	NewFolder     bool
@@ -197,6 +218,13 @@ type appState struct {
 
 func newAppMenu(a *appState) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "Lumiwerk", Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout},
+			updater.MenuItem(),
+			mygo.Separator(),
+			{Role: mygo.RoleHide},
+			{Role: mygo.RoleQuit},
+		}},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "打开目录…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.pickFolder", a.pickFolder) }},
 			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
@@ -243,6 +271,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "在原文件夹中显示", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
+			{Label: "运行诊断…", Accelerator: "CmdOrCtrl+Shift+D", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(a.showDiagnostics)
+			}},
 			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
 			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
@@ -253,7 +284,7 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("raw") }) }},
 			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("videos") }) }},
 			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("archives") }) }},
-			{Label: "返回上一级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
+			{Label: "返回上一级目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
 			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
@@ -344,13 +375,16 @@ func (a *appState) openFolder(path string) {
 	}
 	a.mu.Unlock()
 	a.noteTabRoot(path)
-	a.Window.SetTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
+	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
 	a.refreshView()
 }
 
 func (a *appState) refresh() {
 	a.mu.Lock()
 	root := a.Root
+	// Each scan supersedes the ones before it: a slower, older listing that
+	// lands later must not overwrite a newer one (and its pending selection).
+	a.scanSeq++
 	seq := a.scanSeq
 	a.mu.Unlock()
 	if root == "" {
@@ -370,19 +404,14 @@ func (a *appState) scanFolder(root string, seq int) {
 		return view.AllTypes || isEnabledFile(path, ext, view)
 	}
 	if flat {
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if path != root && !view.Hidden && strings.HasPrefix(d.Name(), ".") {
+		_ = walkDirMedia(root, func(entry scanEntry) error {
+			path := entry.Path
+			if entry.IsDir {
+				if path != root && !view.Hidden && entry.Hidden {
 					return filepath.SkipDir
 				}
-				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !isHiddenPath(root, path)) {
-					info, statErr := d.Info()
-					if statErr == nil {
-						files = append(files, mediaItem{Path: path, Name: d.Name(), ModTime: info.ModTime().Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
-					}
+				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
+					files = append(files, mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
 				}
 				return nil
 			}
@@ -390,41 +419,34 @@ func (a *appState) scanFolder(root string, seq int) {
 			if !includeFile(path, ext) {
 				return nil
 			}
-			info, err := d.Info()
-			if err != nil {
+			if entry.Info == nil {
 				return nil
 			}
-			files = append(files, mediaItem{Path: path, Name: filepath.Base(path), Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
+			files = append(files, mediaItem{Path: path, Name: entry.Name, Ext: strings.ToLower(ext), Size: entry.Size, ModTime: entry.ModTime.Unix(), IsVideo: isVideoFile(ext)})
 			return nil
 		})
 	} else {
-		entries, err := os.ReadDir(root)
+		entries, err := scanDir(root)
 		if err != nil {
 			logErrorf("could not read folder %s: %v", root, err)
 			return
 		}
 		for _, e := range entries {
-			name := e.Name()
-			if !view.Hidden && strings.HasPrefix(name, ".") {
+			if !view.Hidden && e.Hidden {
 				continue
 			}
-			if e.IsDir() {
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				files = append(files, mediaItem{Path: filepath.Join(root, name), Name: name, ModTime: info.ModTime().Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
+			if e.IsDir {
+				files = append(files, mediaItem{Path: e.Path, Name: e.Name, ModTime: e.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
 				continue
 			}
-			ext := strings.TrimPrefix(filepath.Ext(name), ".")
-			if !includeFile(filepath.Join(root, name), ext) {
+			ext := strings.TrimPrefix(filepath.Ext(e.Name), ".")
+			if !includeFile(e.Path, ext) {
 				continue
 			}
-			info, err := e.Info()
-			if err != nil {
+			if e.Info == nil {
 				continue
 			}
-			files = append(files, mediaItem{Path: filepath.Join(root, name), Name: name, Ext: strings.ToLower(ext), Size: info.Size(), ModTime: info.ModTime().Unix(), IsVideo: isVideoFile(ext)})
+			files = append(files, mediaItem{Path: e.Path, Name: e.Name, Ext: strings.ToLower(ext), Size: e.Size, ModTime: e.ModTime.Unix(), IsVideo: isVideoFile(ext)})
 		}
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })
@@ -434,6 +456,7 @@ func (a *appState) scanFolder(root string, seq int) {
 		if a.Root != root || a.scanSeq != seq {
 			return
 		}
+		a.noteSelectionAnchorLocked()
 		a.Items = files
 		a.applyFilterLocked()
 		a.restorePendingSelection()
@@ -441,6 +464,7 @@ func (a *appState) scanFolder(root string, seq int) {
 			a.closeLargeImage()
 		}
 		safeGo("loadTags", a.loadTags)
+		safeGo("probeAspects", a.probeVisibleAspects)
 	})
 }
 
@@ -672,7 +696,17 @@ func (a *appState) restorePendingSelection() {
 		for _, path := range a.PendingSelect {
 			want[path] = struct{}{}
 		}
-		a.Selected.Clear()
+		present := false
+		for _, itemIndex := range a.Visible {
+			if _, ok := want[a.Items[itemIndex].Path]; ok {
+				present = true
+				break
+			}
+		}
+		if present {
+			// Items moved elsewhere keep the reconciled selection instead.
+			a.Selected.Clear()
+		}
 		first := -1
 		for visibleIndex, itemIndex := range a.Visible {
 			path := a.Items[itemIndex].Path
@@ -686,6 +720,7 @@ func (a *appState) restorePendingSelection() {
 		}
 		if first >= 0 {
 			a.Chosen = first
+			a.revealFrames = 2
 		}
 		a.PendingSelect = nil
 	}
@@ -693,7 +728,7 @@ func (a *appState) restorePendingSelection() {
 		if a.InLargeView && a.LargeIndex >= 0 && a.LargeIndex < len(a.Visible) {
 			item := a.Items[a.Visible[a.LargeIndex]]
 			if a.Window != nil {
-				a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible)))
+				a.setTitle(fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible)))
 			}
 		}
 		return
@@ -723,11 +758,12 @@ func (a *appState) restorePendingSelection() {
 		}
 	}
 	if a.Window != nil {
-		a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, found+1, len(a.Visible)))
+		a.setTitle(fmt.Sprintf("%s (%d/%d)", item.Name, found+1, len(a.Visible)))
 	}
 }
 
 func (a *appState) applyFilterLocked() {
+	anchor := a.takeSelectionAnchorLocked()
 	a.Visible = a.Visible[:0]
 	q := strings.ToLower(strings.TrimSpace(a.Query))
 	for i := range a.Items {
@@ -745,12 +781,8 @@ func (a *appState) applyFilterLocked() {
 		}
 		a.Visible = append(a.Visible, i)
 	}
-	if a.Chosen >= len(a.Visible) {
-		a.Chosen = -1
-	}
-	if a.Chosen >= 0 && a.Selected.Len() == 0 {
-		a.Selected.Add(a.Items[a.Visible[a.Chosen]].Path)
-	}
+	a.noteLayoutChanged()
+	a.reconcileSelectionLocked(anchor)
 }
 
 func (a *appState) startWatcher() {
@@ -806,9 +838,18 @@ func (a *appState) goUp() {
 	if a.Root == "" {
 		return
 	}
+	// Cmd+Up reaches both the menu accelerator and the view shortcut on
+	// some desktops; one key press goes up one level only.
+	if now := time.Now(); now.Sub(a.lastUp) < 150*time.Millisecond {
+		return
+	} else {
+		a.lastUp = now
+	}
 	parent := filepath.Dir(a.Root)
 	if parent != a.Root {
+		from := a.Root
 		a.openFolder(parent)
+		a.selectAfterLoad(from)
 	}
 }
 
@@ -821,7 +862,9 @@ func (a *appState) goBack() {
 	a.Cursor--
 	path := a.History[a.Cursor]
 	a.mu.Unlock()
+	from := a.Root
 	a.openFolder(path)
+	a.selectAfterLoad(from)
 }
 
 func (a *appState) goForward() {
@@ -833,10 +876,46 @@ func (a *appState) goForward() {
 	a.Cursor++
 	path := a.History[a.Cursor]
 	a.mu.Unlock()
+	from := a.Root
 	a.openFolder(path)
+	a.selectAfterLoad(from)
 }
 
+// treeChildren answers the sidebar outline, which asks for every expanded
+// folder on every frame. Listing a directory on the main thread each frame
+// stalls scrolling and animation on slow or network volumes, so listings are
+// cached: the first one is read at once, later ones are refreshed in the
+// background once they are older than treeTTL.
 func (a *appState) treeChildren(path string) []string {
+	now := time.Now()
+	if e, ok := a.treeCache[path]; ok {
+		if now.Sub(e.at) > treeTTL && !e.refreshing && a.Window != nil {
+			e.refreshing = true
+			a.treeCache[path] = e
+			safeGo("treeChildren", func() {
+				dirs := listSubdirs(path)
+				a.update(func() { a.treeCache[path] = treeEntry{dirs: dirs, at: time.Now()} })
+			})
+		}
+		return e.dirs
+	}
+	if a.treeCache == nil || len(a.treeCache) > 4096 {
+		a.treeCache = map[string]treeEntry{}
+	}
+	dirs := listSubdirs(path)
+	a.treeCache[path] = treeEntry{dirs: dirs, at: now}
+	return dirs
+}
+
+const treeTTL = 3 * time.Second
+
+type treeEntry struct {
+	dirs       []string
+	at         time.Time
+	refreshing bool
+}
+
+func listSubdirs(path string) []string {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil
@@ -902,6 +981,9 @@ func (a *appState) loadThumb(root string, index int) {
 		}
 		thumbGate <- struct{}{}
 		defer func() { <-thumbGate }()
+		if a.thumbAbandoned(index, path, gen) {
+			return
+		}
 		data, err := thumbBytes(path, video, edge)
 		if err != nil && !video {
 			data, err = os.ReadFile(path)
@@ -927,7 +1009,7 @@ func (a *appState) loadThumb(root string, index int) {
 				current.Bitmap = bitmap
 				current.Decoded = true
 				current.ThumbEdge = edge
-				thumbLRU.Put(key, bitmap)
+				thumbLRU.Put(key, bitmap, edge)
 			}
 			current.Loading = false
 		})
@@ -938,11 +1020,20 @@ func (a *appState) loadThumb(root string, index int) {
 // Views
 // ============================
 
+// tests set it, to run background results on the test goroutine.
+// headlessUpdate receives update callbacks when there is no window. Tests
+// install one; access is atomic because background jobs call update while a
+// test may still be installing or clearing the hook.
+var headlessUpdate atomic.Pointer[func(fn func())]
+
 // update runs fn on the window's main thread when a window exists. Background
 // work that touches the interface goes through it, so headless runs (tests or
 // an early startup failure) do nothing instead of panicking on a nil Window.
 func (a *appState) update(fn func()) {
 	if a.Window == nil {
+		if hook := headlessUpdate.Load(); hook != nil {
+			(*hook)(fn)
+		}
 		return
 	}
 	a.Window.Update(fn)
@@ -982,16 +1073,27 @@ func (a *appState) rootView(c *ui.Context) {
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
+	atomic.StoreInt64(&a.frameNow, time.Now().UnixNano())
 	if !a.InLargeView {
 		a.settleThumbs(c)
+		a.sweepThumbs(c)
 	}
 
 	// Global shortcuts.
 	if c.Shortcut(ui.Cmd, ui.KeyO) {
 		safeGo("dialog.pickFolder", a.pickFolder)
 	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyD) {
+		a.showDiagnostics()
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
+	}
+	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketLeft) {
+		a.goBack()
+	}
+	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketRight) {
+		a.goForward()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		a.SidebarShown = !a.SidebarShown
@@ -1154,17 +1256,25 @@ func (a *appState) rootView(c *ui.Context) {
 			a.nextMediaFolder(1)
 		}
 	}
-	if c.Shortcut(0, ui.KeyEscape) && a.modalOpen() {
-		a.AutoConfig = ""
-		a.AutoValue = ""
-		a.ZipAsk = false
-		a.ZipPass = ""
-		a.CropAsk = false
-		a.TrimAsk = false
-		a.InfoAsk = false
-		a.closeEditor()
-	} else if c.Shortcut(0, ui.KeyEscape) && a.InLargeView {
-		a.closeLargeImage()
+	// MyGo's Shortcut consumes the delivered key on the first query, so
+	// the old modal/large if-else chain — which asked twice — let the
+	// modal query eat every Escape and the large view could never close.
+	// Query once, then branch on the guards.
+	switch c.Shortcut(0, ui.KeyEscape) {
+	case true:
+		switch {
+		case a.modalOpen():
+			a.AutoConfig = ""
+			a.AutoValue = ""
+			a.ZipAsk = false
+			a.ZipPass = ""
+			a.CropAsk = false
+			a.TrimAsk = false
+			a.InfoAsk = false
+			a.closeEditor()
+		case a.InLargeView:
+			a.closeLargeImage()
+		}
 	}
 	if c.Shortcut(0, ui.KeySpace) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		if a.InLargeView {
@@ -1542,11 +1652,16 @@ func (a *appState) gridView(c *ui.Context) {
 	cell := int(a.Thumb + 56)
 	gap := c.Theme().Space(2)
 	a.applyGridAnchor()
+	if a.takeReveal() {
+		a.Grid.ScrollIntoView(a.Chosen)
+	}
 	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
 			return
 		}
+		thumbCardProbe()
+		a.markSeen(item)
 		card := ui.Column(c).Grow(1).Gap(4)
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
@@ -1555,7 +1670,8 @@ func (a *appState) gridView(c *ui.Context) {
 			card.Border(2, t.Accent)
 		}
 		card.Children(func() {
-			thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+			a.thumbHero(thumb, item.Path)
 			thumb.Children(func() {
 				if dots := tagDots(item.Tags); len(dots) > 0 {
 					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
@@ -1569,6 +1685,7 @@ func (a *appState) gridView(c *ui.Context) {
 					ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 				} else if item.Bitmap != nil {
 					ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+					releaseShownPixels(item)
 				} else if item.Failed {
 					ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
 				} else {
@@ -1579,6 +1696,7 @@ func (a *appState) gridView(c *ui.Context) {
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)
+		a.cardPointer(card, i)
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
 			a.loadThumb(root, a.Visible[i])
@@ -1644,7 +1762,9 @@ func (a *appState) largeImageView(c *ui.Context) {
 			} else if item.IsVideo {
 				a.ensureVideo(item.Path)
 				a.settleVideoEdge(c)
-				a.videoLayer(c, true)
+				if !a.largeHero(c, item, nil, func() { a.videoLayer(c, true) }) {
+					a.videoLayer(c, true)
+				}
 			} else {
 				pic := item.Large
 				if pic == nil {
@@ -1652,12 +1772,16 @@ func (a *appState) largeImageView(c *ui.Context) {
 				}
 				if pic == nil {
 					ui.Spinner(c)
-				} else if !sharpReady(item, a.zoomPercent(item)) {
-					ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(a.fitTransform())
-					a.HUD = "原图加载中"
-					a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
 				} else {
-					ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(a.transform())
+					tr := a.transform()
+					if !sharpReady(item, a.zoomPercent(item)) {
+						tr = a.fitTransform()
+						a.HUD = "原图加载中"
+						a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
+					}
+					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Cover).Grow(1).Transform(tr) }) {
+						ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr)
+					}
 				}
 			}
 		})
@@ -2208,7 +2332,7 @@ func (a *appState) ensureMediaInfo(item *mediaItem) {
 	if index < 0 || index >= len(a.Visible) {
 		return
 	}
-	safeGo("loadInfo", func() { a.loadInfo(a.Visible[index]) })
+	a.requestInfo(a.Visible[index])
 }
 
 // largeWidth is the content area width, used for edge-click zones.
@@ -2348,6 +2472,7 @@ func (a *appState) openLargeImage(index int) {
 		return
 	}
 	a.clearSharp()
+	a.heroBeginOpen(a.Items[a.Visible[index]].Path, !a.InLargeView)
 	a.InLargeView = true
 	a.LargeIndex = index
 	a.Zoom, a.Rotation, a.Mirror = 1, 0, false
@@ -2355,9 +2480,7 @@ func (a *appState) openLargeImage(index int) {
 	a.HUD, a.HUDUntil = "", time.Time{}
 	a.closeVideo()
 	item := &a.Items[a.Visible[index]]
-	if a.Window != nil {
-		a.Window.SetTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
-	}
+	a.setTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(a.Root, a.Visible[index])
 	}
@@ -2372,12 +2495,15 @@ func (a *appState) closeLargeImage() {
 	a.autoTick = time.Time{}
 	a.closeEditor()
 	a.clearSharp()
+	if item := a.currentItem(); a.InLargeView && item != nil {
+		a.heroBeginClose(item.Path)
+	}
 	a.InLargeView = false
 	a.LargeIndex = -1
 	a.dropLargeBitmaps("")
 	a.closeVideo()
-	if a.Root != "" && a.Window != nil {
-		a.Window.SetTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))
+	if a.Root != "" {
+		a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))
 	}
 }
 
@@ -2422,6 +2548,9 @@ func (a *appState) applyFilter() {
 func (a *appState) detailView(c *ui.Context) {
 	t := c.Theme()
 	state := a.mediaListState()
+	if a.takeReveal() {
+		a.ListState.ScrollIntoView(a.Chosen)
+	}
 	list := ui.List(c, state.List, len(a.Visible), func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {

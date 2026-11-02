@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/egoist/mygo/ui"
+	"slices"
 )
 
 // waterfallColumns sizes columns like Finder's icon view: a thumbnail-sized
@@ -234,53 +235,64 @@ func flowHit(boxes []flowBox, x, y float32) (flowBox, bool) {
 	return best, found
 }
 
+// thumbCardProbe lets tests count cards the flow views build. Tests swap it
+// and restore; production never reads it.
+var thumbCardProbe = func() {}
+
 // waterfallView packs items into N columns, each appended to the shortest.
+// The canvas is one fixed-height spacer; cards are absolutely positioned
+// children built only for the visible window, so a folder of 100k photos
+// builds tens of widgets a frame instead of all of them.
 func (a *appState) waterfallView(c *ui.Context) {
 	root := a.Root
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
 	width := float32(1280)
+	height := float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
 		width = bounds.W
+		height = bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
-	aspects := a.visibleAspects()
-	cols := waterfallColumns(width, float32(a.Thumb))
-	groups := waterfallGroups(aspects, cols)
-	for i := range a.Visible {
-		item := a.visibleItem(i)
-		if item == nil {
-			continue
-		}
-		if !item.InfoLoaded {
-			idx := a.Visible[i]
-			safeGo("loadInfo", func() { a.loadInfo(idx) })
+	boxes := a.cachedWaterfall(width)
+	contentH := float32(0)
+	for _, b := range boxes {
+		if bottom := b.Y + b.H + flowPad; bottom > contentH {
+			contentH = bottom
 		}
 	}
+	if contentH < height {
+		contentH = height
+	}
+	a.revealFlow(boxes, height)
+	// The scroll window the cards must cover, grown one screen each way
+	// so fast scrolling shows cards instead of gaps.
+	top := a.browseScroll.Y - height
+	if top < 0 {
+		top = 0
+	}
+	bottom := a.browseScroll.Y + height*2
+	if bottom > contentH {
+		bottom = contentH
+	}
 	scroll.Children(func() {
-		row := ui.Row(c).FillWidth().Gap(flowGap).Padding(flowPad)
-		row.Children(func() {
-			for ci := 0; ci < cols; ci++ {
-				col := ui.Column(c).Grow(1).Gap(flowGap)
-				_, basis := waterfallColumnWidth(width, cols)
-				group := groups[ci]
-				col.Children(func() {
-					for _, i := range group {
-						item := a.visibleItem(i)
-						if item == nil {
-							continue
-						}
-						ar := float32(1)
-						if item.Info.Height > 0 && item.Info.Width > 0 {
-							ar = float32(item.Info.Width) / float32(item.Info.Height)
-						}
-						if ar < 0.2 {
-							ar = 0.2
-						}
-						a.thumbCard(c, root, i, basis/ar+flowLabel)
-					}
-				})
+		ui.Box(c).Width(width).Height(contentH)
+		for _, b := range boxes {
+			if b.Y+b.H < top || b.Y > bottom {
+				continue
 			}
-		})
+			i := b.Index
+			item := a.visibleItem(i)
+			if item == nil {
+				continue
+			}
+			if !item.InfoLoaded {
+				a.requestInfo(a.Visible[i])
+			}
+			card := ui.Box(c).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
+			card.Children(func() {
+				a.thumbCard(c, root, i, b.H)
+			})
+		}
 	})
 }
 
@@ -288,39 +300,49 @@ func (a *appState) waterfallView(c *ui.Context) {
 func (a *appState) justifiedView(c *ui.Context) {
 	root := a.Root
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
-	width := float32(1280)
+	width, height := float32(1280), float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
-		width = bounds.W
+		width, height = bounds.W, bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 	}
 	const gap = float64(flowGap)
-	aspects := make([]float64, len(a.Visible))
-	for i := range a.Visible {
-		item := a.visibleItem(i)
-		if item == nil {
-			continue
-		}
-		aspects[i] = 1
-		if item.Info.Height > 0 && item.Info.Width > 0 {
-			aspects[i] = float64(item.Info.Width) / float64(item.Info.Height)
-		}
-		if !item.InfoLoaded {
-			idx := a.Visible[i]
-			safeGo("loadInfo", func() { a.loadInfo(idx) })
+	rows := a.cachedJustified(width)
+	rowH := float32(a.Thumb) + flowLabel
+	stride := rowH + float32(gap)
+	if a.Chosen >= 0 && a.revealFrames > 0 {
+		for r, row := range rows {
+			if slices.Contains(row, a.Chosen) {
+				a.revealFlow([]flowBox{{Index: a.Chosen, Y: flowPad + float32(r)*stride, H: rowH}}, height)
+				break
+			}
 		}
 	}
-	rows := justifiedRows(aspects, float64(width-flowPad*2), a.Thumb, gap)
+	// Rows have one height, so the visible ones follow from the scroll
+	// offset: build those plus one screen each way, and stand the rest in
+	// with two spacers, as waterfallView does with its canvas.
+	first := int((a.browseScroll.Y - height - flowPad) / stride)
+	last := int((a.browseScroll.Y+height*2-flowPad)/stride) + 1
+	first = max(0, min(first, len(rows)))
+	last = max(first, min(last, len(rows)))
 	scroll.Children(func() {
 		col := ui.Column(c).FillWidth().Gap(float32(gap)).Padding(flowPad)
 		col.Children(func() {
-			for _, r := range rows {
-				r := r
-				rr := ui.Row(c).Gap(flowGap).Height(float32(a.Thumb) + flowLabel)
+			if first > 0 {
+				ui.Box(c).Key("lw-justified-above").Height(float32(first)*stride - float32(gap))
+			}
+			for _, r := range rows[first:last] {
+				rr := ui.Row(c).Key(a.itemKey(r[0])).Gap(flowGap).Height(rowH)
 				rr.Children(func() {
 					for _, i := range r {
+						if item := a.visibleItem(i); item != nil && !item.InfoLoaded {
+							a.requestInfo(a.Visible[i])
+						}
 						a.thumbCard(c, root, i, 0)
 					}
 				})
+			}
+			if last < len(rows) {
+				ui.Box(c).Key("lw-justified-below").Height(float32(len(rows)-last)*stride - float32(gap))
 			}
 		})
 	})
@@ -332,6 +354,8 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 	if item == nil {
 		return
 	}
+	thumbCardProbe()
+	a.markSeen(item)
 	card := ui.Column(c).Grow(1).Gap(4)
 	if height > 0 {
 		card.Height(height)
@@ -340,12 +364,14 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		card.Opacity(0.4)
 	}
 	card.Children(func() {
-		thumb := ui.Box(c).Grow(1).Radius(8).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
 			if item.IsDir {
 				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
 			} else if item.Bitmap != nil {
 				ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
+				releaseShownPixels(item)
 			} else if item.Failed {
 				ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
 			} else {
@@ -355,10 +381,8 @@ func (a *appState) thumbCard(c *ui.Context, root string, i int, height float32) 
 		ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 	})
 	a.fileDragSource(card, item.Path)
+	a.cardPointer(card, i)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-	if card.DoubleClicked() {
-		a.openItem(i)
-	}
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(root, a.Visible[i])
 	}

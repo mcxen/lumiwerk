@@ -83,7 +83,12 @@ func inverseOf(op fileOperation) (fileOperation, bool) {
 	}
 }
 
+var errOperationBusy = errors.New("busy")
+
 func (a *appState) performTracked(op fileOperation) error {
+	if a.busy() {
+		return errOperationBusy
+	}
 	applied, err := perform(op)
 	if err != nil {
 		logErrorf("file operation %d failed: paths=%d dest=%s err=%v",
@@ -141,12 +146,18 @@ func (a *appState) startArchive(op fileOperation) {
 }
 
 func (a *appState) runOperation(op fileOperation) {
+	if a.busy() {
+		return
+	}
+	if a.headless() {
+		_ = a.performTracked(op)
+		return
+	}
+	a.opBusy = true
 	safeGo("undo.go:142", func() {
 		applied, err := perform(op)
-		if a.Window == nil {
-			return
-		}
 		a.update(func() {
+			a.opBusy = false
 			if err != nil {
 				a.toast(err.Error())
 				return
@@ -159,37 +170,103 @@ func (a *appState) runOperation(op fileOperation) {
 	})
 }
 
+// undo and redo do their file work in the background, one operation at a
+// time: the entry is taken off its stack at once, so a second press while
+// one runs is ignored instead of racing it, and the stacks and selection are
+// updated on the main thread when the work is done.
 func (a *appState) undo() {
+	if a.busy() {
+		return
+	}
 	e, ok := a.Undo.undo()
 	if !ok {
 		return
 	}
-	applied, err := perform(e.inverse)
-	if err != nil {
-		a.Undo.past = append(a.Undo.past, e)
-		a.toast(err.Error())
+	if a.headless() {
+		applied, err := perform(e.inverse)
+		if err != nil {
+			a.Undo.past = append(a.Undo.past, e)
+			return
+		}
+		a.Undo.future = append(a.Undo.future, undoEntry{forward: e.forward, inverse: applied})
+		a.finishOperation(applied)
 		return
 	}
-	a.Undo.future = append(a.Undo.future, undoEntry{forward: e.forward, inverse: applied})
-	a.finishOperation(applied)
+	a.opBusy = true
+	safeGo("undo", func() {
+		applied, err := perform(e.inverse)
+		a.updateOrDrop(func() {
+			a.opBusy = false
+			if err != nil {
+				a.Undo.past = append(a.Undo.past, e)
+				a.toast(err.Error())
+				return
+			}
+			a.Undo.future = append(a.Undo.future, undoEntry{forward: e.forward, inverse: applied})
+			a.finishOperation(applied)
+		})
+	})
 }
 
 func (a *appState) redo() {
+	if a.busy() {
+		return
+	}
 	e, ok := a.Undo.redo()
 	if !ok {
 		return
 	}
-	applied, err := perform(e.forward)
-	if err != nil {
-		a.Undo.future = append(a.Undo.future, e)
-		a.toast(err.Error())
+	if a.headless() {
+		applied, err := perform(e.forward)
+		if err != nil {
+			a.Undo.future = append(a.Undo.future, e)
+			return
+		}
+		a.Undo.past = append(a.Undo.past, undoEntry{forward: applied, inverse: e.inverse})
+		a.finishOperation(applied)
 		return
 	}
-	a.Undo.past = append(a.Undo.past, undoEntry{forward: applied, inverse: e.inverse})
-	a.finishOperation(applied)
+	a.opBusy = true
+	safeGo("redo", func() {
+		applied, err := perform(e.forward)
+		a.updateOrDrop(func() {
+			a.opBusy = false
+			if err != nil {
+				a.Undo.future = append(a.Undo.future, e)
+				a.toast(err.Error())
+				return
+			}
+			a.Undo.past = append(a.Undo.past, undoEntry{forward: applied, inverse: e.inverse})
+			a.finishOperation(applied)
+		})
+	})
+}
+
+// updateOrDrop runs fn on the main thread through update.
+func (a *appState) updateOrDrop(fn func()) { a.update(fn) }
+
+// headless reports a run with no window and no test hook, where background
+// results could never be applied: operations then run inline as before.
+func (a *appState) headless() bool {
+	return a.Window == nil && headlessUpdate.Load() == nil
+}
+
+// busy refuses a file operation while another one runs in the background,
+// so operations apply in the order they were asked for.
+func (a *appState) busy() bool {
+	if a.opBusy {
+		a.toast("正在处理上一个操作…")
+		return true
+	}
+	return false
 }
 
 func (a *appState) finishOperation(op fileOperation) {
+	// Each operation owns the pending selection. A leftover from a prior
+	// operation whose scan got superseded (refresh bumps scanSeq) would
+	// otherwise be applied by this operation's scan and hijack the
+	// selection — e.g. redo's target landing after a later delete.
+	a.PendingSelect = nil
 	if op.cut {
 		a.Cut = nil
 		a.Clip = nil
@@ -286,13 +363,15 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 	if len(mappings) == 0 {
 		return
 	}
+	// Background decodes read item paths under a.mu (thumbAbandoned), so the
+	// rewrites here hold it too. Window work happens after the lock.
+	retitled := ""
+	a.mu.Lock()
 	if a.Root != "" {
 		next := remapPath(a.Root, mappings)
 		if next != a.Root && isDir(next) {
 			a.Root = next
-			if a.Window != nil {
-				a.Window.SetTitle(appName + " — " + pathName(next))
-			}
+			retitled = next
 		}
 	}
 	for i := range a.Items {
@@ -328,6 +407,10 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 	}
 	for i, path := range a.Clip {
 		a.Clip[i] = remapPath(path, mappings)
+	}
+	a.mu.Unlock()
+	if retitled != "" {
+		a.setTitle(appName + " — " + pathName(retitled))
 	}
 }
 

@@ -90,6 +90,7 @@ func (a *appState) openVideoEditor(mode, path string) bool {
 	if !item.InfoLoaded || item.Info.Width == 0 || item.Info.DurationSec <= 0 {
 		item.Info = probeVideo(item.Path)
 		item.InfoLoaded = true
+		a.noteLayoutChanged()
 	}
 	duration := item.Info.DurationSec
 	if duration <= minSegmentSeconds {
@@ -143,7 +144,14 @@ func (a *appState) editorView(c *ui.Context) {
 
 func (a *appState) editorPreview(c *ui.Context) {
 	a.ensureVideo(a.Editor.Path)
-	a.videoLayer(c, false)
+	canvas := containBox(a.Editor.ViewW, a.Editor.ViewH, float32(a.Editor.FrameW), float32(a.Editor.FrameH))
+	if canvas.W < 1 || canvas.H < 1 {
+		a.videoLayer(c, false)
+		return
+	}
+	// The same frame the large view showed moves into the editor canvas.
+	a.heroBox(c, "lw-hero-editor", a.Editor.Path, canvas.W, canvas.H, 0, heroNone, func() { a.videoLayer(c, false) }).
+		Attach(ui.AnchorTopLeft, ui.AnchorTopLeft).Left(canvas.X).Top(canvas.Y)
 }
 
 func (a *appState) editorCropChrome(c *ui.Context) {

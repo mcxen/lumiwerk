@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -106,11 +105,11 @@ func (a *appState) openItem(index int) {
 		return
 	}
 	if !item.IsDir && !item.IsVideo && !isImageFile(item.Ext) && !isRawFile(item.Ext) {
-		_ = exec.Command("open", item.Path).Start()
+		_ = openWithDefault(item.Path)
 		return
 	}
 	if item.IsVideo && !a.Profiles.View.InternalPlayer {
-		_ = exec.Command("open", item.Path).Start()
+		_ = openWithDefault(item.Path)
 		return
 	}
 	a.openLargeImage(index)
@@ -333,10 +332,11 @@ func (a *appState) fitWindowToImage(current bool) {
 	if !item.InfoLoaded {
 		item.Info = loadMediaInfo(item.Path, item.IsVideo)
 		item.InfoLoaded = true
+		a.noteLayoutChanged()
 	}
 	w, h := float64(item.Info.Width), float64(item.Info.Height)
 	if w <= 0 || h <= 0 {
-		pixelW, pixelH := pixelSize(item.Path)
+		pixelW, pixelH := probeImageSize(item.Path)
 		w, h = float64(pixelW), float64(pixelH)
 	}
 	if w <= 0 || h <= 0 {

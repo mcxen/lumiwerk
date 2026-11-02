@@ -6,11 +6,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # the draft release that `mygo build -upload` fills
 
 concurrency:
   group: desktop-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Superseded branch-dispatch runs may be cancelled; a tag release and
+  # anything on the default branch always runs to completion.
+  cancel-in-progress: ${{ github.ref_type == 'branch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 defaults:
   run:
@@ -20,23 +22,97 @@ jobs:
   test:
     name: Test and validate
     runs-on: macos-latest
+    env:
+      # Keep the Go caches inside the workspace so a single cache
+      # definition works on every OS.
+      GOCACHE: ${{ github.workspace }}/.gocache
+      GOPATH: ${{ github.workspace }}/.gopath
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the Go toolchain version
+        id: goversion
+        run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      # Installing Go costs ~15s on macOS and ~40s on Windows. Caching the
+      # exact hostedtoolcache directory (setup-go drops a .complete marker
+      # inside it) makes setup-go skip the download and extraction.
+      # Windows only: the image provisioner puts Go in the tool cache as a
+      # junction, which the cache save cannot archive usefully (it saved
+      # 205 bytes of link) and restoring it breaks setup-go with EEXIST.
+      # Windows re-downloads Go instead (~26s).
+      - name: Restore Go toolchain
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+          key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.goversion.outputs.version }}-v1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
-      - name: Install FFmpeg for media tests
-        run: brew install ffmpeg
+          cache: false
+      # setup-go's built-in build cache keys on runner OS + go.sum, so the
+      # two matrix jobs of one OS raced for a single key and the loser
+      # recompiled everything on every run (windows/arm64: ~60s vs ~15s).
+      # Key per job instead; "go-build-test" is shared with pr.yml.
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .gocache
+            .gopath
+          key: go-build-test-v1-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-test-v1-
+      # Pinned prebuilt FFmpeg (ffmpeg + ffprobe, evermeet.cx 9.0.2,
+      # SHA-256 checked) instead of brew installing a dependency tree
+      # (~20s). The extracted binaries are cached, so the slow first
+      # download from a small host happens once. The media tests exec
+      # `ffmpeg`/`ffprobe` from PATH and skip without them; these builds
+      # decode PNG and encode MJPEG, which is what those tests need (a
+      # brew build was verified equivalent).
+      - name: Restore prebuilt FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: ffmpeg-evermeet-9.0.2-macos
+      - name: Install prebuilt FFmpeg for media tests
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL --retry 3 -o ffmpeg.zip "https://evermeet.cx/ffmpeg/ffmpeg-9.0.2.zip"
+          curl -sSfL --retry 3 -o ffprobe.zip "https://evermeet.cx/ffmpeg/ffprobe-9.0.2.zip"
+          shasum -a 256 -c - <<'SUMS'
+          4acc0be580f9b2788029eb7bd4d645ff87968911b0a62aeeb3940d42d54558d5  ffmpeg.zip
+          24a9c968cd4da72d99c7245e914b921815835eb6dff01d99868031aebaf1d439  ffprobe.zip
+          SUMS
+          unzip -q ffmpeg.zip
+          unzip -q ffprobe.zip
+          mkdir bin
+          mv ffmpeg ffprobe bin/
+      - name: Add FFmpeg to PATH
+        run: echo "$(pwd)/bin" >> "$GITHUB_PATH"
       - name: Check the release version
         if: github.ref_type == 'tag'
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
-      - run: go test ./...
+      # -count=1 like the local gate: a cached "ok" would not re-execute
+      # the tests, and could mask a broken environment (e.g. a
+      # missing ffmpeg makes the media tests skip silently).
+      - run: go test -count=1 ./...
       - run: go vet ./...
 
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Per-target Go caches: see the test job for why these live in the
+      # workspace and why the cache keys include the matrix platform.
+      GOCACHE: ${{ github.workspace }}/.gocache
+      GOPATH: ${{ github.workspace }}/.gopath
+      # -upload signs each platform's update archive with this key and
+      # uploads installers, update archives, deltas and manifests (last) to
+      # the draft release of mygo.json's version. Publishing the draft makes
+      # installed apps see the update; the publish job does that once every
+      # platform is there.
+      GH_TOKEN: ${{ github.token }}
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,18 +139,43 @@ jobs:
             kind: linux
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the Go toolchain version
+        id: goversion
+        shell: bash
+        run: echo "version=$(awk '$1=="go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+      # Windows only: the image provisioner puts Go in the tool cache as a
+      # junction, which the cache save cannot archive usefully (it saved
+      # 205 bytes of link) and restoring it breaks setup-go with EEXIST.
+      # Windows re-downloads Go instead (~26s).
+      - name: Restore Go toolchain
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/go/${{ steps.goversion.outputs.version }}/${{ runner.arch == 'X64' && 'x64' || 'arm64' }}
+          key: go-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.goversion.outputs.version }}-v1
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
-      - name: Install NSIS
-        if: matrix.kind == 'windows'
-        shell: pwsh
-        run: choco install nsis --no-progress --yes
-      - name: Build application packages
+          cache: false
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .gocache
+            .gopath
+          key: go-build-${{ matrix.platform }}-v1-${{ hashFiles('go.sum') }}
+          restore-keys: go-build-${{ matrix.platform }}-v1-
+      # No choco install nsis: on Windows, mygo build downloads its own
+      # SHA-256-pinned NSIS 3.13 into the user cache when makensis is
+      # missing (a 2.3 MB zip, ~2s), which beats a choco dependency walk.
+      # Build the pinned mygo CLI once into the setup-go caches (module +
+      # build), then invoke the binary: go run would re-resolve and relink
+      # it in every build job. -sign - keeps macOS ad-hoc (no Developer ID
+      # on this repository yet); updates need only the Ed25519 update key.
+      - name: Build and upload to the draft release
         run: |
-          cli="github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
-          go run "$cli" build -platform "${{ matrix.platform }}" -sign -
+          go install "github.com/egoist/mygo/cmd/mygo@$(go list -m -f '{{.Version}}' github.com/egoist/mygo)"
+          "$(go env GOPATH)/bin/mygo" build -platform "${{ matrix.platform }}" -sign - -upload
       - name: Check macOS bundle and signature
         if: matrix.kind == 'macos'
         run: |
@@ -93,18 +194,13 @@ jobs:
         run: |
           test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.deb' -type f -print -quit)"
           test -n "$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*.tar.gz' -type f -print -quit)"
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-${{ matrix.directory }}
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            dist/darwin-universal/*.dmg
-            dist/windows-*/*-setup-*.exe
-            dist/linux-*/*.deb
-            dist/linux-*/*.tar.gz
-            dist/linux-amd64/install.sh
+      - name: Check the update files
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(jq -r .version mygo.json)"
+          target="${{ matrix.directory }}"
+          test -s "dist/${target}/lumiwerk-${version}-${target}.tar.gz"
+          test -s "dist/${target}/update-${target}.json"
 
   publish:
     name: Publish GitHub Release
@@ -115,50 +211,36 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: package-*
-          path: release-downloads
-          merge-multiple: true
-      - name: Collect and verify release assets
-        run: |
-          mkdir release-assets
-          while IFS= read -r -d '' asset; do
-            target="release-assets/$(basename "$asset")"
-            if [ -e "$target" ]; then
-              echo "Duplicate release asset: $(basename "$asset")" >&2
-              exit 1
-            fi
-            mv "$asset" "$target"
-          done < <(find release-downloads -type f -print0)
-
-          patterns=(
-            'lumiwerk-*.dmg'
-            'lumiwerk-setup-*-amd64.exe'
-            'lumiwerk-setup-*-arm64.exe'
-            'lumiwerk_*_amd64.deb'
-            'lumiwerk_*_arm64.deb'
-            'lumiwerk-*-linux-amd64.tar.gz'
-            'lumiwerk-*-linux-arm64.tar.gz'
-            'install.sh'
-          )
-          for pattern in "${patterns[@]}"; do
-            mapfile -d '' matches < <(find release-assets -maxdepth 1 -type f -name "$pattern" -print0)
-            if [ "${#matches[@]}" -ne 1 ]; then
-              echo "Expected exactly one asset matching $pattern, found ${#matches[@]}" >&2
-              exit 1
-            fi
-            test -s "${matches[0]}"
-          done
-          (cd release-assets && sha256sum -- * > SHA256SUMS)
-      - name: Create or update the release
+      # The build jobs uploaded installers, update archives, deltas and
+      # manifests to the draft release. Verify the set is complete — a
+      # release without a platform's manifest would strand its apps —
+      # then publish it, which makes installed apps see the update.
+      - name: Verify and publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -d '' assets < <(find release-assets -maxdepth 1 -type f -print0)
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --verify-tag --title "Lumiwerk $GITHUB_REF_NAME" --generate-notes
+          set -eu
+          version="$(jq -r .version mygo.json)"
+          tag="$GITHUB_REF_NAME"
+          draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != "true" ]; then
+            echo "::error::$tag is published already; bump the version in mygo.json to release again" >&2
+            exit 1
           fi
+          names="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          want="install.sh SHA256SUMS lumiwerk-$version.dmg"
+          for p in darwin-universal windows-amd64 windows-arm64 linux-amd64 linux-arm64; do
+            a="lumiwerk-$version-$p.tar.gz"
+            want="$want $a update-$p.json"
+            case "$p" in
+              windows-*) want="$want lumiwerk-setup-$version-${p#windows-}.exe" ;;
+              linux-amd64) want="$want lumiwerk_${version}_amd64.deb" ;;
+              linux-arm64) want="$want lumiwerk_${version}_arm64.deb" ;;
+            esac
+          done
+          missing=0
+          for w in $want; do
+            echo "$names" | grep -qxF "$w" || { echo "::error::$tag has no $w" >&2; missing=1; }
+          done
+          [ "$missing" = 0 ] || exit 1
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --title "Lumiwerk $tag"

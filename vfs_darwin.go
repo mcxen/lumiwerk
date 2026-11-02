@@ -1,0 +1,318 @@
+//go:build darwin
+
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func execCommand(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...)
+}
+
+func init() {
+	finderTagsFallback = mdlsTags
+}
+
+// sameDevice compares stat device IDs, so a move stays a rename.
+func sameDevice(a, b string) bool {
+	infoA, errA := os.Stat(a)
+	infoB, errB := os.Stat(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	statA, okA := infoA.Sys().(*syscall.Stat_t)
+	statB, okB := infoB.Sys().(*syscall.Stat_t)
+	if !okA || !okB {
+		return false
+	}
+	return statA.Dev == statB.Dev
+}
+
+// fileCreated reports a file's birth time from the stat record.
+func fileCreated(info os.FileInfo) (time.Time, bool) {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return time.Time{}, false
+	}
+	t := time.Unix(st.Birthtimespec.Sec, st.Birthtimespec.Nsec)
+	if t.IsZero() {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// fileHidden is always false on macOS: dotfiles cover hiding.
+func fileHidden(info os.FileInfo) bool {
+	return false
+}
+
+// platformTrash moves one path to the macOS Trash through Finder's native
+// service, so files deleted from external volumes land in that volume's
+// .Trashes, and it returns the new path for undo.
+func platformTrash(path string) (string, error) {
+	script := fmt.Sprintf(`tell application "Finder"
+  set trashed to delete (POSIX file %s as alias)
+  POSIX path of (trashed as alias)
+end tell`, strconv.Quote(path))
+	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	trashed := strings.TrimSpace(string(out))
+	if trashed == "" {
+		return "", errors.New("废纸篓没有返回位置")
+	}
+	return trashed, nil
+}
+
+// mediaThumbJPEG builds a JPEG thumbnail of edge on the long side. On macOS
+// the system ImageIO service (sips) decodes HEIC, RAW and everything else.
+func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
+	if video {
+		return videoThumbJPEGFFmpeg(path, edge)
+	}
+	if edge < 64 {
+		edge = 64
+	}
+	file, err := os.CreateTemp("", "lumiwerk-thumb-*.jpg")
+	if err != nil {
+		return nil, err
+	}
+	name := file.Name()
+	_ = file.Close()
+	defer os.Remove(name)
+	quality := "70"
+	if edge >= 768 {
+		quality = "82"
+	}
+	cmd := exec.Command("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
+	}
+	return os.ReadFile(name)
+}
+
+// videoThumbJPEGFFmpeg takes one scaled frame of a video.
+func videoThumbJPEGFFmpeg(path string, edge int) ([]byte, error) {
+	if edge < 64 {
+		edge = 64
+	}
+	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path,
+		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, errors.New("empty video thumbnail")
+	}
+	return out, nil
+}
+
+// platformTags reads Finder tags through the xattr metadata.
+func platformTags(path string) ([]string, error) {
+	out, err := exec.Command("xattr", "-px", finderTagXattr, path).Output()
+	if err != nil || len(out) == 0 {
+		return mdlsTags(path), nil
+	}
+	raw, err := hexDecode(string(out))
+	if err != nil || len(raw) == 0 {
+		return mdlsTags(path), nil
+	}
+	cmd := exec.Command("plutil", "-convert", "xml1", "-o", "-", "-")
+	cmd.Stdin = strings.NewReader(string(raw))
+	xmlOut, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	tags := plistStrings(xmlOut)
+	for i, tag := range tags {
+		if j := strings.IndexByte(tag, '\n'); j >= 0 {
+			tags[i] = strings.TrimSpace(tag[:j])
+		} else {
+			tags[i] = strings.TrimSpace(tag)
+		}
+	}
+	return nonEmpty(tags), nil
+}
+
+// mdlsTags asks Spotlight when the xattr read fails.
+func mdlsTags(path string) []string {
+	out, err := exec.Command("/usr/bin/mdls", "-name", "kMDItemUserTags", "-raw", path).Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "(null)" || s == "" {
+		return nil
+	}
+	s = strings.TrimPrefix(s, "(")
+	s = strings.TrimSuffix(s, ")")
+	parts := strings.Split(s, ",")
+	var tags []string
+	for _, p := range parts {
+		tag := strings.Trim(strings.TrimSpace(p), `"`)
+		if i := strings.IndexByte(tag, '\n'); i >= 0 {
+			tag = tag[:i]
+		}
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags
+}
+
+// platformSetTags writes Finder tags as the binary plist xattr Finder uses.
+func platformSetTags(path string, tags []string) error {
+	data, err := binaryPlistStrings(tags)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("xattr", "-w", "-x", finderTagXattr, hexEncode(data), path)
+	_, err = cmd.CombinedOutput()
+	return err
+}
+
+func binaryPlistStrings(tags []string) ([]byte, error) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`)
+	b.WriteString(`<plist version="1.0"><array>`)
+	for _, tag := range tags {
+		b.WriteString("<string>")
+		xmlEscape(&b, tag)
+		b.WriteString("</string>")
+	}
+	b.WriteString(`</array></plist>`)
+	cmd := exec.Command("plutil", "-convert", "binary1", "-o", "-", "-")
+	cmd.Stdin = strings.NewReader(b.String())
+	return cmd.Output()
+}
+
+func plistStrings(data []byte) []string {
+	var tags []string
+	for _, chunk := range strings.Split(string(data), "<string>") {
+		end := strings.Index(chunk, "</string>")
+		if end < 0 {
+			continue
+		}
+		tags = append(tags, chunk[:end])
+	}
+	return tags
+}
+
+func xmlEscape(b *strings.Builder, s string) {
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+}
+
+func nonEmpty(list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+const finderTagXattr = "com.apple.metadata:_kMDItemUserTags"
+
+func hexEncode(data []byte) string {
+	const digits = "0123456789abcdef"
+	out := make([]byte, len(data)*2)
+	for i, b := range data {
+		out[i*2] = digits[b>>4]
+		out[i*2+1] = digits[b&0x0f]
+	}
+	return string(out)
+}
+
+func hexDecode(s string) ([]byte, error) {
+	var digits []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+			continue
+		}
+		digits = append(digits, c)
+	}
+	if len(digits)%2 == 1 {
+		digits = append(digits, '0')
+	}
+	out := make([]byte, len(digits)/2)
+	for i := range out {
+		hi, err := hexVal(digits[i*2])
+		if err != nil {
+			return nil, err
+		}
+		lo, err := hexVal(digits[i*2+1])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = hi<<4 | lo
+	}
+	return out, nil
+}
+
+func hexVal(c byte) (byte, error) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', nil
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, nil
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, nil
+	default:
+		return 0, fmt.Errorf("bad hex digit %q", c)
+	}
+}
+
+// imageResample decodes through sips for formats Go's stdlib cannot read and
+// for originals too large to decode in memory.
+func imageResampleJPEG(path string, edge int, quality string) ([]byte, error) {
+	file, err := os.CreateTemp("", "lumiwerk-resample-*.jpg")
+	if err != nil {
+		return nil, err
+	}
+	name := file.Name()
+	_ = file.Close()
+	defer os.Remove(name)
+	cmd := exec.Command("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
+	}
+	return os.ReadFile(name)
+}
+
+// decodeLargeImage decodes the original for 1:1 zoom, resampling originals
+// above the 12000px guard so one photo cannot exhaust memory.
+func decodeLargeImage(path string) ([]byte, error) {
+	w, h := probeImageSize(path)
+	if w > 12000 || h > 12000 {
+		return imageResampleJPEG(path, 12000, "82")
+	}
+	return os.ReadFile(path)
+}
+
+// finderLabelNames answers through the AppKit bridge in finder_darwin.go.
+func finderLabelNames() []string { return finderLabelNamesDarwin() }

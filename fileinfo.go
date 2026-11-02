@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 )
 
 func formatBytes(n int64) string {
@@ -81,7 +79,7 @@ func describeOne(path string) string {
 	} else {
 		fmt.Fprintf(&b, "大小: %s\n", formatBytes(resolved.Size()))
 	}
-	if created := createdAt(resolved); created != "" {
+	if created := createdAtString(resolved); created != "" {
 		fmt.Fprintf(&b, "创建: %s\n", created)
 	}
 	fmt.Fprintf(&b, "修改: %s\n", resolved.ModTime().Format("2006-01-02 15:04:05"))
@@ -113,14 +111,6 @@ func folderSummary(root string) string {
 		return nil
 	})
 	return fmt.Sprintf("包含文件: %d\n包含文件夹: %d\n合计: %s\n", files, dirs, formatBytes(size))
-}
-
-func createdAt(info os.FileInfo) string {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || (st.Birthtimespec.Sec == 0 && st.Birthtimespec.Nsec == 0) {
-		return ""
-	}
-	return time.Unix(st.Birthtimespec.Sec, st.Birthtimespec.Nsec).Format("2006-01-02 15:04:05")
 }
 
 func formatMediaFacts(info mediaInfo) string {

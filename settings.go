@@ -157,8 +157,23 @@ func (a *appState) advancedSettings(c *ui.Context) {
 	ui.Text(c, "高级").FontSize(16).Bold()
 	ui.Slider(c, &a.Settings.CacheCap, 64, 1024).Label("缩略图缓存数量")
 	ui.Slider(c, &a.Settings.Workers, 1, 16).Label("后台解码并发")
+	settingsSection(c, "清理缓存：", func() {
+		ui.Text(c, fmt.Sprintf("缩略图缓存已用 %.0f MiB（上限 %.0f MiB）。清理会释放它们和上次的临时文件；缩略图会在浏览时重新生成。",
+			float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024))).FontSize(12)
+		if ui.Button(c.Key("settings-clear-caches"), "清理").Clicked() {
+			thumbLRU.Clear()
+			sweepTempLeftovers()
+			logInfof("settings: caches cleared by the user")
+		}
+	})
+	settingsSection(c, "运行诊断：", func() {
+		ui.Text(c, "查看最近警告、错误、运行指标和日志位置，便于复现与修复问题。").FontSize(12)
+		if ui.Button(c.Key("settings-open-diagnostics"), "打开诊断").Clicked() {
+			a.showDiagnostics()
+		}
+	})
 	if ui.Button(c.Key("settings-save"), "应用").Clicked() {
-		thumbLRU.limit = int(a.Settings.CacheCap)
+		thumbLRU.SetLimit(int(a.Settings.CacheCap))
 	}
 }
 

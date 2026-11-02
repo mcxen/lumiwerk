@@ -41,46 +41,9 @@ func loadMediaInfo(path string, isVideo bool) mediaInfo {
 
 func probeImage(path string) mediaInfo {
 	var info mediaInfo
-	cmd := exec.Command("sips", "-g", "pixelWidth", "-g", "pixelHeight", "-g", "creation", "-g", "make", "-g", "model",
-		"-g", "format", "-g", "dpiWidth", "-g", "dpiHeight", "-g", "profile", "-g", "bitsPerSample", path)
-	out, err := cmd.Output()
-	if err != nil {
-		return info
-	}
-	var dpiW, dpiH string
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		val = strings.TrimSpace(val)
-		switch strings.TrimSpace(key) {
-		case "pixelWidth":
-			info.Width, _ = strconv.Atoi(val)
-		case "pixelHeight":
-			info.Height, _ = strconv.Atoi(val)
-		case "creation":
-			info.Created = val
-		case "make":
-			info.Camera = val
-		case "model":
-			info.Model = val
-		case "format":
-			info.Format = val
-		case "dpiWidth":
-			dpiW = val
-		case "dpiHeight":
-			dpiH = val
-		case "profile":
-			info.Profile = val
-		case "bitsPerSample":
-			info.Bits = val
-		}
-	}
-	if dpiW != "" && dpiH != "" && dpiW != "0.000" && dpiH != "0.000" {
-		info.DPI = dpiW + " × " + dpiH
+	info.Width, info.Height = probeImageSize(path)
+	if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."); ext != "" {
+		info.Format = ext
 	}
 	return info
 }
@@ -231,10 +194,10 @@ func perform(op fileOperation) (fileOperation, error) {
 			if op.permanent {
 				err = os.RemoveAll(path)
 			} else {
-				trashed, trashErr := trashItem(path)
-				err = trashErr
-				if trashErr == nil && trashed != "" {
-					op.mappings = append(op.mappings, pathPair{From: path, To: trashed})
+				var moved []string
+				moved, err = trashPaths([]string{path})
+				if err == nil && len(moved) > 0 && moved[0] != "" {
+					op.mappings = append(op.mappings, pathPair{From: path, To: moved[0]})
 				}
 			}
 			if err != nil {
@@ -337,30 +300,6 @@ func uniquePath(path string) string {
 	}
 }
 
-// trashItem moves a file to the Trash and returns its new path so undo can
-// put it back. Finder's delete is the same service FlowVision uses.
-func trashItem(path string) (string, error) {
-	script := fmt.Sprintf(`tell application "Finder"
-  set trashed to delete (POSIX file %s as alias)
-  POSIX path of (trashed as alias)
-end tell`, strconv.Quote(path))
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-	trashed := strings.TrimSpace(string(out))
-	if trashed == "" {
-		return "", errors.New("废纸篓没有返回位置")
-	}
-	return trashed, nil
-}
-
-// trashPath moves a file to macOS Trash via Finder's native service.
-func trashPath(path string) error {
-	_, err := trashItem(path)
-	return err
-}
-
 func (a *appState) loadInfo(index int) {
 	a.mu.Lock()
 	if index < 0 || index >= len(a.Items) {
@@ -374,13 +313,66 @@ func (a *appState) loadInfo(index int) {
 		return
 	}
 	a.mu.Unlock()
-	info := loadMediaInfo(path, isVideo)
+	// The header probe is cheap and gives flow layouts an aspect before the
+	// full probe (spawned processes on macOS) answers.
+	info := mediaInfo{}
+	if !isVideo {
+		info.Width, info.Height = probeImageSize(path)
+	}
+	full := loadMediaInfo(path, isVideo)
+	if full.Width == 0 && full.Height == 0 && !isVideo {
+		full.Width, full.Height = info.Width, info.Height
+	}
 	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if index < len(a.Items) && a.Items[index].Path == path {
-			a.Items[index].Info = info
+			a.Items[index].Info = full
 			a.Items[index].InfoLoaded = true
+			a.Items[index].InfoLoading = false
+			a.noteLayoutChanged()
 		}
+	})
+}
+
+// probeVisibleAspects gives flow layouts an aspect for every visible item
+// right now: probed sizes for loaded info, a header read for images, and 1
+// for the rest. It runs off the UI goroutine and posts the result.
+func (a *appState) probeVisibleAspects() {
+	a.mu.Lock()
+	visible := append([]int(nil), a.Visible...)
+	paths := make([]string, len(visible))
+	for i, idx := range visible {
+		if idx >= 0 && idx < len(a.Items) {
+			paths[i] = a.Items[idx].Path
+		}
+	}
+	video := make([]bool, len(visible))
+	for i, idx := range visible {
+		if idx >= 0 && idx < len(a.Items) {
+			video[i] = a.Items[idx].IsVideo
+		}
+	}
+	a.mu.Unlock()
+	sizes := make([][2]int, len(paths))
+	for i, path := range paths {
+		if path == "" || video[i] {
+			continue
+		}
+		w, h := probeImageSize(path)
+		sizes[i] = [2]int{w, h}
+	}
+	a.update(func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for i, idx := range visible {
+			if idx < 0 || idx >= len(a.Items) || a.Items[idx].InfoLoaded {
+				continue
+			}
+			if w, h := sizes[i][0], sizes[i][1]; w > 0 && h > 0 {
+				a.Items[idx].Info.Width, a.Items[idx].Info.Height = w, h
+			}
+		}
+		a.noteLayoutChanged()
 	})
 }
