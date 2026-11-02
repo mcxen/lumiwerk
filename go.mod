@@ -5,14 +5,14 @@ go 1.27.3
 require (
 	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.7.3
+	github.com/gen2brain/go-mpv v0.4.0
 	github.com/mozillazg/go-pinyin v0.21.0
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	golang.org/x/image v0.46.0
 )
 
 require (
-	github.com/gen2brain/go-mpv v0.4.0 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
-	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

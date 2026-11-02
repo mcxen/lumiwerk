@@ -6,3 +6,6 @@ lumiwerk.exe
 .gocache
 .gopath
 docs/app-icon-preview.png
+
+src/src
+src/src.exe
