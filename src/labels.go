@@ -1,6 +1,11 @@
 package main
 
-import "runtime"
+import (
+	"runtime"
+
+	// MyGo's own controls, dialogs and menus in 简体中文.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
+)
 
 // Platform-aware labels: the app is written in Chinese only, and the names
 // of the system file manager, the volume root and file tags follow the OS.
