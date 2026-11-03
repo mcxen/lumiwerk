@@ -5,10 +5,13 @@ package main
 import (
 	"fmt"
 	"image"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 
+	"github.com/egoist/mygo"
 	mpv "github.com/gen2brain/go-mpv"
 )
 
@@ -35,8 +38,28 @@ type mpvRenderResult struct {
 	err   error
 }
 
+func init() {
+	// The bundled dylibs ship among the app's resources (Contents/Resources
+	// in a macOS bundle, the executable's directory elsewhere). The loader
+	// tries those before the bare system names; a dev run without the
+	// bundle falls back to a system libmpv if one is installed.
+	mpv.SetSearchPaths(func() []string {
+		var dirs []string
+		if dir, err := mygo.App.Path(mygo.PathResources); err == nil && dir != "" {
+			dirs = append(dirs, dir)
+		}
+		if exe, err := os.Executable(); err == nil {
+			dirs = append(dirs, filepath.Dir(exe))
+		}
+		return dirs
+	})
+}
+
 func newMPVBackend() (playbackBackend, error) {
 	core := mpv.New()
+	if core == nil {
+		return nil, fmt.Errorf("libmpv: %w", mpv.LoadError())
+	}
 	for key, value := range map[string]string{
 		"config": "no", "input-default-bindings": "no", "input-vo-keyboard": "no",
 		"terminal": "no", "vo": "libmpv", "keep-open": "yes", "idle": "yes",

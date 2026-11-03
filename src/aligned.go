@@ -108,7 +108,6 @@ type appState struct {
 	FilterMode int
 
 	Outline      ui.OutlineState[string]
-	TreeChosen   int
 	treeOpenRoot string
 	SidebarWidth float32
 	SidebarShown bool
@@ -169,6 +168,7 @@ type appState struct {
 	opBusy        bool
 	treeCache     map[string]treeEntry
 	selAnchor     selectionAnchor
+	keyPivot      int
 	revealFrames  int
 	lastUp        time.Time
 	frameNow      int64
@@ -1377,6 +1377,7 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyX) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		a.doCut()
 	}
+	a.browseKeys(c)
 
 	// Configured copy shortcuts: image folder and video folder.
 	if !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
@@ -1429,7 +1430,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 			}
 			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
 			if pathKey(a.Root) == pathKey(fav) {
-				row.Background(t.Accent).TextColor(t.AccentText)
+				row.Background(t.SurfacePressed)
 			}
 			row.Children(func() {
 				ui.Icon(c, dirIcon).FontSize(12)
@@ -1443,7 +1444,8 @@ func (a *appState) sidebarView(c *ui.Context) {
 			ui.Text(c, "打开目录后显示目录树").TextColor(t.TextMuted).Padding(12)
 			return
 		}
-		a.Outline.List.Selected = &a.TreeChosen
+		// Selection stays app-side (see mediaListState): rows paint the
+		// current folder themselves, quietly, in treeRow.
 		a.Outline.List.Key = func(row int) any { return a.Outline.Item(row) }
 		roots := []string{"/"}
 		if a.treeOpenRoot != a.Root {
@@ -1465,7 +1467,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 			hist := h
 			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
 			if i == a.Cursor {
-				row.Background(t.Accent).TextColor(t.AccentText)
+				row.Background(t.SurfacePressed)
 			}
 			row.Children(func() {
 				ui.Icon(c, dirIcon).FontSize(12)
@@ -1507,7 +1509,7 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 	row := ui.Row(c).Padding(4, 8).Gap(6).AlignItems(ui.Center).Radius(4)
 	selected := a.Root == path
 	if selected {
-		row.Background(t.Accent).TextColor(t.AccentText)
+		row.Background(t.SurfacePressed)
 	}
 	row.Children(func() {
 		ui.Icon(c, dirIcon).FontSize(14)
@@ -1695,9 +1697,7 @@ func (a *appState) gridView(c *ui.Context) {
 		if a.isCut(item.Path) {
 			card.Opacity(0.4)
 		}
-		if a.Chosen == i {
-			card.Border(2, t.Accent)
-		}
+		selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
 		card.Children(func() {
 			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 			a.thumbHero(thumb, item.Path)
@@ -1740,9 +1740,8 @@ func (a *appState) gridView(c *ui.Context) {
 		cols := gridColumnCount(contentW, float32(cell), gap)
 		a.noteBrowseBox(bounds, cols, gridStride(a.Thumb, gap), gap, contentW, len(a.Visible))
 	}
-	if grid.Submitted() && a.Chosen >= 0 && a.Chosen < len(a.Visible) {
-		a.openItem(a.Chosen)
-	}
+	// Opening on Enter/Space is handled by the global shortcuts; the grid
+	// widget's own submit/selection path is not wired (see mediaListState).
 }
 
 func (a *appState) statusBar(c *ui.Context) {
@@ -2653,8 +2652,8 @@ func (a *appState) detailView(c *ui.Context) {
 			return
 		}
 		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
-		if a.Chosen == i {
-			row.Background(t.Accent).TextColor(t.AccentText)
+		if a.Chosen == i || a.Selected.Has(item.Path) {
+			row.Background(t.SurfacePressed)
 		}
 		row.Children(func() {
 			icon := imageIcon
@@ -2668,14 +2667,11 @@ func (a *appState) detailView(c *ui.Context) {
 			ui.Textf(c, "%.1f MB", float64(item.Size)/(1024*1024)).FontSize(11).TextColor(t.TextMuted)
 			ui.Text(c, time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05")).FontSize(11).TextColor(t.TextMuted)
 		})
-		row.OnClick(func() { a.Chosen = i })
+		a.cardPointer(row, i)
 		a.fileDragSource(row, item.Path)
 		row.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if a.isCut(item.Path) {
 			row.Opacity(0.4)
-		}
-		if row.DoubleClicked() {
-			a.openItem(i)
 		}
 	})
 	list.Grow(1).TrackScroll(&a.browseScroll)

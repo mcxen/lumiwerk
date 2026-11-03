@@ -38,17 +38,23 @@ a regression test and a code fix.
 
 ## Selection and Keys
 
-MyGo defaults an unconfigured list/grid row key to its integer index. Lumiwerk
-uses `ui.Selection[string]` keyed by canonical media paths. A grid/list with a
-selection therefore **must** use `appState.mediaListState()`. This method wires:
+Lumiwerk keeps media selection in `appState` (`a.Chosen`, `a.Selected`, a
+`ui.Selection[string]` keyed by canonical media paths) and draws it itself as
+a quiet neutral fill (`selectionChrome`): the widgets' own selection chrome is
+the big accent box and stays unwired. Keyboard navigation lives in
+`browseKeys` (src/keys.go), the same for every layout — arrows move the chosen
+item by its visual position, Shift extends from the pivot, Home/End jump.
+
+Grid and list rows are still keyed with strings through
+`appState.mediaListState()`, so element identity follows the media path across
+re-sorts and background rescans:
 
 - `Key = itemKey`, always returning a string;
-- `Label = itemLabel`;
-- `Selected = &a.Chosen`;
-- `Selection = &a.Selected`.
+- `Label = itemLabel`.
 
 `itemKey` returns `!missing:<index>` for a transient stale index. This keeps the
-key type stable during background scans. Never fall back to a raw integer.
+key type stable during background scans. Never fall back to a raw integer, and
+do not wire the widgets' `Selected`/`Selection` back up.
 
 Use stable, unique `c.Key` values for controls that retain focus, editing or
 other row state. Dynamic rows use the item identity, not their current index.

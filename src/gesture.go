@@ -145,6 +145,14 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 			return true
 		}
 	}
+	// Plain scrolls drive the browse offset directly: MyGo eases a wheel's
+	// notches over 150ms, which visibly lags the hand, and precise trackpad
+	// deltas follow the fingers best applied untouched.
+	if !a.InLargeView && !a.modalOpen() && ev.Kind == ui.InputScroll && a.LayoutMode != 1 &&
+		ev.Mods&(ui.Cmd|ui.Ctrl) == 0 && ev.DY != 0 {
+		a.scrollBrowseBy(ev.DY)
+		return true
+	}
 	if ev.Button != 1 {
 		return false
 	}
@@ -181,6 +189,21 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 		return true
 	}
 	return false
+}
+
+// scrollBrowseBy advances the browse scroll offset by dy in one write, so
+// the frame that follows paints the content exactly where the hand left it.
+func (a *appState) scrollBrowseBy(dy float32) {
+	y := a.browseScroll.Y + dy
+	if y < 0 {
+		y = 0
+	}
+	// Before the first layout MaxY is still 0: leave the clamp to the scroll
+	// container then rather than pinning everything to the top.
+	if max := a.browseScroll.MaxY; max > 0 && y > max {
+		y = max
+	}
+	a.browseScroll.Y = y
 }
 
 func abs32(v float32) float32 {

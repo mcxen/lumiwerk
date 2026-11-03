@@ -30,7 +30,7 @@ func main() {
 	// than an hour was left by a crashed run, so sweep it in the background.
 	safeGo("main.tempSweep", sweepTempLeftovers)
 
-	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: defaultThumb, LayoutMode: defaultLayout, FolderFirst: true}
+	a := &appState{Chosen: -1, LargeIndex: -1, keyPivot: -1, Thumb: defaultThumb, LayoutMode: defaultLayout, FolderFirst: true}
 	a.Profiles = loadPrefs()
 	a.VideoVolume = normalizedPlaybackVolume(a.Profiles.Volume)
 	a.PrevVolume = normalizedPlaybackVolume(a.Profiles.PreviousVolume)

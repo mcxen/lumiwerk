@@ -8,7 +8,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T1.2 Three-pane split: sidebar | path-bar+grid | (no right pane in grid mode)
 - [x] T1.3 Sidebar: directory tree (NSOutlineView equivalent) with Favorites, History, Finder-tags, volume list
 - [x] T1.4 Toolbar: back/forward, path breadcrumb, search field, layout switcher, thumbnail size
-- [x] T1.5 Media grid: icon-view with thumbnails, filename labels, selection highlight (blue outline)
+- [x] T1.5 Media grid: icon-view with thumbnails, filename labels, quiet neutral selection fill (no accent box)
+- [x] T1.9 Unified keyboard navigation: arrows move the selection in every layout, Shift extends, Home/End jump; wheel scrolls the virtual lists with no eased lag
 - [x] T1.6 Hover tooltip: name, file size, image dimensions, dates
 - [x] T1.7 Bottom path bar: "Macintosh HD › ... › FolderName (N 图像)"
 - [x] T1.8 Dark/light theme auto-detect matching FlowVision colors (#FFFFFF / #2D2D2D grid bg)

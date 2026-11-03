@@ -31,6 +31,7 @@ func (a *appState) cardPointer(card ui.Element, i int) {
 		}
 		a.Chosen = i
 	case mods&ui.Shift != 0 && a.Chosen >= 0:
+		a.keyPivot = a.Chosen
 		lo, hi := min(a.Chosen, i), max(a.Chosen, i)
 		a.Selected.Clear()
 		for j := lo; j <= hi; j++ {
@@ -54,6 +55,7 @@ func (a *appState) chooseOnly(i int) {
 	// going to restore.
 	a.PendingSelect = nil
 	a.Chosen = i
+	a.keyPivot = i
 	a.Selected.Clear()
 	a.Selected.Add(item.Path)
 }

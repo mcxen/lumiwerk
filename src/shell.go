@@ -9,8 +9,12 @@ func safeView(scope string, c *ui.Context, body func()) {
 	body()
 }
 
-// mediaListState is the single selection contract for every media collection.
-// Grid and list keys are always strings, matching Selection[string].
+// mediaListState returns the grid and list states for a media collection.
+// Keys are always strings, matching Selection[string], and keep one element
+// identity per media path through re-sorts. The widgets' own selection
+// (Selected/Selection) is deliberately not wired: their chrome is the big
+// accent box, and selection stays a single model in appState, drawn by the
+// views as a quiet neutral fill and driven by browseKeys.
 type mediaListState struct {
 	Grid *ui.GridState
 	List *ui.ListState
@@ -18,12 +22,8 @@ type mediaListState struct {
 
 func (a *appState) mediaListState() mediaListState {
 	a.Grid.Key = a.itemKey
-	a.Grid.Selected = &a.Chosen
-	a.Grid.Selection = &a.Selected
 	a.Grid.Label = a.itemLabel
 	a.ListState.Key = a.itemKey
-	a.ListState.Selected = &a.Chosen
-	a.ListState.Selection = &a.Selected
 	a.ListState.Label = a.itemLabel
 	return mediaListState{Grid: &a.Grid, List: &a.ListState}
 }

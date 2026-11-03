@@ -49,7 +49,7 @@ func TestDiagnosticsViewRendersReport(t *testing.T) {
 	}
 }
 
-func TestMediaShellWiresListAndGridSelection(t *testing.T) {
+func TestMediaShellSharesStringRowKeys(t *testing.T) {
 	a := &appState{Chosen: 0}
 	a.Items = []mediaItem{{Path: "/tmp/photo.jpg", Name: "photo.jpg"}}
 	a.Visible = []int{0}
@@ -61,7 +61,10 @@ func TestMediaShellWiresListAndGridSelection(t *testing.T) {
 			t.Fatalf("%s key = %#v", name, key)
 		}
 	}
-	if state.List.Selected != &a.Chosen || state.Grid.Selected != &a.Chosen {
-		t.Fatal("list and grid do not share the chosen row")
+	// The widgets draw no selection chrome of their own: the views paint a
+	// quiet fill and browseKeys moves the choice, so the accent box is gone.
+	if state.List.Selected != nil || state.Grid.Selected != nil ||
+		state.List.Selection != nil || state.Grid.Selection != nil {
+		t.Fatal("grid/list selection should stay app-side, unwired")
 	}
 }

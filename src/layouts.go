@@ -239,6 +239,16 @@ func flowHit(boxes []flowBox, x, y float32) (flowBox, bool) {
 // and restore; production never reads it.
 var thumbCardProbe = func() {}
 
+// selectionChrome marks a media card chosen or selected. The old loud accent
+// frame is gone: a quiet neutral fill, rounded like the thumbnail it wraps,
+// keeps the selection legible in both themes without drawing a box.
+func selectionChrome(c *ui.Context, el ui.Element, on bool) {
+	if !on {
+		return
+	}
+	el.Radius(heroThumbRadius).Background(c.Theme().SurfacePressed)
+}
+
 // waterfallView packs items into N columns, each appended to the shortest.
 // The canvas is one fixed-height spacer; cards are absolutely positioned
 // children built only for the visible window, so a folder of 100k photos
@@ -399,9 +409,7 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
-	if a.Chosen == i || a.Selected.Has(item.Path) {
-		card.Border(2, t.Accent) // same highlight as the icon grid
-	}
+	selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 		a.thumbHero(thumb, item.Path)

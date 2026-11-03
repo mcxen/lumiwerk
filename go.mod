@@ -17,3 +17,5 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
+
+replace github.com/gen2brain/go-mpv => ./third_party/go-mpv
