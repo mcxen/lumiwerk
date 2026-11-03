@@ -367,6 +367,17 @@ func (a *appState) prepareSharp(c *ui.Context, item *mediaItem) bool {
 				a.sharpFailKey = key
 				return
 			}
+			// 限制锐化缓存最大 100MB
+			if bmp != nil {
+				w, h := bmp.Size()
+				sizeBytes := w * h * 4
+				maxSharpBytes := 100 << 20 // 100 MB
+				if sizeBytes > maxSharpBytes {
+					logDebugf("sharp bitmap too large: %d MB, releasing", sizeBytes>>20)
+					a.sharpFailKey = key
+					return
+				}
+			}
 			a.Sharp = bmp
 			a.SharpKey = key
 			a.SharpPlace = region.place()
