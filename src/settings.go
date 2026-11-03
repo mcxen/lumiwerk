@@ -29,6 +29,11 @@ type settingsState struct {
 	QuickRule      string
 	ZipPassword    string
 	ZipUsePassword bool
+	// StartFolder is the folder the next launch opens, kept apart from the
+	// live Root so choosing one does not move the browser.
+	StartFolder string
+	// Layout is the default layout chosen on the view pane.
+	Layout int
 }
 
 func (a *appState) openSettings() {
@@ -47,8 +52,30 @@ func (a *appState) openSettings() {
 		QuickRule:      a.Profiles.QuickRename,
 		ZipPassword:    a.Profiles.ZipPassword,
 		ZipUsePassword: a.Profiles.ZipUsePassword,
+		Layout:         a.LayoutMode,
+	}
+	if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
+		a.Settings.StartFolder = a.Profiles.Profiles[active].Root
 	}
 	a.Settings.Open = true
+}
+
+// pickStartFolder asks for the folder Lumiwerk opens on the next launch and
+// stores it in the configuration slot the settings window is editing.
+func (a *appState) pickStartFolder() {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: a.Settings.Window, Title: "选择启动目录", Directory: true})
+	if err != nil || len(paths) == 0 {
+		return
+	}
+	a.update(func() { a.setStartFolder(paths[0]) })
+}
+
+func (a *appState) setStartFolder(path string) {
+	a.Settings.StartFolder = path
+	if i := a.Profiles.Active; i >= 0 && i < len(a.Profiles.Profiles) {
+		a.Profiles.Profiles[i].Root = path
+		savePrefs(a.Profiles)
+	}
 }
 
 func firstNonEmpty(values ...string) string {

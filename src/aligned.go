@@ -2745,7 +2745,20 @@ func (a *appState) currentProfile() profile {
 		Sort:        a.Sort,
 		Recursive:   a.Recursive,
 		Destination: a.currentDestination(),
+		Filters:     a.Profiles.View,
 	}
+}
+
+// profileDirty reports whether the live view has drifted from what slot i
+// stored, which the settings window marks with an asterisk.
+func (a *appState) profileDirty(i int) bool {
+	if i < 0 || i >= len(a.Profiles.Profiles) {
+		return false
+	}
+	p := a.Profiles.Profiles[i]
+	return p.Root != a.Root || p.LayoutMode != a.LayoutMode || p.Thumb != a.Thumb ||
+		p.Sort != a.Sort || p.Sidebar != a.SidebarShown || p.Recursive != a.Recursive ||
+		p.Filters != a.Profiles.View
 }
 
 func (a *appState) applyProfile(i int) {
@@ -2759,15 +2772,20 @@ func (a *appState) applyProfile(i int) {
 		a.SidebarWidth = p.SidebarW
 	}
 	a.LayoutMode = p.LayoutMode
-	a.Thumb = p.Thumb
+	if p.Thumb > 0 {
+		a.Thumb = p.Thumb
+	}
 	a.Sort = p.Sort
 	a.Recursive = p.Recursive
+	if p.Filters != (viewPreferences{}) {
+		a.Profiles.View = p.Filters
+	}
 	a.MediaUnitRoot = ""
 	savePrefs(a.Profiles)
 	if p.Root != "" && isDir(p.Root) {
 		a.openFolder(p.Root)
 	}
-	a.refresh()
+	a.refreshView()
 }
 
 func (a *appState) saveProfile(i int) {

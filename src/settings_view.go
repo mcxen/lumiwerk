@@ -142,8 +142,8 @@ func (a *appState) settingsBody(c *ui.Context) {
 					}
 				}
 				ui.Scroll(c.Key("page-"+page.id)).Fill().Padding(24, 24, 28, 24).Children(func() {
-					ui.Column(c).Gap(22).MaxWidth(620).Children(func() {
-						ui.Text(c, page.title).FontSize(15).FontWeight(650).TextColor(pal.text)
+					ui.Column(c).Gap(24).MaxWidth(620).Children(func() {
+						ui.Text(c, page.title).FontSize(16).FontWeight(600).TextColor(pal.text)
 						switch page.id {
 						case "general":
 							a.settingsGeneralPage(c, pal)
@@ -284,19 +284,38 @@ type settingsSearchEntry struct {
 
 func settingsSearchEntries() []settingsSearchEntry {
 	return []settingsSearchEntry{
-		{"general", "默认缩略图", "thumbnail size 缩略图"},
-		{"general", "排序", "sort name date size 排序"},
-		{"view", "浏览手势", "gesture wheel scroll 手势 滚轮"},
-		{"actions", "Enter 键行为", "enter rename open 回车"},
+		{"general", "配置槽", "profile slot 配置 槽"},
+		{"general", "主题", "theme light dark 主题 外观"},
+		{"general", "启动目录", "startup folder 启动 目录"},
+		{"general", "恢复上次会话", "restore session 恢复 会话"},
+		{"view", "隐藏文件", "hidden dotfile 隐藏"},
+		{"view", "图像文件", "image jpg png 图像"},
+		{"view", "RAW 文件", "raw cr2 nef 相机"},
+		{"view", "视频文件", "video mp4 mov 视频"},
+		{"view", "压缩文件", "archive zip 压缩"},
+		{"view", "全部类型", "all types 全部 类型"},
+		{"view", "包含文件夹", "folder recursive 文件夹"},
+		{"view", "默认布局", "layout justified waterfall grid detail 布局"},
+		{"view", "默认缩略图", "thumbnail size 缩略图"},
+		{"view", "文件夹优先排序", "folder first sort 排序"},
+		{"view", "全路径排序", "full path sort 递归 排序"},
+		{"view", "媒体单元模式", "media unit 媒体 单元"},
+		{"actions", "复制目标目录", "copy destination 复制 目标"},
+		{"actions", "删除前确认", "confirm delete 删除 确认"},
+		{"actions", "使用外部播放器", "external player 外部 播放器"},
+		{"actions", "快捷操作", "quick action shortcut 快捷 操作"},
 		{"actions", "快速重命名", "quick rename rule 重命名"},
-		{"actions", "图片复制目标", "copy destination image 复制 图片"},
-		{"actions", "视频复制目标", "copy destination video 复制 视频"},
-		{"actions", "复制快捷键", "copy shortcut 快捷键"},
 		{"actions", "ZIP 默认密码", "zip password archive 压缩 密码"},
-		{"tags", tagsLabel, "finder tag 标签 评分"},
-		{"advanced", "缩略图缓存数量", "cache limit 缓存"},
-		{"advanced", "后台解码并发", "workers decode 并发 解码"},
-		{"advanced", "清理缓存", "clear cache 清理"},
-		{"advanced", "运行诊断", "diagnostics log 诊断 日志"},
+		{"tags", tagsLabel, "finder tag 标签"},
+		{"tags", "过滤标签", "filter tag 过滤 标签"},
+		{"tags", "默认评分", "rating star 评分"},
+		{"advanced", "缩略图缓存大小", "cache limit mb 缓存"},
+		{"advanced", "并发解码线程数", "workers decode 并发 解码 线程"},
+		{"advanced", "日志级别", "log level debug 日志 级别"},
+		{"advanced", "打开日志目录", "open log folder 日志 目录"},
+		{"advanced", "打开诊断窗口", "diagnostics window 诊断"},
+		{"advanced", "清除缩略图缓存", "clear cache 清理 缓存"},
+		{"advanced", "重置偏好设置", "reset preferences 重置 偏好"},
+		{"advanced", "导出诊断报告", "export report 导出 报告"},
 	}
 }

@@ -16,6 +16,9 @@ type profile struct {
 	Sort        string  `json:"sort"`
 	Recursive   bool    `json:"recursive"`
 	Destination string  `json:"destination,omitempty"`
+	// Filters carries the type filter of the slot, so switching slots
+	// restores what the browser shows as well as how it lays it out.
+	Filters viewPreferences `json:"filters,omitempty"`
 }
 
 type viewPreferences struct {

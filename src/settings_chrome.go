@@ -5,12 +5,31 @@ package main
 
 import "github.com/egoist/mygo/ui"
 
+// settingsPalette is the semantic palette of the design spec: the light
+// and dark swatches of section 2.1, plus the row and card washes the
+// settings chrome is drawn with.
 type settingsPalette struct {
 	dark bool
+
+	background     ui.Color
+	surface        ui.Color
+	surfaceHover   ui.Color
+	surfacePressed ui.Color
+	border         ui.Color
+	borderLight    ui.Color
 
 	text      ui.Color
 	textMuted ui.Color
 	textFaint ui.Color
+
+	accent        ui.Color
+	accentHover   ui.Color
+	accentPressed ui.Color
+
+	danger  ui.Color
+	warn    ui.Color
+	success ui.Color
+	info    ui.Color
 
 	rowHover    ui.Color
 	rowSelected ui.Color
@@ -23,56 +42,76 @@ type settingsPalette struct {
 
 	divider ui.Color
 	chip    ui.Color
-
-	danger ui.Color
-	warn   ui.Color
-	accent ui.Color
 }
 
 var settingsLight = settingsPalette{
-	text:      ui.Hex("#1d1d1f"),
-	textMuted: ui.Hex("#6e6e78"),
-	textFaint: ui.Hex("#a3a3ad"),
+	background:     ui.Hex("#ffffff"),
+	surface:        ui.Hex("#f5f5f5"),
+	surfaceHover:   ui.Hex("#ececec"),
+	surfacePressed: ui.Hex("#e0e0e0"),
+	border:         ui.Hex("#d1d1d1"),
+	borderLight:    ui.Hex("#e8e8e8"),
 
-	rowHover:    ui.RGBA(0, 0, 0, 0.04),
-	rowSelected: ui.RGBA(0, 0, 0, 0.07),
+	text:      ui.Hex("#1c1c1c"),
+	textMuted: ui.Hex("#6e6e6e"),
+	textFaint: ui.Hex("#a8a8a8"),
+
+	accent:        ui.Hex("#007aff"),
+	accentHover:   ui.Hex("#0051d5"),
+	accentPressed: ui.Hex("#003e9e"),
+
+	danger:  ui.Hex("#ff3b30"),
+	warn:    ui.Hex("#ff9500"),
+	success: ui.Hex("#34c759"),
+	info:    ui.Hex("#5ac8fa"),
+
+	rowHover:    ui.Hex("#ececec"),
+	rowSelected: ui.Hex("#e0e0e0"),
 
 	card:       ui.Hex("#ffffff"),
 	cardShadow: ui.RGBA(0, 0, 0, 0.07),
 
 	control:      ui.Hex("#ffffff"),
-	controlHover: ui.Hex("#f7f7f9"),
+	controlHover: ui.Hex("#f5f5f5"),
 
-	divider: ui.RGBA(0, 0, 0, 0.06),
-	chip:    ui.RGBA(0, 0, 0, 0.045),
-
-	danger: ui.Hex("#d93a35"),
-	warn:   ui.Hex("#c27b0f"),
-	accent: ui.Hex("#3b6cf6"),
+	divider: ui.Hex("#e8e8e8"),
+	chip:    ui.Hex("#f5f5f5"),
 }
 
 var settingsDark = settingsPalette{
 	dark: true,
 
-	text:      ui.Hex("#ececf0"),
-	textMuted: ui.Hex("#a9a9b4"),
-	textFaint: ui.Hex("#83838f"),
+	background:     ui.Hex("#1c1c1e"),
+	surface:        ui.Hex("#2c2c2e"),
+	surfaceHover:   ui.Hex("#3a3a3c"),
+	surfacePressed: ui.Hex("#48484a"),
+	border:         ui.Hex("#38383a"),
+	borderLight:    ui.Hex("#2c2c2e"),
 
-	rowHover:    ui.RGBA(255, 255, 255, 0.05),
-	rowSelected: ui.RGBA(255, 255, 255, 0.10),
+	text:      ui.Hex("#ffffff"),
+	textMuted: ui.Hex("#98989d"),
+	textFaint: ui.Hex("#5e5e60"),
 
-	card:       ui.Hex("#232328"),
+	accent:        ui.Hex("#0a84ff"),
+	accentHover:   ui.Hex("#409cff"),
+	accentPressed: ui.Hex("#0077ed"),
+
+	danger:  ui.Hex("#ff453a"),
+	warn:    ui.Hex("#ff9f0a"),
+	success: ui.Hex("#30d158"),
+	info:    ui.Hex("#64d2ff"),
+
+	rowHover:    ui.Hex("#3a3a3c"),
+	rowSelected: ui.Hex("#48484a"),
+
+	card:       ui.Hex("#2c2c2e"),
 	cardShadow: ui.RGBA(0, 0, 0, 0.35),
 
-	control:      ui.Hex("#404047"),
-	controlHover: ui.Hex("#4a4a52"),
+	control:      ui.Hex("#2c2c2e"),
+	controlHover: ui.Hex("#3a3a3c"),
 
-	divider: ui.RGBA(255, 255, 255, 0.07),
+	divider: ui.Hex("#38383a"),
 	chip:    ui.RGBA(255, 255, 255, 0.07),
-
-	danger: ui.Hex("#ff6961"),
-	warn:   ui.Hex("#f0a33a"),
-	accent: ui.Hex("#6b93ff"),
 }
 
 func settingsPaletteFor(c *ui.Context) *settingsPalette {
@@ -94,13 +133,26 @@ func raised(e ui.Element, pal *settingsPalette) ui.Element {
 }
 
 // settingsTheme retints the context theme to the palette so stock widgets
-// inside the settings window match Kero's treatment.
+// inside the settings window match the spec: 13px body text on a 4px
+// spacing grid, semantic colors for stock controls and their states.
 func settingsTheme(c *ui.Context, pal *settingsPalette) *ui.Theme {
 	t := *c.Theme()
-	t.Accent = pal.accent
+	t.Background = pal.background
 	t.Surface = pal.control
 	t.SurfaceHover = pal.controlHover
+	t.SurfacePressed = pal.surfacePressed
+	t.Border = pal.border
 	t.Text = pal.text
 	t.TextMuted = pal.textMuted
+	t.Accent = pal.accent
+	t.AccentHover = pal.accentHover
+	t.AccentPressed = pal.accentPressed
+	t.Danger = pal.danger
+	t.Warning = pal.warn
+	t.Success = pal.success
+	t.Selection = pal.surfacePressed
+	t.Focus = pal.accent
+	t.FontSize = 13
+	t.Spacing = 4
 	return &t
 }
