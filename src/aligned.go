@@ -1594,15 +1594,23 @@ func (a *appState) mainView(c *ui.Context) {
 func (a *appState) toolbarView(c *ui.Context) {
 	t := c.Theme()
 	bar := ui.Toolbar(c, func() {
-		if lucideIconButton(c, "sidebar", "显示/隐藏侧栏", sidebarIcon).Clicked() {
-			a.SidebarShown = !a.SidebarShown
-		}
-		if lucideIconButton(c, "back", "后退", arrowLeftIcon).Clicked() {
-			a.goBack()
-		}
-		if lucideIconButton(c, "forward", "前进", arrowRightIcon).Clicked() {
-			a.goForward()
-		}
+		// 左侧：导航控件组
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			if lucideIconButton(c, "sidebar", "显示/隐藏侧栏", sidebarIcon).Clicked() {
+				a.SidebarShown = !a.SidebarShown
+			}
+			ui.Box(c).Width(1).Height(18).Background(t.Border)
+			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Clicked() {
+				a.goBack()
+			}
+			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Clicked() {
+				a.goForward()
+			}
+		})
+
+		ui.Box(c).Width(12) // 间距
+
+		// 中间：标题或面包屑
 		if a.InLargeView {
 			item := a.currentItem()
 			title := "无媒体"
@@ -1615,39 +1623,44 @@ func (a *appState) toolbarView(c *ui.Context) {
 			chosen := len(items) - 1
 			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
 		}
+
+		ui.Box(c).Width(8) // 间距
+
+		// 右侧：浏览控件组
 		if !a.InLargeView {
-			prevQuery := a.LastQuery
-			search := ui.SearchField(c.Key("query"), &a.Query).Width(150)
-			if a.FocusSearch {
-				search.Focus()
-				a.FocusSearch = false
-			}
-			if a.Query != prevQuery {
-				a.LastQuery = a.Query
-				a.mu.Lock()
-				a.applyFilterLocked()
-				a.mu.Unlock()
-			}
-			ui.MenuButton(c, a.filterLabel(), func(m *ui.Menu) {
-				for i, name := range []string{"全部", "图片", "视频"} {
-					idx := i
-					if m.Item(name).Radio(a.FilterMode == idx).Chosen() {
-						a.FilterMode = idx
-						a.applyFilter()
-					}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				prevQuery := a.LastQuery
+				search := ui.SearchField(c.Key("query"), &a.Query).Width(150)
+				if a.FocusSearch {
+					search.Focus()
+					a.FocusSearch = false
 				}
+				if a.Query != prevQuery {
+					a.LastQuery = a.Query
+					a.mu.Lock()
+					a.applyFilterLocked()
+					a.mu.Unlock()
+				}
+				ui.MenuButton(c, a.filterLabel(), func(m *ui.Menu) {
+					for i, name := range []string{"全部", "图片", "视频"} {
+						idx := i
+						if m.Item(name).Radio(a.FilterMode == idx).Chosen() {
+							a.FilterMode = idx
+							a.applyFilter()
+						}
+					}
+				})
+				ui.Box(c).Width(1).Height(18).Background(t.Border)
+				a.layoutSwitcher(c)
+				oldThumb := a.Thumb
+				beforeBand := thumbBand(thumbEdge(a.Thumb))
+				box := a.browseBox
+				if ui.Slider(c, &a.Thumb, 64, 512).Width(80).Changed() {
+					a.noteThumbBand(beforeBand)
+					a.anchorBrowse(oldThumb, a.Thumb, 0, 0, false, box)
+				}
+				ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
 			})
-		}
-		if !a.InLargeView {
-			a.layoutSwitcher(c)
-			oldThumb := a.Thumb
-			beforeBand := thumbBand(thumbEdge(a.Thumb))
-			box := a.browseBox
-			if ui.Slider(c, &a.Thumb, 64, 512).Width(80).Changed() {
-				a.noteThumbBand(beforeBand)
-				a.anchorBrowse(oldThumb, a.Thumb, 0, 0, false, box)
-			}
-			ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
 		}
 		lucideMenuButton(c, "显示与浏览", a.viewMenu)
 	}).Padding(6, 10).Background(t.Surface)
