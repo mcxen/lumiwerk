@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -26,7 +27,7 @@ const (
 
 var (
 	thumbLRU  = newThumbCache(thumbBudget)
-	thumbGate = make(chan struct{}, 8)
+	thumbGate chan struct{}
 
 	dirIcon        = lucideFolder
 	imageIcon      = lucideImage
@@ -44,6 +45,18 @@ var (
 	waterfallIcon = lucideColumns
 	justifiedIcon = lucideGallery
 )
+
+func init() {
+	// thumbGate 并发数根据 CPU 核心数动态设置，最多 16
+	concurrency := runtime.NumCPU()
+	if concurrency > 16 {
+		concurrency = 16
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	thumbGate = make(chan struct{}, concurrency)
+}
 
 type mediaItem struct {
 	Path         string
@@ -1011,6 +1024,13 @@ func (a *appState) loadThumb(root string, index int) {
 		}
 		thumbGate <- struct{}{}
 		defer func() { <-thumbGate }()
+		// 检查是否已滚动出屏幕超过 1 秒，优先可见项
+		if index < len(a.Items) {
+			seen := atomic.LoadInt64(&a.Items[index].Seen)
+			if seen > 0 && time.Since(time.Unix(0, seen)) > time.Second {
+				return
+			}
+		}
 		if a.thumbAbandoned(index, path, gen) {
 			return
 		}

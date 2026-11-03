@@ -29,7 +29,9 @@ type flowLayoutCache struct {
 func (a *appState) noteLayoutChanged() { a.layoutGen++ }
 
 func (a *appState) cachedWaterfall(width float32) []flowBox {
-	key := flowLayoutKey{a.layoutGen, len(a.Visible), width, a.Thumb}
+	// 容忍 10px 误差
+	quantizedWidth := float32(int(width/10) * 10)
+	key := flowLayoutKey{a.layoutGen, len(a.Visible), quantizedWidth, a.Thumb}
 	if a.flowCache.water == nil || a.flowCache.waterKey != key {
 		a.flowCache.water = waterfallFrames(a.visibleAspects(), width, float32(a.Thumb))
 		a.flowCache.waterKey = key
@@ -39,7 +41,9 @@ func (a *appState) cachedWaterfall(width float32) []flowBox {
 }
 
 func (a *appState) cachedJustified(width float32) [][]int {
-	key := flowLayoutKey{a.layoutGen, len(a.Visible), width, a.Thumb}
+	// 容忍 10px 误差，避免窗口微调触发全量重算
+	quantizedWidth := float32(int(width/10) * 10)
+	key := flowLayoutKey{a.layoutGen, len(a.Visible), quantizedWidth, a.Thumb}
 	if a.flowCache.just == nil || a.flowCache.justKey != key {
 		aspects := make([]float64, len(a.Visible))
 		for i, ar := range a.visibleAspects() {
