@@ -110,6 +110,8 @@ type appState struct {
 	watchCtx      context.Context
 	watchStop     context.CancelFunc
 	refreshing    bool
+	decodeCtx     context.Context
+	decodeCancel  context.CancelFunc
 
 	History []string
 	Cursor  int
@@ -389,6 +391,13 @@ func (a *appState) openFolder(path string) {
 	if path == "" || !isDir(path) || path == a.Root {
 		return
 	}
+
+	// 取消旧目录的解码任务
+	if a.decodeCancel != nil {
+		a.decodeCancel()
+	}
+	a.decodeCtx, a.decodeCancel = context.WithCancel(context.Background())
+
 	a.stopWatcher()
 	a.stopAutomation()
 	a.mu.Lock()
