@@ -2049,10 +2049,12 @@ func (a *appState) zoomHUD(c *ui.Context) {
 	if d := time.Until(a.HUDUntil); d > 0 {
 		c.After(d)
 	}
-	t := c.Theme()
-	hud := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorTop).Margin(24, 0).Padding(6, 14).Radius(6).Background(t.Surface)
+	// 半透明深色背景 + 投影 + 圆角，类似 macOS 系统 HUD
+	bgColor := ui.RGBA(0, 0, 0, 0.75)
+	hud := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorTop).Margin(24, 0).Padding(8, 16).Radius(8).Background(bgColor)
+	hud.Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.3))
 	hud.Children(func() {
-		ui.Text(c, a.HUD).FontSize(12).Bold()
+		ui.Text(c, a.HUD).FontSize(13).Bold().TextColor(ui.RGB(255, 255, 255))
 	})
 }
 
@@ -2062,8 +2064,10 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 		a.videoControlsBar(c, item)
 		return
 	}
-	t := c.Theme()
-	controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Margin(16, 0).Gap(6).Padding(6).Background(t.Surface).Radius(8)
+	// 半透明背景 + 投影，与 HUD 风格一致
+	bgColor := ui.RGBA(0, 0, 0, 0.7)
+	controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Margin(16, 0).Gap(6).Padding(8).Background(bgColor).Radius(8)
+	controls.Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.3))
 	controls.Children(func() {
 		if lucideIconButton(c, "zoom-out", "缩小", lucideMinus).Clicked() {
 			a.zoomStep(1 / 1.25)
