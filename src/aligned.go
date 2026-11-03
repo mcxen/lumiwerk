@@ -1788,9 +1788,21 @@ func (a *appState) gridView(c *ui.Context) {
 
 func (a *appState) statusBar(c *ui.Context) {
 	t := c.Theme()
-	bar := ui.Row(c).Padding(4, 12).Background(t.Surface)
+	bar := ui.Row(c).Padding(4, 12).Background(t.Surface).AlignItems(ui.Center)
 	bar.Children(func() {
-		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().MaxLines(1)
+		// 左侧：选中项信息
+		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1)
+
+		// 右侧：性能指标（可选）
+		if len(a.Visible) > 0 {
+			ui.Box(c).Width(1).Height(14).Background(t.Border)
+			ui.Box(c).Width(8) // 间距
+			info := fmt.Sprintf("%d 可见", len(a.Visible))
+			if a.Chosen >= 0 {
+				info += fmt.Sprintf(" · %d 选中", a.Chosen+1)
+			}
+			ui.Text(c, info).FontSize(10).TextColor(t.TextMuted).SingleLine()
+		}
 	})
 }
 
