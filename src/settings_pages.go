@@ -121,12 +121,112 @@ func (a *appState) profileSlots(c *ui.Context, pal *settingsPalette) {
 	})
 }
 
+// setViewFilter stores the type filter the user just changed, saves it and
+// rescans so the browser shows the new set at once.
+func (a *appState) setViewFilter() {
+	savePrefs(a.Profiles)
+	a.refreshView()
+}
+
+// setThumbSize moves the live browser to a new default thumbnail size,
+// keeping the current pictures on screen and settling the sharper band
+// after the drag stops.
+func (a *appState) setThumbSize(size float64) {
+	if size < 64 {
+		size = 64
+	}
+	if size > 512 {
+		size = 512
+	}
+	if size == a.Thumb {
+		return
+	}
+	old := a.Thumb
+	before := thumbBand(thumbEdge(a.Thumb))
+	a.Thumb = size
+	a.noteThumbBand(before)
+	a.anchorBrowse(old, a.Thumb, 0, 0, false, a.browseBox)
+}
+
+// layoutOptions are the four layouts a new window can open in, in the
+// spec's order: justified, waterfall, grid, detail.
+var layoutOptions = []struct {
+	mode  int
+	label string
+}{
+	{3, "两端对齐"},
+	{2, "瀑布流"},
+	{0, "等大网格"},
+	{1, "详情列表"},
+}
+
+func layoutName(mode int) string {
+	for _, option := range layoutOptions {
+		if option.mode == mode {
+			return option.label
+		}
+	}
+	return layoutOptions[0].label
+}
+
 func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
-	settingsGroup(c, pal, "浏览", "", func() {
-		settingsRow(c, pal, "gesture", "浏览手势", "方向键、滚轮和 W/A/S/D 手势用于浏览媒体。", func() {})
-		settingsRow(c, pal, "archives", "显示压缩文件", "把 ZIP 等压缩包当作媒体显示", func() {
-			settingsToggle(c, "archives", &a.Settings.ShowArchives, pal)
+	view := &a.Profiles.View
+	settingsBlock(c, "类型过滤", "关闭某一类后，下次扫描不再把它列入媒体区。", func() {
+		changed := false
+		for _, option := range []struct {
+			key   string
+			label string
+			value *bool
+		}{
+			{"filter-hidden", "隐藏文件", &view.Hidden},
+			{"filter-images", "图像文件", &view.Images},
+			{"filter-raw", "RAW 文件", &view.RAW},
+			{"filter-videos", "视频文件", &view.Videos},
+			{"filter-archives", "压缩文件", &view.Archives},
+			{"filter-all", "全部类型", &view.AllTypes},
+			{"filter-folders", "包含文件夹", &view.RecursiveFolders},
+		} {
+			if settingsOption(c, option.key, option.value, option.label) {
+				changed = true
+			}
+		}
+		if changed {
+			a.setViewFilter()
+		}
+	})
+	settingsSection(c, "布局", func() {
+		before := a.Settings.Layout
+		settingsField(c, "默认布局", func() {
+			modes := make([]int, 0, len(layoutOptions))
+			for _, option := range layoutOptions {
+				modes = append(modes, option.mode)
+			}
+			settingsPopup(c, "layout-popup", &a.Settings.Layout, modes, layoutName, 140, pal)
 		})
+		if a.Settings.Layout != before {
+			a.LayoutMode = a.Settings.Layout
+			a.refresh()
+		}
+		beforeThumb := a.Settings.Thumb
+		settingsField(c, "默认缩略图", func() {
+			ui.Slider(c.Key("settings-thumb"), &a.Settings.Thumb, 64, 512).Width(180).Label("默认缩略图")
+			ui.Text(c, fmt.Sprintf("%d px", int(a.Settings.Thumb))).FontSize(11).
+				TextColor(c.Theme().TextMuted).Width(52).TextAlign(ui.End)
+		})
+		if a.Settings.Thumb != beforeThumb {
+			a.setThumbSize(a.Settings.Thumb)
+		}
+	})
+	settingsSection(c, "显示", func() {
+		if settingsOption(c, "folder-first", &a.FolderFirst, "文件夹优先排序") {
+			a.refresh()
+		}
+		if settingsOption(c, "full-path-sort", &a.FullPathSort, "全路径排序（递归模式）") {
+			a.refresh()
+		}
+		if settingsOption(c, "media-unit", &a.Profiles.View.MediaUnit, "媒体单元模式") {
+			a.setMediaUnit(a.Profiles.View.MediaUnit)
+		}
 	})
 }
 
