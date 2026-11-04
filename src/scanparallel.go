@@ -28,10 +28,12 @@ type scanEntryResult struct {
 	skipDir bool
 }
 
-// scanTreeParallel walks root's immediate children concurrently. Each worker
-// owns one subtree and writes into its own slot, so the merged result keeps
-// the exact lexical order filepath.WalkDir produced. The root directory
-// itself is not visited, just as the sequential callback ignored it.
+// scanTreeParallel walks root's immediate subdirectories concurrently. Root
+// level files are visited inline, so a flat folder of 100k files does not
+// spawn 100k goroutines. Each worker owns one subtree and writes into its
+// own slot, so the merged result keeps the exact lexical order
+// filepath.WalkDir produced. The root directory itself is not visited, just
+// as the sequential callback ignored it.
 func scanTreeParallel(root string, visit func(scanEntry) scanEntryResult) []mediaItem {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -48,18 +50,18 @@ func scanTreeParallel(root string, visit func(scanEntry) scanEntryResult) []medi
 			entry.ModTime = info.ModTime()
 		}
 		entry.Hidden = entryHidden(entry.Name, entry.Info)
+		if !entry.IsDir {
+			if r := visit(entry); r.keep {
+				parts[i] = append(parts[i], r.item)
+			}
+			continue
+		}
 		i, entry := i, entry
 		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if !entry.IsDir {
-				if r := visit(entry); r.keep {
-					parts[i] = append(parts[i], r.item)
-				}
-				return
-			}
 			_ = walkDirMedia(entry.Path, func(child scanEntry) error {
 				r := visit(child)
 				if r.keep {
