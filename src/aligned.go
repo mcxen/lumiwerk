@@ -476,9 +476,13 @@ func (a *appState) refresh() {
 }
 
 func (a *appState) scanFolder(root string, seq int) {
-	var files []mediaItem
+	a.mu.Lock()
 	view := a.Profiles.View
-	flat := a.Recursive || a.MediaUnitRoot == root
+	recursive := a.Recursive
+	mediaUnitRoot := a.MediaUnitRoot
+	a.mu.Unlock()
+	var files []mediaItem
+	flat := recursive || mediaUnitRoot == root
 	includeFile := func(path, ext string) bool {
 		if !view.Hidden && isHiddenPath(root, path) {
 			return false
@@ -486,26 +490,25 @@ func (a *appState) scanFolder(root string, seq int) {
 		return view.AllTypes || isEnabledFile(path, ext, view)
 	}
 	if flat {
-		_ = walkDirMedia(root, func(entry scanEntry) error {
+		files = scanTreeParallel(root, func(entry scanEntry) scanEntryResult {
 			path := entry.Path
 			if entry.IsDir {
 				if path != root && !view.Hidden && entry.Hidden {
-					return filepath.SkipDir
+					return scanEntryResult{skipDir: true}
 				}
-				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
-					files = append(files, mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, InfoLoaded: true})
+				if recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
+					return scanEntryResult{keep: true, item: mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, InfoLoaded: true}}
 				}
-				return nil
+				return scanEntryResult{}
 			}
 			ext := strings.TrimPrefix(filepath.Ext(path), ".")
 			if !includeFile(path, ext) {
-				return nil
+				return scanEntryResult{}
 			}
 			if entry.Info == nil {
-				return nil
+				return scanEntryResult{}
 			}
-			files = append(files, mediaItem{Path: path, Name: entry.Name, Ext: strings.ToLower(ext), Size: entry.Size, ModTime: entry.ModTime.Unix(), IsVideo: isVideoFile(ext)})
-			return nil
+			return scanEntryResult{keep: true, item: mediaItem{Path: path, Name: entry.Name, Ext: strings.ToLower(ext), Size: entry.Size, ModTime: entry.ModTime.Unix(), IsVideo: isVideoFile(ext)}}
 		})
 	} else {
 		entries, err := scanDir(root)
