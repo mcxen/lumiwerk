@@ -9,7 +9,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
-	"github.com/egoist/mygo/ui"
 )
 
 func main() {
@@ -67,13 +66,19 @@ func main() {
 			}
 		}
 	})
+	// OnBeforeQuit runs before any window closes, on the main thread, so
+	// the main window's OnClose can let a real quit through.
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
+	// A Dock click asks the app to reopen. Show the browser when it is
+	// hidden; a visible browser is left where the user put it.
+	mygo.App.OnActivate(func(bool) {
+		if !mygo.App.IsReady() || (a.Window != nil && a.Window.IsVisible()) {
+			return
+		}
+		a.showMainWindow()
+	})
 	mygo.App.WhenReady(func() {
-		a.Window = mygo.NewWindow(mygo.WindowOptions{
-			Title:   appName,
-			Width:   1280,
-			Height:  820,
-			Content: ui.View(a.view),
-		})
+		a.ensureMainWindow()
 
 		mygo.App.SetMenu(newAppMenu(a))
 		if pendingOpen != "" {
