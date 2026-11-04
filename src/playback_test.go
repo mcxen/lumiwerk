@@ -210,6 +210,54 @@ func TestVideoControlsNativeInteraction(t *testing.T) {
 	}
 }
 
+// A scrub callback runs after the build pass, so it must not touch the
+// timeline Element. This drags the playhead and resizes the window to prove
+// the committed width stays usable and current between frames.
+func TestVideoTimelineScrubDragAndResize(t *testing.T) {
+	backend := &fakePlaybackBackend{path: "/tmp/movie.mp4", duration: 120, position: 20, playing: true}
+	a := fakeVideoState(backend)
+	te := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Children(func() { a.videoControlsBar(c, &a.Items[1]) })
+	}, 1000, 620)
+	te.Frame()
+	progress, ok := te.Find("播放进度")
+	if !ok {
+		t.Fatal("missing native timeline")
+	}
+	y := progress.Y + progress.H/2
+	te.Press(progress.X+progress.W*0.25, y)
+	te.Move(progress.X+progress.W*0.6, y)
+	te.Release(progress.X+progress.W*0.7, y)
+	if len(backend.seeks) == 0 {
+		t.Fatal("drag did not commit a seek")
+	}
+	if at := backend.seeks[len(backend.seeks)-1]; at < 60 || at > 105 {
+		t.Fatalf("drag seek out of range: %v", backend.seeks)
+	}
+	te.Frame()
+	if !te.HasText("播放进度") || !te.HasText("更多播放操作") {
+		t.Fatalf("controls stopped rendering after scrub: %q", te.Texts())
+	}
+
+	te.SetSize(1400, 620)
+	te.Frame()
+	wide, ok := te.Find("播放进度")
+	if !ok {
+		t.Fatal("missing timeline after resize")
+	}
+	before := len(backend.seeks)
+	te.ClickAt(wide.X+wide.W*0.5, wide.Y+wide.H/2)
+	if len(backend.seeks) <= before {
+		t.Fatal("resize scrub did not commit a seek")
+	}
+	if at := backend.seeks[len(backend.seeks)-1]; at < 50 || at > 70 {
+		t.Fatalf("resize used a stale timeline width: %v", backend.seeks)
+	}
+	if err := te.Click("暂停"); err != nil {
+		t.Fatalf("controls not interactive after scrub: %v", err)
+	}
+}
+
 func TestVideoLargeViewRendersController(t *testing.T) {
 	backend := &fakePlaybackBackend{path: "/tmp/movie.mp4", duration: 120, position: 20, playing: true}
 	a := fakeVideoState(backend)

@@ -75,19 +75,26 @@ func (a *appState) sweepThumbsAt(now time.Time) int {
 	defer a.mu.Unlock()
 	for i := range a.Items {
 		item := &a.Items[i]
-		if item.Bitmap == nil || item.IsDir || item.Loading {
+		if item.Bitmap == nil || item.Loading {
 			continue
 		}
 		seen := atomic.LoadInt64(&item.Seen)
 		if seen == 0 || seen > cut || item.Path == a.Hero.path {
 			continue
 		}
-		if thumbLRU.Has(thumbCacheKey(item.Path, item.ThumbEdge)) {
+		key := thumbCacheKey(item.Path, item.ThumbEdge)
+		if item.IsDir {
+			key = item.CoverKey
+		}
+		if key != "" && thumbLRU.Has(key) {
 			continue
 		}
 		item.Bitmap = nil
 		item.Decoded = false
 		item.LoadGen++
+		if item.IsDir {
+			item.CoverKey = ""
+		}
 		released++
 	}
 	return released

@@ -118,7 +118,13 @@ func (a *appState) applyThumbSettle(now time.Time) bool {
 	band := thumbBand(thumbEdge(a.Thumb))
 	for i := range a.Items {
 		item := &a.Items[i]
-		if item.IsDir || (item.Decoded && item.ThumbEdge >= band) {
+		if item.IsDir {
+			// An empty folder has no bitmap to sharpen. A stack that is
+			// already at this band stays; a coarser one is built again.
+			if item.Bitmap == nil || item.ThumbEdge >= band {
+				continue
+			}
+		} else if item.Decoded && item.ThumbEdge >= band {
 			continue
 		}
 		item.LoadGen++

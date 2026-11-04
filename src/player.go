@@ -216,11 +216,11 @@ func (a *appState) videoPlayerKeys(c *ui.Context) {
 	}
 }
 
-func (a *appState) scrubTimelineTo(box ui.Element, x float32, duration float64) {
+func (a *appState) scrubTimelineTo(x float32, duration float64) {
 	if a.Video == nil || a.Video.kernel == nil || duration <= 0 {
 		return
 	}
-	at := duration * timelineFraction(x, box.LayoutBounds().W, timelineInset)
+	at := duration * timelineFraction(x, a.playerTimelineW, timelineInset)
 	if !a.Video.kernel.Scrubbing() {
 		a.Video.kernel.BeginScrub()
 	}
@@ -271,12 +271,17 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 
 func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64) {
 	box := ui.Box(c.Key("video-progress")).FillWidth().Height(36).Label("播放进度").Tooltip("拖动跳转")
+	width := box.LayoutBounds().W
+	if width > 1 {
+		// Input handlers run between builds, when an Element is no longer
+		// valid. Keep the committed width in state for scrub callbacks.
+		a.playerTimelineW = width
+	}
 	var bubble string
 	var bubbleLeft float32
 	if x, _, over := box.PointerPosition(); over {
-		at := duration * timelineFraction(x, box.LayoutBounds().W, timelineInset)
+		at := duration * timelineFraction(x, width, timelineInset)
 		bubble = formatPlaybackTime(at)
-		width := box.LayoutBounds().W
 		span := width - 2*timelineInset
 		if span < 24 {
 			span = width
@@ -295,17 +300,17 @@ func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64)
 		}
 		switch ev.Kind {
 		case ui.InputPointerDown:
-			a.scrubTimelineTo(box, ev.X, duration)
+			a.scrubTimelineTo(ev.X, duration)
 			return true
 		case ui.InputPointerMove:
 			if a.Video == nil || a.Video.kernel == nil || !a.Video.kernel.Scrubbing() {
 				return false
 			}
-			a.scrubTimelineTo(box, ev.X, duration)
+			a.scrubTimelineTo(ev.X, duration)
 			return true
 		case ui.InputPointerUp:
 			if a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
-				a.scrubTimelineTo(box, ev.X, duration)
+				a.scrubTimelineTo(ev.X, duration)
 				a.Video.kernel.EndScrub()
 			}
 			return true

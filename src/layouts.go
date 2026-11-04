@@ -1,6 +1,8 @@
 package main
 
 import (
+	"container/heap"
+
 	"github.com/egoist/mygo/ui"
 	"slices"
 )
@@ -95,6 +97,31 @@ func (a *appState) visibleAspects() []float32 {
 	return out
 }
 
+// columnHeightHeap keeps the shortest column at the root. Ties go to the
+// lowest column index, the same order a linear scan used to pick.
+type columnHeightHeap struct {
+	cols    []int
+	heights []float32
+}
+
+func (h columnHeightHeap) Len() int { return len(h.cols) }
+func (h columnHeightHeap) Less(i, j int) bool {
+	a, b := h.cols[i], h.cols[j]
+	if h.heights[a] != h.heights[b] {
+		return h.heights[a] < h.heights[b]
+	}
+	return a < b
+}
+func (h columnHeightHeap) Swap(i, j int) { h.cols[i], h.cols[j] = h.cols[j], h.cols[i] }
+func (h *columnHeightHeap) Push(x any)   { h.cols = append(h.cols, x.(int)) }
+func (h *columnHeightHeap) Pop() any {
+	old := h.cols
+	n := len(old)
+	x := old[n-1]
+	h.cols = old[:n-1]
+	return x
+}
+
 // waterfallGroups appends each item to the current shortest column.
 // The score is 1/aspect, the same order the view paints.
 func waterfallGroups(aspects []float32, cols int) [][]int {
@@ -103,18 +130,19 @@ func waterfallGroups(aspects []float32, cols int) [][]int {
 	}
 	groups := make([][]int, cols)
 	heights := make([]float32, cols)
+	h := columnHeightHeap{cols: make([]int, cols), heights: heights}
+	for i := range h.cols {
+		h.cols[i] = i
+	}
+	heap.Init(&h)
 	for i, ar := range aspects {
 		if ar <= 0 {
 			ar = 1
 		}
-		best := 0
-		for j := 1; j < cols; j++ {
-			if heights[j] < heights[best] {
-				best = j
-			}
-		}
+		best := h.cols[0]
 		groups[best] = append(groups[best], i)
 		heights[best] += 1 / ar
+		heap.Fix(&h, 0)
 	}
 	return groups
 }
@@ -414,19 +442,7 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
-			if item.IsDir {
-				ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
-			} else if item.Bitmap != nil {
-				img := ui.Image(c, item.Bitmap).Fit(ui.Cover).Grow(1)
-				if width > 0 {
-					img.Width(width) // the centred box would keep the bitmap's own width
-				}
-				releaseShownPixels(item)
-			} else if item.Failed {
-				ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
-			} else {
-				ui.Spinner(c)
-			}
+			paintMediaThumb(c, item, width, ui.Cover)
 		})
 		ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 	})
@@ -434,6 +450,38 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 	a.cardPointer(card, i)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 	if !item.Decoded && !item.Failed && !item.Loading {
-		a.loadThumb(root, a.Visible[i])
+		a.requestThumb(root, a.Visible[i])
 	}
+}
+
+// paintMediaThumb draws one card's picture. Folder covers use the same
+// stacked bitmap in every layout; until that exists the card keeps the
+// plain folder icon. Photos keep the layout's own fit.
+func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) {
+	t := c.Theme()
+	if item.IsDir {
+		if item.Bitmap != nil {
+			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
+			if width > 0 {
+				img.Width(width) // the centred box would keep the bitmap's own width
+			}
+			releaseShownPixels(item)
+			return
+		}
+		ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
+		return
+	}
+	if item.Bitmap != nil {
+		img := ui.Image(c, item.Bitmap).Fit(fit).Grow(1)
+		if width > 0 {
+			img.Width(width)
+		}
+		releaseShownPixels(item)
+		return
+	}
+	if item.Failed {
+		ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
+		return
+	}
+	ui.Spinner(c)
 }

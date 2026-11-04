@@ -38,6 +38,21 @@ func thumbCacheKey(path string, edge int) string {
 	return fmt.Sprintf("%s#thumb#%d", path, thumbBand(edge))
 }
 
+// folderCoverKey identifies one stacked folder cover in the shared
+// thumbnail cache. digest is a hash of the first media names and mtimes,
+// so an edit inside the folder misses this entry and the cover is built
+// again. The size band matches thumbCacheKey.
+func folderCoverKey(path, digest string, edge int) string {
+	return fmt.Sprintf("%s#cover#%d#%s", path, thumbBand(edge), digest)
+}
+
+// folderCoverBusyKey is the single in-flight claim for a folder. It uses
+// the thumbnail cache's busy set, so a fast scroll cannot queue the same
+// folder twice and there is no second cache.
+func folderCoverBusyKey(path string) string {
+	return path + "#cover-busy"
+}
+
 // largeMaxSide caps any dimension of the 1:1 bitmap, so one photo cannot
 // exhaust memory.
 const largeMaxSide = 12000

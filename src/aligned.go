@@ -21,7 +21,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.3"
+	appVersion                  = "0.3.4"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -78,6 +78,9 @@ type mediaItem struct {
 	IsDir        bool
 	ThumbEdge    int
 	LoadGen      int
+	// CoverKey is the thumbCache key of a folder stack, path plus content
+	// digest. Empty for files and for folders that still show the plain icon.
+	CoverKey string
 	// InfoLoading is set while a metadata probe for the item runs, so views
 	// drawn every frame do not start one probe per frame.
 	InfoLoading bool
@@ -236,6 +239,7 @@ type appState struct {
 	playerPtrX      float32
 	playerPtrY      float32
 	playerPtrSeen   bool
+	playerTimelineW float32
 	playerMenu      bool
 	playerEndSeen   bool
 	playerSkipClick bool
@@ -489,7 +493,7 @@ func (a *appState) scanFolder(root string, seq int) {
 					return filepath.SkipDir
 				}
 				if a.Recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
-					files = append(files, mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
+					files = append(files, mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, InfoLoaded: true})
 				}
 				return nil
 			}
@@ -514,7 +518,7 @@ func (a *appState) scanFolder(root string, seq int) {
 				continue
 			}
 			if e.IsDir {
-				files = append(files, mediaItem{Path: e.Path, Name: e.Name, ModTime: e.ModTime.Unix(), IsDir: true, Decoded: true, InfoLoaded: true})
+				files = append(files, mediaItem{Path: e.Path, Name: e.Name, ModTime: e.ModTime.Unix(), IsDir: true, InfoLoaded: true})
 				continue
 			}
 			ext := strings.TrimPrefix(filepath.Ext(e.Name), ".")
@@ -1774,16 +1778,7 @@ func (a *appState) gridView(c *ui.Context) {
 						}
 					})
 				}
-				if item.IsDir {
-					ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
-				} else if item.Bitmap != nil {
-					ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
-					releaseShownPixels(item)
-				} else if item.Failed {
-					ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
-				} else {
-					ui.Spinner(c)
-				}
+				paintMediaThumb(c, item, 0, ui.Contain)
 			})
 			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 		})
@@ -1792,7 +1787,7 @@ func (a *appState) gridView(c *ui.Context) {
 		a.cardPointer(card, i)
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
-			a.loadThumb(root, a.Visible[i])
+			a.requestThumb(root, a.Visible[i])
 		}
 	})
 	grid.Grow(1).TrackScroll(&a.browseScroll)
