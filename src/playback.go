@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"io"
 	"math"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,35 +55,96 @@ func normalizedPlaybackVolume(volume float64) float64 {
 	return min(max(volume, 0), 2)
 }
 
+// playbackPhase is the only play state the native view renders. Views do not
+// keep a second set of playing/paused/buffering flags.
+type playbackPhase int
+
+const (
+	playIdle playbackPhase = iota
+	playLoading
+	playPlaying
+	playPaused
+	playBuffering
+	playEnded
+	playError
+)
+
+func (p playbackPhase) label() string {
+	switch p {
+	case playLoading:
+		return "正在加载"
+	case playBuffering:
+		return "正在缓冲"
+	case playEnded:
+		return "播放结束"
+	case playError:
+		return "无法播放"
+	default:
+		return ""
+	}
+}
+
+// playbackTrack is one audio or video stream the backend can switch to.
+type playbackTrack struct {
+	ID       int
+	Label    string
+	Selected bool
+}
+
+type trackSource interface {
+	AudioTracks() []playbackTrack
+	VideoTracks() []playbackTrack
+	SelectAudio(id int) error
+	SelectVideo(id int) error
+}
+
+type bufferReporter interface{ Buffered() float64 }
+type stallReporter interface{ Stalled() bool }
+
 // playbackSnapshot is the only state the native view needs to draw a frame.
 type playbackSnapshot struct {
-	Backend  string
-	Path     string
-	Frame    image.Image
-	Position float64
-	Duration float64
-	Playing  bool
-	Ended    bool
-	Ready    bool
-	Speed    float64
-	Err      error
+	Backend   string
+	Path      string
+	Frame     image.Image
+	Position  float64
+	Duration  float64
+	Buffered  float64
+	Playing   bool
+	Ended     bool
+	Ready     bool
+	Speed     float64
+	Err       error
+	Phase     playbackPhase
+	Scrubbing bool
+	Seeking   bool
+	Audio     []playbackTrack
+	Video     []playbackTrack
 }
 
 // playbackSession owns backend selection and lifecycle. In particular, seeking
 // and stepping never replace the backend or start a competing audio stream.
 type playbackSession struct {
-	mu       sync.Mutex
-	backend  playbackBackend
-	path     string
-	frame    image.Image
-	position float64
-	duration float64
-	playing  bool
-	ended    bool
-	ready    bool
-	speed    float64
-	volume   float64
-	err      error
+	mu              sync.Mutex
+	backend         playbackBackend
+	path            string
+	frame           image.Image
+	position        float64
+	duration        float64
+	playing         bool
+	ended           bool
+	ready           bool
+	speed           float64
+	volume          float64
+	err             error
+	phase           playbackPhase
+	buffered        float64
+	stalled         bool
+	seekWant        float64
+	seekPending     bool
+	seekSince       time.Time
+	scrubbing       bool
+	scrubAt         float64
+	scrubWasPlaying bool
 }
 
 var playbackProbe = func() (playbackBackend, error) { return newMPVBackend() }
@@ -128,6 +191,11 @@ func (s *playbackSession) openLocked(path string, at float64, playing bool) erro
 	s.ended = false
 	s.ready = false
 	s.err = nil
+	s.seekPending = false
+	s.scrubbing = false
+	s.buffered = s.position
+	s.stalled = false
+	s.phase = playLoading
 	if err := s.backend.Open(path, at, playing); err != nil {
 		return s.failOpen(path, err)
 	}
@@ -148,6 +216,11 @@ func (s *playbackSession) Close() {
 	s.frame = nil
 	s.playing = false
 	s.ready = false
+	s.ended = false
+	s.seekPending = false
+	s.scrubbing = false
+	s.phase = playIdle
+	s.err = nil
 }
 
 func (s *playbackSession) SetPlaying(playing bool) {
@@ -174,12 +247,116 @@ func (s *playbackSession) Seek(at float64) {
 		return
 	}
 	s.position = clampPlaybackTime(at, s.duration)
-	s.ended = s.duration > 0 && s.position >= s.duration
+	s.seekWant = s.position
+	s.seekPending = true
+	s.seekSince = time.Now()
+	s.scrubbing = false
+	s.ended = s.duration > 0 && s.position >= s.duration-0.0005
 	if s.ended {
 		s.playing = false
 	}
+	s.buffered = s.position
 	s.backend.Seek(s.position)
 	s.backend.SetPlaying(s.playing)
+}
+
+// BeginScrub freezes picture updates and remembers whether playback should
+// resume. The displayed position then follows ScrubTo until EndScrub seeks.
+func (s *playbackSession) BeginScrub() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.backend == nil || s.scrubbing {
+		return
+	}
+	s.scrubWasPlaying = s.playing && !s.ended
+	s.scrubAt = s.position
+	if s.seekPending {
+		s.scrubAt = s.seekWant
+	}
+	s.scrubbing = true
+	s.playing = false
+	s.ended = false
+	s.backend.SetPlaying(false)
+}
+
+// ScrubTo moves the displayed playhead without decoding a new position.
+func (s *playbackSession) ScrubTo(at float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.backend == nil {
+		return
+	}
+	if !s.scrubbing {
+		s.scrubWasPlaying = s.playing && !s.ended
+		s.playing = false
+		s.ended = false
+		s.scrubbing = true
+		s.backend.SetPlaying(false)
+	}
+	s.scrubAt = clampPlaybackTime(at, s.duration)
+	s.position = s.scrubAt
+}
+
+// EndScrub seeks to the scrubbed position and resumes when playback was
+// running before the drag.
+func (s *playbackSession) EndScrub() {
+	s.mu.Lock()
+	if !s.scrubbing {
+		s.mu.Unlock()
+		return
+	}
+	at := s.scrubAt
+	resume := s.scrubWasPlaying && !(s.duration > 0 && at >= s.duration-0.0005)
+	s.scrubbing = false
+	s.mu.Unlock()
+	s.Seek(at)
+	if resume {
+		s.SetPlaying(true)
+	}
+}
+
+func (s *playbackSession) Scrubbing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scrubbing
+}
+
+func (s *playbackSession) SelectAudio(id int) {
+	s.selectTrack(id, true)
+}
+
+func (s *playbackSession) SelectVideo(id int) {
+	s.selectTrack(id, false)
+}
+
+func (s *playbackSession) selectTrack(id int, audio bool) {
+	s.mu.Lock()
+	backend := s.backend
+	at := s.position
+	if s.seekPending {
+		at = s.seekWant
+	}
+	s.mu.Unlock()
+	src, ok := backend.(trackSource)
+	if !ok {
+		return
+	}
+	var err error
+	if audio {
+		err = src.SelectAudio(id)
+	} else {
+		err = src.SelectVideo(id)
+	}
+	if err != nil {
+		logWarnf("video.track: audio=%t id=%d err=%v", audio, id, err)
+		return
+	}
+	s.mu.Lock()
+	s.position = at
+	s.seekWant = at
+	s.seekPending = true
+	s.seekSince = time.Now()
+	s.mu.Unlock()
 }
 
 func (s *playbackSession) SetVolume(volume float64) {
@@ -208,6 +385,8 @@ func (s *playbackSession) Step(direction int) error {
 	}
 	s.playing = false
 	s.ended = false
+	s.seekPending = false
+	s.scrubbing = false
 	s.backend.SetPlaying(false)
 	at, err := s.backend.FrameStep(direction)
 	if err != nil {
@@ -217,46 +396,149 @@ func (s *playbackSession) Step(direction int) error {
 	return nil
 }
 
+func seekCalibrated(backendAt, want float64, since time.Time) bool {
+	if math.IsNaN(backendAt) || math.IsInf(backendAt, 0) || backendAt < 0 {
+		return time.Since(since) > 2*time.Second
+	}
+	if math.Abs(backendAt-want) <= 0.35 {
+		return true
+	}
+	return time.Since(since) > 2*time.Second
+}
+
 // Snapshot is called on the MyGo main thread. Backends keep blocking codec work
-// off this method and return their most recent frame and state.
+// off this method and return their most recent frame and state. A seek keeps
+// the displayed position on the target until the backend arrives there.
 func (s *playbackSession) Snapshot() playbackSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := playbackSnapshot{
 		Path: s.path, Frame: s.frame, Position: s.position, Duration: s.duration,
-		Playing: s.playing, Ended: s.ended, Ready: s.ready, Speed: s.speed, Err: s.err,
+		Buffered: s.buffered, Playing: s.playing, Ended: s.ended, Ready: s.ready,
+		Speed: s.speed, Err: s.err, Phase: s.phase,
 	}
 	if s.backend == nil {
+		s.derivePhase()
+		snap.Phase = s.phase
 		snap.Err = s.err
+		snap.Playing, snap.Ended = s.playing, s.ended
 		return snap
 	}
 	snap.Backend = s.backend.Name()
-	if frame := s.backend.Frame(); frame != nil {
-		s.frame = frame
-		snap.Frame = frame
+	if !s.scrubbing {
+		if frame := s.backend.Frame(); frame != nil {
+			s.frame = frame
+			snap.Frame = frame
+		}
 	}
-	if at := s.backend.Position(); !math.IsNaN(at) && !math.IsInf(at, 0) && at >= 0 {
-		s.position = at
-		snap.Position = at
-	}
+	backendAt := s.backend.Position()
 	if duration := s.backend.Duration(); duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
 		s.duration = duration
-		snap.Duration = duration
 	}
-	if s.duration > 0 {
-		s.position = clampPlaybackTime(s.position, s.duration)
-		snap.Position = s.position
+	switch {
+	case s.scrubbing:
+		s.position = clampPlaybackTime(s.scrubAt, s.duration)
+	case s.seekPending && seekCalibrated(backendAt, s.seekWant, s.seekSince):
+		s.seekPending = false
+		if !math.IsNaN(backendAt) && !math.IsInf(backendAt, 0) && backendAt >= 0 {
+			s.position = clampPlaybackTime(backendAt, s.duration)
+		}
+	case s.seekPending:
+		s.position = clampPlaybackTime(s.seekWant, s.duration)
+	default:
+		if !math.IsNaN(backendAt) && !math.IsInf(backendAt, 0) && backendAt >= 0 {
+			s.position = clampPlaybackTime(backendAt, s.duration)
+		}
 	}
-	if s.position > 0 || s.frame != nil {
+	if s.scrubbing || s.seekPending {
+		if s.buffered < s.position {
+			s.buffered = s.position
+		}
+	} else if reporter, ok := s.backend.(bufferReporter); ok {
+		buffered := reporter.Buffered()
+		if math.IsNaN(buffered) || math.IsInf(buffered, 0) || buffered < s.position {
+			buffered = s.position
+		}
+		if s.duration > 0 && buffered > s.duration {
+			buffered = s.duration
+		}
+		s.buffered = buffered
+	} else {
+		s.buffered = s.position
+	}
+	s.stalled = false
+	if !s.scrubbing && !s.seekPending {
+		if reporter, ok := s.backend.(stallReporter); ok {
+			s.stalled = reporter.Stalled()
+		}
+	}
+	if s.frame != nil || s.position > 0 {
 		s.ready = true
-		snap.Ready = true
 	}
-	if s.duration > 0 && s.position >= s.duration-0.0005 {
+	if !s.scrubbing && !s.seekPending && s.duration > 0 && s.position >= s.duration-0.0005 {
 		s.playing = false
 		s.ended = true
+		s.position = s.duration
 	}
-	snap.Playing, snap.Ended, snap.Err = s.playing, s.ended, s.err
+	if s.scrubbing || s.seekPending {
+		s.ended = s.duration > 0 && s.position >= s.duration-0.0005
+	}
+	if tracks, ok := s.backend.(trackSource); ok {
+		snap.Audio = tracks.AudioTracks()
+		snap.Video = tracks.VideoTracks()
+	}
+	s.derivePhase()
+	snap.Frame = s.frame
+	snap.Position = s.position
+	snap.Duration = s.duration
+	snap.Buffered = s.buffered
+	snap.Playing = s.playing
+	snap.Ended = s.ended
+	snap.Ready = s.ready
+	snap.Speed = s.speed
+	snap.Err = s.err
+	snap.Phase = s.phase
+	snap.Scrubbing = s.scrubbing
+	snap.Seeking = s.seekPending
 	return snap
+}
+
+func (s *playbackSession) derivePhase() {
+	switch {
+	case s.err != nil && s.frame == nil:
+		s.phase = playError
+	case s.path == "" && s.backend == nil:
+		s.phase = playIdle
+	case s.ended:
+		s.phase = playEnded
+	case s.scrubbing:
+		s.phase = playPaused
+	case !s.ready && s.path != "":
+		s.phase = playLoading
+	case s.playing && s.stalled:
+		s.phase = playBuffering
+	case s.playing:
+		s.phase = playPlaying
+	case s.path == "":
+		s.phase = playIdle
+	default:
+		s.phase = playPaused
+	}
+}
+
+// formatPlaybackTime renders a media clock as mm:ss, or h:mm:ss past an hour.
+func formatPlaybackTime(seconds float64) string {
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+		seconds = 0
+	}
+	total := int(seconds)
+	hours := total / 3600
+	minutes := (total % 3600) / 60
+	secs := total % 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, secs)
+	}
+	return fmt.Sprintf("%02d:%02d", minutes, secs)
 }
 
 func (s *playbackSession) retarget(path string) {
@@ -296,6 +578,11 @@ type ffmpegBackend struct {
 	audioRunning bool
 	lastErr      error
 	notify       func()
+	audioMap     int
+	videoMap     int
+	audioTracks  []playbackTrack
+	videoTracks  []playbackTrack
+	stalled      bool
 }
 
 var openPlaybackSound = func(path string, at, speed float64) (*soundtrack, error) {
@@ -310,7 +597,7 @@ func newFFmpegBackend() (*ffmpegBackend, error) {
 	if _, err := execLookPath("ffmpeg"); err != nil {
 		return nil, fmt.Errorf("FFmpeg playback unavailable: %w", err)
 	}
-	return &ffmpegBackend{volume: 1, speed: 1, edge: 2560}, nil
+	return &ffmpegBackend{volume: 1, speed: 1, edge: 2560, audioMap: -1, videoMap: -1}, nil
 }
 
 func (b *ffmpegBackend) validate(path string) error {
@@ -355,6 +642,8 @@ func (b *ffmpegBackend) Open(path string, at float64, playing bool) error {
 	b.lastErr = nil
 	b.decoder = newFFmpegDecoderAt(path, at)
 	b.decoder.edge = b.edge
+	b.decoder.audioMap = b.audioMap
+	b.decoder.videoMap = b.videoMap
 	if err := b.decoder.start(); err != nil {
 		return err
 	}
@@ -366,6 +655,7 @@ func (b *ffmpegBackend) Open(path string, at float64, playing bool) error {
 		b.playing = true
 		b.restartAudioLocked()
 	}
+	b.kickTrackProbe()
 	return nil
 }
 
@@ -455,6 +745,8 @@ func (b *ffmpegBackend) restartAudioLocked() {
 		b.clock.seek(at, true, playbackNow())
 		return
 	}
+	sound.audioMap = b.audioMap
+	sound.videoMap = b.videoMap
 	b.sound = sound
 	b.watchSound(sound, generation)
 }
@@ -464,6 +756,7 @@ func (b *ffmpegBackend) pollLocked() {
 	if b.playing && b.audioRunning && !b.ended {
 		b.position = b.clock.at(now)
 	}
+	b.stalled = false
 	var batch []timedFrame
 	if b.held != nil {
 		batch = append(batch, *b.held)
@@ -513,6 +806,18 @@ picked:
 			b.clock.seek(b.duration, false, now)
 			b.stopAudioLocked()
 		}
+	}
+	if b.playing && !b.ended && b.frame != nil {
+		waitingAudio := !b.audioRunning
+		ahead := 0.0
+		if b.audioRunning {
+			ahead = b.clock.at(now) - b.frameAt
+		}
+		queued := 0
+		if b.frames != nil {
+			queued = len(b.frames)
+		}
+		b.stalled = waitingAudio || (ahead > 0.5 && queued == 0 && b.held == nil)
 	}
 }
 
@@ -579,8 +884,12 @@ func (b *ffmpegBackend) seekLocked(seconds float64) {
 	b.position, b.frameAt = at, at
 	b.clock.seek(at, false, playbackNow())
 	b.ended = b.duration > 0 && at >= b.duration
-	b.frame, b.held = nil, nil
+	// Keep the last picture until the seeked frame arrives so the view does
+	// not flash empty while the clock jumps.
+	b.held = nil
 	b.decoder = newFFmpegDecoderAt(b.path, at)
+	b.decoder.audioMap = b.audioMap
+	b.decoder.videoMap = b.videoMap
 	b.decoder.edge = b.edge
 	if err := b.decoder.start(); err != nil {
 		b.lastErr = err
@@ -601,6 +910,8 @@ func (b *ffmpegBackend) reopenLocked(at float64, playing bool) {
 	b.frame, b.held = nil, nil
 	b.decoder = newFFmpegDecoderAt(b.path, at)
 	b.decoder.edge = b.edge
+	b.decoder.audioMap = b.audioMap
+	b.decoder.videoMap = b.videoMap
 	if err := b.decoder.start(); err != nil {
 		b.lastErr = err
 		b.playing = false
@@ -664,4 +975,153 @@ func (b *ffmpegBackend) SetRenderEdge(edge int) {
 		b.decoder.edge = edge
 	}
 	b.mu.Unlock()
+}
+
+func (b *ffmpegBackend) Buffered() float64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	buf := b.position
+	if b.held != nil && b.held.at > buf {
+		buf = b.held.at
+	}
+	if b.frames != nil && len(b.frames) > 0 {
+		frameDur := 1.0 / 30
+		if b.decoder != nil && b.decoder.sourceFrame > 0 {
+			frameDur = b.decoder.sourceFrame.Seconds()
+		}
+		if est := b.position + float64(len(b.frames))*frameDur; est > buf {
+			buf = est
+		}
+	}
+	if b.duration > 0 && buf > b.duration {
+		buf = b.duration
+	}
+	return buf
+}
+
+func (b *ffmpegBackend) Stalled() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.stalled
+}
+
+func (b *ffmpegBackend) AudioTracks() []playbackTrack {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return markPlaybackTrack(b.audioTracks, b.audioMap)
+}
+
+func (b *ffmpegBackend) VideoTracks() []playbackTrack {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return markPlaybackTrack(b.videoTracks, b.videoMap)
+}
+
+func (b *ffmpegBackend) SelectAudio(id int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.audioMap = id
+	if b.decoder == nil || b.path == "" {
+		return nil
+	}
+	b.seekLocked(b.position)
+	return b.lastErr
+}
+
+func (b *ffmpegBackend) SelectVideo(id int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.videoMap = id
+	if b.decoder == nil || b.path == "" {
+		return nil
+	}
+	b.seekLocked(b.position)
+	return b.lastErr
+}
+
+func (b *ffmpegBackend) kickTrackProbe() {
+	path := b.path
+	safeGo("video.tracks", func() {
+		audio, video := probePlaybackTracks(path)
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.path != path {
+			return
+		}
+		b.audioTracks = audio
+		b.videoTracks = video
+	})
+}
+
+func markPlaybackTrack(tracks []playbackTrack, selected int) []playbackTrack {
+	if len(tracks) == 0 {
+		return nil
+	}
+	out := append([]playbackTrack(nil), tracks...)
+	for i := range out {
+		out[i].Selected = selected < 0 && i == 0 || out[i].ID == selected
+	}
+	return out
+}
+
+func probePlaybackTracks(path string) (audio, video []playbackTrack) {
+	out, err := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", path).Output()
+	if err != nil || len(out) == 0 {
+		return nil, nil
+	}
+	var probed struct {
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
+			Width     int    `json:"width"`
+			Height    int    `json:"height"`
+			Channels  int    `json:"channels"`
+			Tags      struct {
+				Language string `json:"language"`
+				Title    string `json:"title"`
+			} `json:"tags"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(out, &probed); err != nil {
+		return nil, nil
+	}
+	audioN, videoN := 0, 0
+	for _, stream := range probed.Streams {
+		label := stream.Tags.Title
+		if label == "" {
+			label = stream.Tags.Language
+		}
+		switch stream.CodecType {
+		case "audio":
+			if label == "" {
+				label = stream.CodecName
+			}
+			if stream.Channels > 0 {
+				label = strings.TrimSpace(fmt.Sprintf("%s %dch", label, stream.Channels))
+			}
+			if label == "" {
+				label = fmt.Sprintf("音轨 %d", audioN+1)
+			}
+			audio = append(audio, playbackTrack{ID: audioN, Label: label})
+			audioN++
+		case "video":
+			if stream.Width > 0 && stream.Height > 0 {
+				size := fmt.Sprintf("%d×%d", stream.Width, stream.Height)
+				if label == "" {
+					label = size
+				} else {
+					label = label + " " + size
+				}
+			}
+			if stream.CodecName != "" {
+				label = strings.TrimSpace(label + " " + stream.CodecName)
+			}
+			if label == "" {
+				label = fmt.Sprintf("画质 %d", videoN+1)
+			}
+			video = append(video, playbackTrack{ID: videoN, Label: label})
+			videoN++
+		}
+	}
+	return audio, video
 }

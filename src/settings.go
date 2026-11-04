@@ -22,7 +22,7 @@ type settingsState struct {
 	ImageShortcut  string
 	VideoShortcut  string
 	EnterOpens     bool
-	VideoShift     bool
+	PlaybackEnd    string
 	ShowArchives   bool
 	CacheCap       float64
 	Workers        float64
@@ -45,7 +45,7 @@ func (a *appState) openSettings() {
 		ImageShortcut:  a.Profiles.ImageCopyShortcut,
 		VideoShortcut:  a.Profiles.VideoCopyShortcut,
 		EnterOpens:     a.Profiles.EnterOpens,
-		VideoShift:     a.Profiles.VideoShiftArrow,
+		PlaybackEnd:    normalizePlaybackEnd(a.Profiles.PlaybackEnd),
 		ShowArchives:   a.Profiles.View.Archives,
 		CacheCap:       float64(thumbLRU.limit),
 		Workers:        float64(cap(thumbGate)),
@@ -129,7 +129,7 @@ func (a *appState) applyActionSettings() {
 		a.Profiles.QuickRename = rule
 	}
 	a.Profiles.EnterOpens = a.Settings.EnterOpens
-	a.Profiles.VideoShiftArrow = a.Settings.VideoShift
+	a.Profiles.PlaybackEnd = normalizePlaybackEnd(a.Settings.PlaybackEnd)
 	a.Profiles.ImageCopyShortcut = a.Settings.ImageShortcut
 	a.Profiles.VideoCopyShortcut = a.Settings.VideoShortcut
 	a.Profiles.ImageDestination = strings.TrimSpace(a.Settings.Dest)
@@ -175,12 +175,14 @@ func (a *appState) showOperationGuide(shortcuts bool) {
 
 图片复制：%s    视频复制：%s
 空格：打开/播放暂停    Esc：退出大图
-左右：切换媒体（视频时左右快进/退 5 秒）
-Cmd+左右：视频逐帧    Shift+左右：视频切换上/下文件
-Q/E：左旋/右旋    F：镜像    Z：缩放 100%%    X：缩放适合
+左右：图片切换；视频 ±5 秒    Shift+左右：视频 ±1 秒
+J/L：视频 ±10 秒    K 或空格：播放/暂停    上下：视频音量
+Home/End：视频到首尾    0–9：视频跳到 0%%–90%%
+Cmd+左右：视频逐帧    Cmd+S：截存画面    M：视频静音，图片移到下载
+Q/E：左旋/右旋    F：视频全屏，图片镜像    Z：缩放 100%%    X：缩放适合
 W/S：放大/缩小    =/-：缩略图放大/缩小    0：重置缩略图
-1：最大化    2：合适窗口    5：居中    3/4：窗口适配图片
-T：窗口置顶    M：移动到下载    Cmd+Down：打开选中项
+1：最大化    2：合适窗口    5：居中    3/4：图片窗口适配
+T：窗口置顶    Cmd+Down：打开选中项
 I：信息/EXIF    U：文件简介    F2：重命名    F3：搜索    F5：刷新
 Delete：移到废纸篓    Cmd+1~9：Finder 标签    Ctrl+1~5：评级
 Alt+Enter：全屏    Opt+1~9：切换配置    Cmd+Opt+1~9：保存配置`,

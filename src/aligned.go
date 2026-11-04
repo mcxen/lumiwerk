@@ -142,91 +142,98 @@ type appState struct {
 	columnX      float32
 	columnY      float32
 
-	InLargeView   bool
-	Hero          heroState
-	LargeIndex    int
-	Zoom          float32
-	Rotation      float32
-	Mirror        bool
-	Video         *videoView
-	videoEdgeDue  time.Time
-	Info          infoState
-	Gesture       gestureState
-	Undo          undoStack
-	TagFilter     string
-	Pinned        bool
-	AutoScroll    bool
-	AutoPlay      bool
-	autoTick      time.Time
-	AutoConfig    string
-	AutoValue     string
-	PanX, PanY    float32
-	RightDown     bool
-	LargeDrag     dragState
-	HUD           string
-	HUDUntil      time.Time
-	Settings      settingsState
-	Diagnostics   diagnosticsState
-	Tabs          tabState
-	Profiles      prefsFile
-	Batch         batchState
-	Renaming      bool
-	FocusSearch   bool
-	LastQuery     string
-	RenamePath    string
-	RenameVal     string
-	Clip          []string
-	Cut           map[string]bool
-	PendingSelect []string
-	layoutGen     uint64
-	flowCache     flowLayoutCache
-	opBusy        bool
-	treeCache     map[string]treeEntry
-	selAnchor     selectionAnchor
-	keyPivot      int
-	revealFrames  int
-	lastUp        time.Time
-	frameNow      int64
-	nextSweep     time.Time
-	PendingLarge  string
-	KeepLarge     bool
-	NewFolder     bool
-	FolderName    string
-	FolderTake    []string
-	ZipAsk        bool
-	ZipPass       string
-	ZipFor        string
-	ZipPaths      []string
-	ZipDrop       bool
-	CropAsk       bool
-	CropW         string
-	CropH         string
-	CropX         string
-	CropY         string
-	CropPaths     []string
-	TrimAsk       bool
-	TrimStart     string
-	TrimEnd       string
-	Editor        editorState
-	editorSeq     int
-	InfoAsk       bool
-	InfoText      string
-	ShareHold     []shareService
-	SeekFrom      float64
-	ResumePlay    bool
-	VideoVolume   float64
-	PrevVolume    float64
-	StageW        float32
-	StageH        float32
-	Sharp         *ui.Bitmap
-	SharpKey      string
-	SharpPlace    sharpPlace
-	sharpToken    int
-	sharpDue      time.Time
-	sharpDueKey   string
-	sharpBusy     bool
-	sharpBusyKey  string
-	sharpFailKey  string
+	InLargeView     bool
+	Hero            heroState
+	LargeIndex      int
+	Zoom            float32
+	Rotation        float32
+	Mirror          bool
+	Video           *videoView
+	videoEdgeDue    time.Time
+	Info            infoState
+	Gesture         gestureState
+	Undo            undoStack
+	TagFilter       string
+	Pinned          bool
+	AutoScroll      bool
+	AutoPlay        bool
+	autoTick        time.Time
+	AutoConfig      string
+	AutoValue       string
+	PanX, PanY      float32
+	RightDown       bool
+	LargeDrag       dragState
+	HUD             string
+	HUDUntil        time.Time
+	Settings        settingsState
+	Diagnostics     diagnosticsState
+	Tabs            tabState
+	Profiles        prefsFile
+	Batch           batchState
+	Renaming        bool
+	FocusSearch     bool
+	LastQuery       string
+	RenamePath      string
+	RenameVal       string
+	Clip            []string
+	Cut             map[string]bool
+	PendingSelect   []string
+	layoutGen       uint64
+	flowCache       flowLayoutCache
+	opBusy          bool
+	treeCache       map[string]treeEntry
+	selAnchor       selectionAnchor
+	keyPivot        int
+	revealFrames    int
+	lastUp          time.Time
+	frameNow        int64
+	nextSweep       time.Time
+	PendingLarge    string
+	KeepLarge       bool
+	NewFolder       bool
+	FolderName      string
+	FolderTake      []string
+	ZipAsk          bool
+	ZipPass         string
+	ZipFor          string
+	ZipPaths        []string
+	ZipDrop         bool
+	CropAsk         bool
+	CropW           string
+	CropH           string
+	CropX           string
+	CropY           string
+	CropPaths       []string
+	TrimAsk         bool
+	TrimStart       string
+	TrimEnd         string
+	Editor          editorState
+	editorSeq       int
+	InfoAsk         bool
+	InfoText        string
+	ShareHold       []shareService
+	SeekFrom        float64
+	ResumePlay      bool
+	VideoVolume     float64
+	PrevVolume      float64
+	playerMoved     time.Time
+	playerPtrX      float32
+	playerPtrY      float32
+	playerPtrSeen   bool
+	playerMenu      bool
+	playerEndSeen   bool
+	playerSkipClick bool
+	StageW          float32
+	StageH          float32
+	Sharp           *ui.Bitmap
+	SharpKey        string
+	SharpPlace      sharpPlace
+	sharpToken      int
+	sharpDue        time.Time
+	sharpDueKey     string
+	sharpBusy       bool
+	sharpBusyKey    string
+	sharpFailKey    string
 }
 
 func newAppMenu(a *appState) *mygo.Menu {
@@ -1157,36 +1164,23 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		a.SidebarShown = !a.SidebarShown
 	}
-	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyLeft) || (a.InLargeView && c.Shortcut(0, ui.KeyLeft))) {
-		if a.InLargeView && !a.videoLargeView() {
+	// Picture arrows change the file. Video arrows belong to the playhead,
+	// so this query skips a video or it would consume the key first.
+	if !a.Editor.Open && !a.videoLargeView() && (c.Shortcut(ui.Cmd, ui.KeyLeft) || (a.InLargeView && c.Shortcut(0, ui.KeyLeft))) {
+		if a.InLargeView {
 			a.prevImage()
 		} else {
 			a.goBack()
 		}
 	}
-	if !a.Editor.Open && (c.Shortcut(ui.Cmd, ui.KeyRight) || (a.InLargeView && c.Shortcut(0, ui.KeyRight))) {
-		if a.InLargeView && !a.videoLargeView() {
+	if !a.Editor.Open && !a.videoLargeView() && (c.Shortcut(ui.Cmd, ui.KeyRight) || (a.InLargeView && c.Shortcut(0, ui.KeyRight))) {
+		if a.InLargeView {
 			a.nextImage()
 		} else {
 			a.goForward()
 		}
 	}
-	// Video seek with arrow keys in large view.
-	if a.InLargeView && !a.Editor.Open && a.videoLargeView() {
-		if c.Shortcut(0, ui.KeyLeft) {
-			a.seekVideo(max(0, a.playhead()-5))
-		}
-		if c.Shortcut(0, ui.KeyRight) {
-			a.seekVideo(min(a.videoDuration(), a.playhead()+5))
-		}
-		// Cmd+arrow = frame-by-frame seek.
-		if c.Shortcut(ui.Cmd, ui.KeyLeft) {
-			a.stepVideo(-1)
-		}
-		if c.Shortcut(ui.Cmd, ui.KeyRight) {
-			a.stepVideo(1)
-		}
-	}
+	a.videoPlayerKeys(c)
 	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
 		a.Window.ToggleMaximize()
 	}
@@ -1208,13 +1202,13 @@ func (a *appState) rootView(c *ui.Context) {
 		if c.Shortcut(0, ui.KeyX) {
 			a.resetZoom()
 		}
-		if c.Shortcut(0, ui.KeyM) {
+		if !a.videoLargeView() && c.Shortcut(0, ui.KeyM) {
 			a.transferToDownloads(opMove)
 		}
-		if c.Shortcut(0, ui.KeyHome) {
+		if !a.videoLargeView() && c.Shortcut(0, ui.KeyHome) {
 			a.openLargeImage(0)
 		}
-		if c.Shortcut(0, ui.KeyEnd) {
+		if !a.videoLargeView() && c.Shortcut(0, ui.KeyEnd) {
 			a.openLargeImage(len(a.Visible) - 1)
 		}
 		if c.Shortcut(0, ui.KeyW) {
@@ -1285,10 +1279,10 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.toggleViewOption("folders")
 	}
-	if c.Shortcut(0, ui.Key3) && a.InLargeView {
+	if c.Shortcut(0, ui.Key3) && a.InLargeView && !a.videoLargeView() {
 		a.fitWindowToImage(false)
 	}
-	if c.Shortcut(0, ui.Key4) && a.InLargeView {
+	if c.Shortcut(0, ui.Key4) && a.InLargeView && !a.videoLargeView() {
 		a.fitWindowToImage(true)
 	}
 	if !a.InLargeView && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
@@ -1332,7 +1326,11 @@ func (a *appState) rootView(c *ui.Context) {
 			a.InfoAsk = false
 			a.closeEditor()
 		case a.InLargeView:
-			a.closeLargeImage()
+			if a.videoLargeView() && a.Window != nil && a.Window.IsFullScreen() {
+				a.Window.ToggleFullScreen()
+			} else {
+				a.closeLargeImage()
+			}
 		}
 	}
 	if c.Shortcut(0, ui.KeySpace) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
@@ -1415,16 +1413,6 @@ func (a *appState) rootView(c *ui.Context) {
 		}
 		if key, ok := shortcutKey(a.Profiles.VideoCopyShortcut); ok && c.Shortcut(0, key) {
 			a.copyToVideoFolder()
-		}
-	}
-
-	// Video Shift+arrow switches to previous/next file.
-	if a.InLargeView && a.Profiles.VideoShiftArrow && !a.Editor.Open {
-		if c.Shortcut(ui.Shift, ui.KeyLeft) {
-			a.prevImage()
-		}
-		if c.Shortcut(ui.Shift, ui.KeyRight) {
-			a.nextImage()
 		}
 	}
 
@@ -1813,6 +1801,10 @@ func (a *appState) largeImageView(c *ui.Context) {
 	}
 	t := c.Theme()
 	item := a.currentItem()
+	if item != nil && item.IsVideo {
+		a.tickPlaybackEnd()
+		item = a.currentItem()
+	}
 	if item == nil {
 		ui.Text(c, "没有图像").TextColor(t.TextMuted)
 		return
@@ -1831,6 +1823,11 @@ func (a *appState) largeImageView(c *ui.Context) {
 		}
 		showSharp := a.prepareSharp(c, item)
 		stage.HandleInput(func(ev ui.InputEvent) bool { return a.largeInput(ev, item) })
+		if item.IsVideo {
+			if x, y, over := stage.PointerPosition(); over {
+				a.notePlayerPointer(x, y)
+			}
+		}
 		stage.ContextMenu(func(m *ui.Menu) { a.largeContextMenu(m, item) })
 		stage.Children(func() {
 			if showSharp {
@@ -1896,14 +1893,15 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 			a.RightDown = true
 		}
 		a.LargeDrag = dragState{active: true, startX: ev.X, startY: ev.Y, lastX: ev.X, lastY: ev.Y, moved: false, button: ev.Button, time: ev.Time}
-		if item.IsVideo && ev.Button == 1 && a.Video != nil {
+		if item.IsVideo && ev.Button == 1 {
 			a.SeekFrom = a.playhead()
-			a.ResumePlay = a.videoPlaying()
-			if a.ResumePlay {
-				a.holdVideo(false)
-			}
 		}
 		if ev.Button == 0 && ev.Clicks >= 2 {
+			if item.IsVideo {
+				a.toggleFullscreen()
+				a.playerSkipClick = true
+				return true
+			}
 			a.closeLargeImage()
 			return true
 		}
@@ -1920,9 +1918,13 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		if !a.LargeDrag.moved {
 			return true
 		}
-		if a.LargeDrag.button == 1 && item.IsVideo {
-			preview := seekPreview(a.SeekFrom, float64(ev.X-a.LargeDrag.startX), float64(a.largeWidth()), a.videoDuration())
-			a.HUD = "跳转到 " + shortTime(preview)
+		if a.LargeDrag.button == 1 && item.IsVideo && a.Video != nil && a.Video.kernel != nil {
+			if !a.Video.kernel.Scrubbing() {
+				a.Video.kernel.BeginScrub()
+			}
+			preview := seekPreview(a.SeekFrom, float64(ev.X-a.LargeDrag.startX), float64(a.largeWidth()), a.playheadDuration())
+			a.Video.kernel.ScrubTo(preview)
+			a.HUD = "跳转到 " + formatPlaybackTime(preview)
 			a.HUDUntil = time.Now().Add(800 * time.Millisecond)
 			return true
 		}
@@ -1938,15 +1940,19 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		fired := a.LargeDrag.fired
 		startX := a.LargeDrag.startX
 		a.LargeDrag.active = false
+		if a.playerSkipClick {
+			a.playerSkipClick = false
+			if button == 1 {
+				a.RightDown = false
+			}
+			return true
+		}
 		if button == 1 {
 			a.RightDown = false
-			if item.IsVideo && moved {
-				preview := seekPreview(a.SeekFrom, float64(ev.X-startX), float64(a.largeWidth()), a.videoDuration())
-				a.seekVideo(preview)
-				if a.ResumePlay {
-					a.playVideo()
-				}
-				a.ResumePlay = false
+			if item.IsVideo && moved && a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
+				preview := seekPreview(a.SeekFrom, float64(ev.X-startX), float64(a.largeWidth()), a.playheadDuration())
+				a.Video.kernel.ScrubTo(preview)
+				a.Video.kernel.EndScrub()
 				return true
 			}
 		}
@@ -1989,6 +1995,10 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 			a.Rotation -= 90
 			return true
 		case ui.KeyF:
+			if item.IsVideo {
+				a.toggleFullscreen()
+				return true
+			}
 			a.Mirror = !a.Mirror
 			return true
 		case ui.KeySpace:
@@ -2093,134 +2103,6 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 	})
 }
 
-// videoControlsBar follows IINA's native on-screen controller: a full-width
-// timeline above a compact transport row. The video remains visible behind it.
-func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
-	if a.Video == nil || a.Video.kernel == nil {
-		return
-	}
-	snapshot := a.videoSnapshot()
-	duration := snapshot.Duration
-	if duration <= 0 {
-		duration = item.Info.DurationSec
-	}
-	if duration <= 0 {
-		duration = 1
-	}
-	pos := clampPlaybackTime(snapshot.Position, duration)
-	remaining := max(0, duration-pos)
-	bar := ui.Column(c).Attach(ui.AnchorBottom, ui.AnchorBottom).
-		FillWidth().Padding(8, 18, 10).Gap(5).Background(ui.RGB(18, 18, 20).Alpha(0.96))
-	bar.Children(func() {
-		progress := ui.SliderBase(c.Key("video-progress"), &pos, 0, duration).FillWidth().Height(18).
-			Step(max(0.001, duration/1000)).Label("播放进度").
-			Draw(func(p *ui.Painter, r ui.Rect) {
-				track := ui.Rect{X: r.X + 6, Y: r.Y + 7, W: max(0, r.W-12), H: 4}
-				p.Fill(track, ui.RGB(255, 255, 255).Alpha(0.26), 2)
-				fraction := float32(pos / duration)
-				x := track.X + track.W*min(max(fraction, 0), 1)
-				p.Fill(ui.Rect{X: track.X, Y: track.Y, W: max(0, x-track.X), H: track.H}, ui.RGB(245, 245, 247), 2)
-				p.Fill(ui.Rect{X: x - 5, Y: r.Y + 4, W: 10, H: 10}, ui.RGB(255, 255, 255), 5)
-			})
-		if progress.Changed() {
-			a.seekVideo(pos)
-		}
-		controls := ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center)
-		controls.Children(func() {
-			left := ui.Row(c).Gap(1).AlignItems(ui.Center)
-			left.Children(func() {
-				if playerIconButton(c, "video-play", playbackButtonLabel(snapshot.Playing), "播放 / 暂停（空格）", playbackButtonIcon(snapshot.Playing)).Clicked() {
-					a.toggleVideoPlayback()
-				}
-				if playerIconButton(c, "video-previous", "上一个媒体", "上一个媒体", lucideSkipBack).Clicked() {
-					a.prevImage()
-				}
-				if playerIconButton(c, "video-next", "下一个媒体", "下一个媒体", lucideSkipForward).Clicked() {
-					a.nextImage()
-				}
-				if playerIconButton(c, "video-skip-back", "后退 5 秒", "后退 5 秒（←）", lucideRotateCCW).Clicked() {
-					a.seekVideo(a.playhead() - 5)
-				}
-				if playerIconButton(c, "video-skip-forward", "前进 5 秒", "前进 5 秒（→）", lucideRotateCW).Clicked() {
-					a.seekVideo(a.playhead() + 5)
-				}
-			})
-			ui.Box(c).Grow(1)
-			times := ui.Row(c).Gap(5).AlignItems(ui.Center)
-			times.Children(func() {
-				ui.Text(c, shortTime(pos)).FontSize(12).TextColor(ui.RGB(245, 245, 247))
-				ui.Text(c, "/ −"+shortTime(remaining)).FontSize(12).TextColor(ui.RGB(180, 180, 185))
-			})
-			ui.Box(c).Grow(1)
-			right := ui.Row(c).Gap(1).AlignItems(ui.Center)
-			right.Children(func() {
-				if playerIconButton(c, "video-volume", "静音", "静音 / 恢复音量", volumeButtonIcon(a.VideoVolume)).Clicked() {
-					a.toggleVideoVolume()
-				}
-				volume := a.VideoVolume
-				if ui.Slider(c.Key("video-volume-slider"), &volume, 0, 1).Width(76).Height(22).
-					Step(0.01).Label("音量").Changed() {
-					a.setVideoVolume(volume)
-				}
-				if playerIconButton(c, "video-screenshot", "截存当前画面", "截存当前画面", lucideCamera).Clicked() {
-					a.captureCurrentFrame()
-				}
-				if playerIconButton(c, "video-crop", "裁剪画面", "裁剪画面 / 片段", lucideCrop).Clicked() {
-					a.promptCrop([]string{item.Path})
-				}
-				if playerIconButton(c, "video-step-forward", "下一帧", "下一帧（⌘→）", lucideStepForward).Clicked() {
-					a.stepVideo(1)
-				}
-				more := playerIconButton(c, "video-more", "更多播放操作", "更多播放操作", lucideMore)
-				more.PopoverMenuButton(func(m *ui.Menu) { a.videoMoreMenu(m, snapshot) })
-			})
-		})
-	})
-}
-
-func (a *appState) videoMoreMenu(m *ui.Menu, snapshot playbackSnapshot) {
-	if m.Item("上一帧").Chosen() {
-		a.stepVideo(-1)
-	}
-	if m.Item("下一帧").Chosen() {
-		a.stepVideo(1)
-	}
-	if m.Item("裁剪片段").Chosen() {
-		a.promptTrim()
-	}
-	m.Separator()
-	for _, speed := range []float64{0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4} {
-		speed := speed
-		label := fmt.Sprintf("倍速 %.2g×", speed)
-		if speed == 1 {
-			label = "正常速度"
-		}
-		if m.Item(label).Checked(snapshot.Speed == speed).Chosen() {
-			a.Video.kernel.SetSpeed(speed)
-		}
-	}
-	m.Separator()
-	if m.Item("适应窗口").Chosen() {
-		a.resetZoom()
-	}
-	if m.Item("实际大小").Chosen() {
-		a.zoom100()
-	}
-	if m.Item("顺时针旋转").Chosen() {
-		a.Rotation += 90
-	}
-	if m.Item("水平翻转").Checked(a.Mirror).Chosen() {
-		a.Mirror = !a.Mirror
-	}
-	m.Separator()
-	if m.Item("显示媒体信息").Chosen() {
-		a.Info.File = !a.Info.File
-	}
-	if m.Item(revealLabel).Chosen() {
-		a.revealInFinder()
-	}
-}
-
 func (a *appState) toggleVideoVolume() {
 	if a.Video == nil {
 		return
@@ -2276,11 +2158,7 @@ func (a *appState) videoLargeView() bool {
 }
 
 func shortTime(seconds float64) string {
-	if seconds < 0 {
-		seconds = 0
-	}
-	total := int(seconds)
-	return fmt.Sprintf("%02d:%02d", total/60, total%60)
+	return formatPlaybackTime(seconds)
 }
 
 // shortcutKey maps a configured shortcut string to a ui.Key.

@@ -60,6 +60,7 @@ type prefsFile struct {
 	VideoCopyShortcut string          `json:"videoCopyShortcut,omitempty"`
 	EnterOpens        bool            `json:"enterOpens,omitempty"`
 	VideoShiftArrow   bool            `json:"videoShiftArrow"`
+	PlaybackEnd       string          `json:"playbackEnd,omitempty"`
 	Volume            float64         `json:"videoVolume,omitempty"`
 	PreviousVolume    float64         `json:"previousVideoVolume,omitempty"`
 	// RestoreSession holds the inverse of the stored opt-out; an absent
@@ -133,6 +134,7 @@ func normalizePrefs(p *prefsFile) {
 	if p.PreviousVolume <= 0 || p.PreviousVolume > 2 {
 		p.PreviousVolume = 1
 	}
+	p.PlaybackEnd = normalizePlaybackEnd(p.PlaybackEnd)
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff

@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo"
 	mpv "github.com/gen2brain/go-mpv"
@@ -19,13 +21,16 @@ import (
 // frames off one locked OS thread, mirroring the raw-FFI backend it
 // replaces, and works on every desktop platform libmpv supports.
 type mpvBackend struct {
-	mu       sync.Mutex
-	core     *mpv.Mpv
-	render   *mpv.RenderContext
-	requests chan mpvRenderRequest
-	closed   chan struct{}
-	pixels   []byte
-	frame    image.Image
+	mu          sync.Mutex
+	core        *mpv.Mpv
+	render      *mpv.RenderContext
+	requests    chan mpvRenderRequest
+	closed      chan struct{}
+	pixels      []byte
+	frame       image.Image
+	audioTracks []playbackTrack
+	videoTracks []playbackTrack
+	probedAt    time.Time
 }
 
 type mpvRenderRequest struct {
@@ -245,4 +250,151 @@ func (b *mpvBackend) FrameStep(direction int) (float64, error) {
 		return b.Position(), fmt.Errorf("mpv %s: %w", command, err)
 	}
 	return b.Position(), nil
+}
+
+func (b *mpvBackend) Buffered() float64 {
+	if b == nil || b.core == nil {
+		return 0
+	}
+	pos := b.double("time-pos")
+	buf := pos + b.double("demuxer-cache-duration")
+	if end := b.double("demuxer-cache-time"); end > buf {
+		buf = end
+	}
+	if dur := b.Duration(); dur > 0 && buf > dur {
+		buf = dur
+	}
+	if buf < pos {
+		buf = pos
+	}
+	return buf
+}
+
+func (b *mpvBackend) Stalled() bool {
+	if b == nil || b.core == nil {
+		return false
+	}
+	value, err := b.core.GetProperty("paused-for-cache", mpv.FormatFlag)
+	if err != nil {
+		return false
+	}
+	flag, _ := value.(bool)
+	return flag
+}
+
+func (b *mpvBackend) AudioTracks() []playbackTrack {
+	b.refreshTracks()
+	return append([]playbackTrack(nil), b.audioTracks...)
+}
+
+func (b *mpvBackend) VideoTracks() []playbackTrack {
+	b.refreshTracks()
+	return append([]playbackTrack(nil), b.videoTracks...)
+}
+
+func (b *mpvBackend) SelectAudio(id int) error {
+	return b.selectMPVTrack("aid", id, true)
+}
+
+func (b *mpvBackend) SelectVideo(id int) error {
+	return b.selectMPVTrack("vid", id, false)
+}
+
+func (b *mpvBackend) selectMPVTrack(prop string, id int, audio bool) error {
+	if b == nil || b.core == nil {
+		return fmt.Errorf("mpv closed")
+	}
+	if err := b.core.SetProperty(prop, mpv.FormatInt64, int64(id)); err != nil {
+		return err
+	}
+	tracks := b.videoTracks
+	if audio {
+		tracks = b.audioTracks
+	}
+	for i := range tracks {
+		tracks[i].Selected = tracks[i].ID == id
+	}
+	b.probedAt = time.Time{}
+	return nil
+}
+
+func (b *mpvBackend) refreshTracks() {
+	if b == nil || b.core == nil {
+		return
+	}
+	if !b.probedAt.IsZero() && time.Since(b.probedAt) < 500*time.Millisecond {
+		return
+	}
+	b.probedAt = time.Now()
+	value, err := b.core.GetProperty("track-list", mpv.FormatNode)
+	if err != nil {
+		return
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return
+	}
+	var audio, video []playbackTrack
+	audioN, videoN := 0, 0
+	for _, raw := range list {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := item["type"].(string)
+		id, ok := mpvInt(item["id"])
+		if !ok {
+			continue
+		}
+		selected, _ := item["selected"].(bool)
+		switch kind {
+		case "audio":
+			audioN++
+			audio = append(audio, playbackTrack{ID: id, Label: mpvTrackLabel("音轨", audioN, item), Selected: selected})
+		case "video":
+			videoN++
+			video = append(video, playbackTrack{ID: id, Label: mpvTrackLabel("画质", videoN, item), Selected: selected})
+		}
+	}
+	b.audioTracks, b.videoTracks = audio, video
+}
+
+func mpvInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func mpvTrackLabel(fallback string, n int, item map[string]any) string {
+	title, _ := item["title"].(string)
+	lang, _ := item["lang"].(string)
+	codec, _ := item["codec"].(string)
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = strings.TrimSpace(lang)
+	}
+	if label == "" {
+		label = strings.TrimSpace(codec)
+	}
+	if w, ok := mpvInt(item["demux-w"]); ok && w > 0 {
+		if h, ok := mpvInt(item["demux-h"]); ok && h > 0 {
+			size := fmt.Sprintf("%d×%d", w, h)
+			if label == "" {
+				label = size
+			} else {
+				label += " " + size
+			}
+		}
+	}
+	if label == "" {
+		return fmt.Sprintf("%s %d", fallback, n)
+	}
+	return label
 }

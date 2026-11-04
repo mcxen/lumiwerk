@@ -156,9 +156,9 @@ func TestVideoControlsNativeInteraction(t *testing.T) {
 		ui.Box(c).Fill().Children(func() { a.videoControlsBar(c, &a.Items[1]) })
 	}, 1000, 620)
 	te.Frame()
-	for _, label := range []string{"播放进度", "上一个媒体", "下一个媒体", "音量", "裁剪画面", "下一帧", "更多播放操作", "00:20", "/ −01:40"} {
+	for _, label := range []string{"播放进度", "上一个媒体", "下一个媒体", "音量", "更多播放操作", "00:20", "02:00"} {
 		if !te.HasText(label) {
-			t.Fatalf("IINA controller is missing %q: %q", label, te.Texts())
+			t.Fatalf("player chrome is missing %q: %q", label, te.Texts())
 		}
 	}
 	if err := te.Click("暂停"); err != nil {
@@ -166,6 +166,9 @@ func TestVideoControlsNativeInteraction(t *testing.T) {
 	}
 	if backend.playing {
 		t.Fatal("pause button did not reach the playback kernel")
+	}
+	if err := te.Click("更多播放操作"); err != nil {
+		t.Fatal(err)
 	}
 	if err := te.Click("下一帧"); err != nil {
 		t.Fatal(err)
@@ -214,7 +217,7 @@ func TestVideoLargeViewRendersController(t *testing.T) {
 	a.Items[2].InfoLoaded = true
 	te := ui.NewTester(a.largeImageView, 1200, 800)
 	te.Frame()
-	if !te.HasText("播放进度") || !te.HasText("00:20") || !te.HasText("裁剪画面") {
+	if !te.HasText("播放进度") || !te.HasText("00:20") || !te.HasText("更多播放操作") {
 		t.Fatalf("full player controls missing: %q", te.Texts())
 	}
 	progress, ok := te.Find("播放进度")
@@ -270,7 +273,10 @@ func TestVideoControlsOpenCropEditor(t *testing.T) {
 	a.Profiles.View.AutoPlaySelected = false
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Fill().Children(func() { a.videoControlsBar(c, &a.Items[1]) })
-	}, 1000, 180)
+	}, 1000, 720)
+	if err := te.Click("更多播放操作"); err != nil {
+		t.Fatal(err)
+	}
 	if err := te.Click("裁剪画面"); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +303,10 @@ func TestVideoControlsScreenshot(t *testing.T) {
 	a.Window = nil // captureCurrentFrame uses this only for its completion toast.
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Fill().Children(func() { a.videoControlsBar(c, &a.Items[1]) })
-	}, 1000, 180)
+	}, 1000, 720)
+	if err := te.Click("更多播放操作"); err != nil {
+		t.Fatal(err)
+	}
 	if err := te.Click("截存当前画面"); err != nil {
 		t.Fatal(err)
 	}

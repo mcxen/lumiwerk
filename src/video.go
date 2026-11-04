@@ -33,6 +33,8 @@ type ffmpegDecoder struct {
 	startAt     float64
 	plain       bool
 	edge        int
+	audioMap    int
+	videoMap    int
 	quit        chan struct{}
 }
 
@@ -43,7 +45,7 @@ func newFFmpegDecoder(path string) *ffmpegDecoder {
 }
 
 func newFFmpegDecoderAt(path string, startAt float64) *ffmpegDecoder {
-	return &ffmpegDecoder{path: path, startAt: startAt, edge: 2560, quit: make(chan struct{})}
+	return &ffmpegDecoder{path: path, startAt: startAt, edge: 2560, audioMap: -1, videoMap: -1, quit: make(chan struct{})}
 }
 
 func (d *ffmpegDecoder) start() error {
@@ -70,7 +72,7 @@ func (d *ffmpegDecoder) startLocked() error {
 		d.frameDur = time.Second / 30
 	}
 	d.stderr = &strings.Builder{}
-	args := playbackArgs(d.path, d.startAt, d.sourceFrame, d.plain, d.edge)
+	args := playbackArgsMapped(d.path, d.startAt, d.sourceFrame, d.plain, d.edge, d.audioMap, d.videoMap)
 	cmd := exec.Command("ffmpeg", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -157,6 +159,37 @@ func playbackArgs(path string, startAt float64, frameDur time.Duration, plain bo
 		vf = "fps=30," + vf
 	}
 	args = append(args, "-i", path, "-an", "-vf", vf, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
+	return args
+}
+
+// playbackArgsMapped is playbackArgs plus optional stream picks. A negative
+// map leaves that stream on ffmpeg's default, so the unmapped command line
+// stays byte-for-byte the same.
+func playbackArgsMapped(path string, startAt float64, frameDur time.Duration, plain bool, edge, audioMap, videoMap int) []string {
+	return insertStreamMaps(playbackArgs(path, startAt, frameDur, plain, edge), path, audioMap, videoMap)
+}
+
+// insertStreamMaps places -map after the matching -i. Ordinals are among
+// streams of that type (0:v:N, 0:a:N), and the audio map is optional.
+func insertStreamMaps(args []string, path string, audioMap, videoMap int) []string {
+	if audioMap < 0 && videoMap < 0 {
+		return args
+	}
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "-i" || args[i+1] != path {
+			continue
+		}
+		var maps []string
+		if videoMap >= 0 {
+			maps = append(maps, "-map", fmt.Sprintf("0:v:%d", videoMap))
+		}
+		if audioMap >= 0 {
+			maps = append(maps, "-map", fmt.Sprintf("0:a:%d?", audioMap))
+		}
+		out := append([]string{}, args[:i+2]...)
+		out = append(out, maps...)
+		return append(out, args[i+2:]...)
+	}
 	return args
 }
 
@@ -419,18 +452,24 @@ func soundtrackArgs(path string, at float64) []string {
 	return append(args, "-i", path, "-vn", "-ac", "2", "-ar", strconv.Itoa(soundtrackRate), "-f", "f32le", "-")
 }
 
+func soundtrackArgsMapped(path string, at float64, audioMap, videoMap int) []string {
+	return insertStreamMaps(soundtrackArgs(path, at), path, audioMap, videoMap)
+}
+
 // soundtrack streams decoded audio from the shared playhead. The player
 // consumes it at that rate; playback does not seek it to catch the picture.
 type soundtrack struct {
-	path    string
-	base    float64
-	cmd     *exec.Cmd
-	stdout  io.ReadCloser
-	pending []byte
-	speed   float64
-	volume  float64
-	mu      sync.Mutex
-	closed  bool
+	path     string
+	base     float64
+	cmd      *exec.Cmd
+	stdout   io.ReadCloser
+	pending  []byte
+	speed    float64
+	volume   float64
+	audioMap int
+	videoMap int
+	mu       sync.Mutex
+	closed   bool
 }
 
 var errSoundtrackLate = errors.New("soundtrack late")
@@ -442,7 +481,7 @@ func newSoundtrackRate(path string, at, speed float64) (*soundtrack, error) {
 	if at < 0 {
 		at = 0
 	}
-	return &soundtrack{path: path, base: at, speed: normalizedPlaybackSpeed(speed), volume: 1}, nil
+	return &soundtrack{path: path, base: at, speed: normalizedPlaybackSpeed(speed), volume: 1, audioMap: -1, videoMap: -1}, nil
 }
 
 func newSoundtrack(path string, at float64) (*soundtrack, error) {
@@ -469,7 +508,7 @@ func (d *soundtrack) startLocked(at float64) error {
 		d.stdout = nil
 	}
 	d.pending = nil
-	cmd := exec.Command("ffmpeg", soundtrackArgs(d.path, at)...)
+	cmd := exec.Command("ffmpeg", soundtrackArgsMapped(d.path, at, d.audioMap, d.videoMap)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -636,6 +675,7 @@ func (a *appState) shutdownVideo() {
 func (a *appState) closeVideo() {
 	a.shutdownVideo()
 	a.Video = nil
+	a.playerEndSeen = false
 }
 
 func (a *appState) videoSnapshot() playbackSnapshot {
@@ -712,6 +752,10 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 		return
 	}
 	a.videoEdgeDue = time.Time{}
+	a.playerMoved = time.Now()
+	a.playerPtrSeen = false
+	a.playerEndSeen = false
+	a.playerSkipClick = false
 	a.shutdownVideo()
 	volume := a.VideoVolume
 	if volume < 0 {
@@ -743,8 +787,13 @@ func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bi
 		return nil
 	}
 	v.err = snapshot.Err
-	if snapshot.Playing || snapshot.Frame != nil || !snapshot.Ready {
+	switch snapshot.Phase {
+	case playLoading, playPlaying, playBuffering:
 		c.After(33 * time.Millisecond)
+	default:
+		if snapshot.Seeking || snapshot.Scrubbing {
+			c.After(33 * time.Millisecond)
+		}
 	}
 	if snapshot.Frame == nil {
 		return v.frame
@@ -764,21 +813,43 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 	}
 	snapshot := a.videoSnapshot()
 	var pic *ui.Bitmap
-	if a.Video.Still != nil && !snapshot.Playing {
+	frozen := snapshot.Phase == playPaused && !snapshot.Scrubbing && !snapshot.Seeking
+	if a.Video.Still != nil && frozen {
 		pic = a.Video.Still
 	} else {
 		pic = a.presentVideo(c, snapshot)
 	}
 	if pic == nil {
-		if snapshot.Err != nil {
-			ui.Textf(c, "视频解码失败: %v", snapshot.Err).TextColor(c.Theme().Danger)
+		if snapshot.Err != nil || snapshot.Phase == playError {
+			if snapshot.Err != nil {
+				ui.Textf(c, "视频解码失败: %v", snapshot.Err).TextColor(c.Theme().Danger)
+				return
+			}
+			ui.Text(c, "视频解码失败").TextColor(c.Theme().Danger)
 			return
 		}
-		ui.Spinner(c)
+		ui.Column(c).AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Spinner(c)
+			label := "正在加载"
+			if snapshot.Phase == playBuffering {
+				label = "正在缓冲"
+			}
+			ui.Text(c, label).FontSize(13).TextColor(c.Theme().TextMuted)
+		})
 		return
 	}
-	image := ui.Image(c, pic).Fit(ui.Contain).Grow(1)
-	if transformed {
-		image.Transform(a.transform())
-	}
+	ui.Box(c).Grow(1).Children(func() {
+		image := ui.Image(c, pic).Fit(ui.Contain).Grow(1)
+		if transformed {
+			image.Transform(a.transform())
+		}
+		if label := playbackStatusLabel(snapshot); label != "" {
+			badge := ui.Row(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Gap(8).
+				Padding(8, 12).Radius(8).Background(ui.RGBA(0, 0, 0, 0.62)).AlignItems(ui.Center)
+			badge.Children(func() {
+				ui.Spinner(c)
+				ui.Text(c, label).FontSize(13).TextColor(ui.RGB(245, 245, 247))
+			})
+		}
+	})
 }

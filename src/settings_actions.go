@@ -36,8 +36,15 @@ func (a *appState) settingsActionsPage(c *ui.Context, pal *settingsPalette) {
 				a.shortcutMenu(m, &a.Settings.VideoShortcut)
 			})
 		})
-		settingsRow(c, pal, "vidshift", "视频 Shift+左右", "切换上/下文件", func() {
-			settingsToggle(c, "vidshift", &a.Settings.VideoShift, pal)
+		settingsRow(c, pal, "vidend", "播放结束", "停在末帧、播放下一个或循环", func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndStop, "停在末帧")
+				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndNext, "下一个")
+				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndLoop, "循环")
+			})
+			if normalizePlaybackEnd(a.Settings.PlaybackEnd) != normalizePlaybackEnd(a.Profiles.PlaybackEnd) {
+				a.applyActionSettings()
+			}
 		})
 	})
 	settingsGroup(c, pal, "ZIP 默认密码：", "", func() {
