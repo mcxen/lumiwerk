@@ -68,7 +68,18 @@ type prefsFile struct {
 	RestoreSession bool `json:"restoreSession"`
 	// RestoreOff is the persisted opt-out for restoring the last session.
 	RestoreOff bool `json:"restoreOff,omitempty"`
+	// CloseAction is what the main window's close button and Cmd+W do.
+	// closeToTray (the default) hides the window and leaves the app
+	// running; closeQuit quits. Anything else is treated as closeToTray.
+	CloseAction string `json:"closeAction,omitempty"`
 }
+
+const (
+	// closeToTray hides the main window into the menu bar.
+	closeToTray = "tray"
+	// closeQuit quits the app when the main window closes.
+	closeQuit = "quit"
+)
 
 func prefsPath() string {
 	dir, err := os.UserConfigDir()
@@ -138,6 +149,17 @@ func normalizePrefs(p *prefsFile) {
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff
+	// Closing the window keeps the app running unless the user opted out.
+	if p.CloseAction != closeQuit {
+		p.CloseAction = closeToTray
+	}
+}
+
+// hidesOnClose reports whether closing the main window should hide it
+// instead of quitting. An absent or unknown value hides; only an explicit
+// quit opt-out leaves.
+func (p *prefsFile) hidesOnClose() bool {
+	return p.CloseAction != closeQuit
 }
 
 // restoreSession reports whether this run should reopen the last session's

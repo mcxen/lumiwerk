@@ -99,6 +99,22 @@ type videoView struct {
 
 type appState struct {
 	Window *mygo.Window
+	// quitting is set on the main thread from OnBeforeQuit so the main
+	// window can tell a real quit from the close button.
+	quitting bool
+	// shelved is true while the main window is hidden and background work
+	// is paused. Thumbnail goroutines read it under mu.
+	shelved bool
+	// resumeVideo, shelvedScroll and shelvedPlay remember what suspend
+	// paused, so showing the window continues them. Main thread only.
+	resumeVideo   bool
+	shelvedScroll bool
+	shelvedPlay   bool
+	// Tray is the menu-bar icon, created once the app is ready and removed
+	// on quit. flyout is its status panel; nil when it has not been opened
+	// or AppKit has dismissed it.
+	Tray   *mygo.Tray
+	flyout *mygo.Window
 	mu     sync.Mutex
 
 	Root          string
@@ -279,6 +295,11 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "提取子文件夹文件并归集", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.collectSelection() }) }},
 			{Label: "裁剪视频尺寸…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptCrop(a.operationPaths()) }) }},
 			{Label: "无损裁剪片段…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.promptTrim() }) }},
+			mygo.Separator(),
+			// RoleClose sends Cmd+W to the key window. The main window's
+			// OnClose decides whether that hides or quits; a settings or
+			// diagnostics window in front closes on its own.
+			{Label: "关闭窗口", Accelerator: "CmdOrCtrl+W", Role: mygo.RoleClose},
 		}},
 		{Label: "编辑", Submenu: []*mygo.MenuItem{
 			{Label: "复制", Accelerator: "CmdOrCtrl+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doCopy() }) }},
@@ -432,6 +453,7 @@ func (a *appState) openFolder(path string) {
 	a.noteTabRoot(path)
 	a.noteRecentFolder(path)
 	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
+	a.syncTrayTip()
 	a.refreshView()
 }
 
@@ -845,7 +867,9 @@ func (a *appState) applyFilterLocked() {
 }
 
 func (a *appState) startWatcher() {
-	if a.Root == "" {
+	// A shelved window does not watch the disk. refreshView still scans
+	// when a folder is opened, then startWatcher returns here until show.
+	if a.isShelved() || a.Root == "" {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1001,7 +1025,7 @@ func (a *appState) pickFolder() {
 
 func (a *appState) loadThumb(root string, index int) {
 	a.mu.Lock()
-	if index < 0 || index >= len(a.Items) {
+	if a.shelved || index < 0 || index >= len(a.Items) {
 		a.mu.Unlock()
 		return
 	}
@@ -1019,6 +1043,10 @@ func (a *appState) loadThumb(root string, index int) {
 	a.mu.Unlock()
 
 	safeGo("loadThumb", func() {
+		if a.thumbClaimStale(index, path, gen) {
+			a.clearThumbClaim(index, path, gen)
+			return
+		}
 		key := thumbCacheKey(path, edge)
 		if bitmap := thumbLRU.Get(key); bitmap != nil {
 			a.update(func() {
@@ -1040,6 +1068,12 @@ func (a *appState) loadThumb(root string, index int) {
 		}
 		thumbGate <- struct{}{}
 		defer func() { <-thumbGate }()
+		// A claim that was queued before the window was shelved wakes up
+		// here and leaves without decoding.
+		if a.thumbClaimStale(index, path, gen) {
+			a.clearThumbClaim(index, path, gen)
+			return
+		}
 		// 检查是否已滚动出屏幕超过 1 秒，优先可见项
 		if index < len(a.Items) {
 			seen := atomic.LoadInt64(&a.Items[index].Seen)
@@ -2386,7 +2420,7 @@ func (a *appState) dropLargeBitmaps(keep string) {
 // is sharp. The grid keeps using the thumbnail. edge is the decode edge
 // (see largeStageEdge); the sharp resample covers beyond it.
 func (a *appState) ensureLarge(index int) {
-	if a.Window == nil || index < 0 || index >= len(a.Visible) {
+	if a.isShelved() || a.Window == nil || index < 0 || index >= len(a.Visible) {
 		return
 	}
 	itemIndex := a.Visible[index]
@@ -2414,7 +2448,7 @@ func (a *appState) ensureLarge(index int) {
 			}
 			current := &a.Items[itemIndex]
 			current.LargeLoading = false
-			if err != nil || !a.InLargeView {
+			if err != nil || !a.InLargeView || a.shelved {
 				return
 			}
 			if a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible) || a.Visible[a.LargeIndex] != itemIndex {
@@ -2461,7 +2495,7 @@ func (a *appState) openLargeImage(index int) {
 // loaded or loading; a keep-flag protects prefetches from the drop when
 // the view moves.
 func (a *appState) ensureNeighborLarge(index int) {
-	if index < 0 || index >= len(a.Visible) {
+	if a.isShelved() || index < 0 || index >= len(a.Visible) {
 		return
 	}
 	itemIndex := a.Visible[index]
@@ -2491,7 +2525,7 @@ func (a *appState) ensureNeighborLarge(index int) {
 			current.LargeLoading = false
 			// Only keep the pixels while the prefetch is still adjacent;
 			// dropLargeBitmaps clears the rest when the view moves.
-			if err != nil || !a.InLargeView {
+			if err != nil || !a.InLargeView || a.shelved {
 				return
 			}
 			if !a.largeNeighborWanted(itemIndex) {
