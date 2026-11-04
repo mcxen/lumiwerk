@@ -288,6 +288,7 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"general", "主题", "theme light dark 主题 外观"},
 		{"general", "启动目录", "startup folder 启动 目录"},
 		{"general", "恢复上次会话", "restore session 恢复 会话"},
+		{"general", "关闭窗口时", "close window tray quit menu bar 关闭 窗口 菜单栏 退出"},
 		{"view", "隐藏文件", "hidden dotfile 隐藏"},
 		{"view", "图像文件", "image jpg png 图像"},
 		{"view", "RAW 文件", "raw cr2 nef 相机"},

@@ -76,6 +76,20 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 		}
 	})
+	settingsSection(c, "窗口", func() {
+		before := a.Profiles.CloseAction
+		settingsField(c, "关闭窗口时", func() {
+			ui.Radio(c.Key("close-tray"), &a.Profiles.CloseAction, closeToTray, "收进菜单栏")
+			ui.Radio(c.Key("close-quit"), &a.Profiles.CloseAction, closeQuit, "直接退出")
+		})
+		if a.Profiles.CloseAction != before {
+			if a.Profiles.CloseAction != closeQuit {
+				a.Profiles.CloseAction = closeToTray
+			}
+			savePrefs(a.Profiles)
+		}
+		settingsNote(c, "收进菜单栏后应用继续在后台运行，点菜单栏图标回到窗口。Cmd+Q 或托盘里的「退出」才会结束进程。")
+	})
 }
 
 // profileSlots draws the nine configuration slots: the active one is filled
