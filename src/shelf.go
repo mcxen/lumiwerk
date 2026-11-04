@@ -69,6 +69,7 @@ func (a *appState) shelfMainWindow() {
 		logInfof("main window shelved")
 	}
 	a.Window.Hide()
+	a.syncTrayTip()
 }
 
 // showMainWindow brings the browser back, creating it when this run has
@@ -83,6 +84,7 @@ func (a *appState) showMainWindow() {
 	}
 	a.Window.Show()
 	a.Window.Focus()
+	a.syncTrayTip()
 	if created && a.Root == "" {
 		a.scheduleLaunchFolder()
 	}

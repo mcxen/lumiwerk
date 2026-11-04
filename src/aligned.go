@@ -110,7 +110,12 @@ type appState struct {
 	resumeVideo   bool
 	shelvedScroll bool
 	shelvedPlay   bool
-	mu            sync.Mutex
+	// Tray is the menu-bar icon, created once the app is ready and removed
+	// on quit. flyout is its status panel; nil when it has not been opened
+	// or AppKit has dismissed it.
+	Tray   *mygo.Tray
+	flyout *mygo.Window
+	mu     sync.Mutex
 
 	Root          string
 	Items         []mediaItem
@@ -441,6 +446,7 @@ func (a *appState) openFolder(path string) {
 	a.noteTabRoot(path)
 	a.noteRecentFolder(path)
 	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
+	a.syncTrayTip()
 	a.refreshView()
 }
 
