@@ -704,7 +704,7 @@ func (a *appState) layoutSwitcher(c *ui.Context) {
 			if active {
 				s.Background(t.Accent)
 			}
-			s.Tooltip(layout.label)
+			s.Tooltip(layout.label).Label(layout.label)
 			s.Children(func() {
 				color := t.Text
 				if active {
@@ -1501,6 +1501,15 @@ func (a *appState) sidebarView(c *ui.Context) {
 	t := c.Theme()
 	pane := ui.Column(c).Fill().Background(t.Surface).Gap(0)
 	pane.Children(func() {
+		// TitleBarHiddenInset puts the traffic lights over the sidebar's
+		// top-left; keep a drag strip under them so "收藏夹" starts below.
+		if tb := c.TitleBar(); tb.Left > 0 {
+			h := tb.Height
+			if h < 28 {
+				h = 28
+			}
+			ui.Box(c).Height(h).FillWidth().DragWindow()
+		}
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "收藏夹").FontSize(11).Bold().TextColor(t.TextMuted)
@@ -1670,7 +1679,10 @@ func (a *appState) toolbarView(c *ui.Context) {
 		} else {
 			items := strings.Split(a.breadcrumbPath(), " › ")
 			chosen := len(items) - 1
-			ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
+			bc := ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
+			if bc.Changed() {
+				a.openBreadcrumb(chosen)
+			}
 		}
 
 		ui.Box(c).Width(8) // 间距
@@ -1679,7 +1691,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 		if !a.InLargeView {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				prevQuery := a.LastQuery
-				search := ui.SearchField(c.Key("query"), &a.Query).Width(150)
+				search := ui.SearchField(c.Key("query"), &a.Query).Width(150).Label("搜索")
 				if a.FocusSearch {
 					search.Focus()
 					a.FocusSearch = false
@@ -1727,26 +1739,69 @@ func (a *appState) toolbarView(c *ui.Context) {
 		}
 		lucideMenuButton(c, "显示与浏览", a.viewMenu)
 	}).Padding(6, 10).Background(t.Surface)
-	// Under a hidden macOS title bar the top row keeps clear of the
-	// traffic lights and drags the window.
+	// Under a hidden macOS title bar the top row drags the window. The
+	// traffic lights sit over the sidebar when it is open, otherwise over
+	// this toolbar — only then pad past them.
 	if tb := c.TitleBar(); tb.Left > 0 && len(a.Tabs.Tabs) == 0 {
 		s := t.Space(1)
-		bar.Padding(s, s, s, tb.Left+s).DragWindow()
+		if a.SidebarShown && !a.InLargeView {
+			bar.Padding(s).DragWindow()
+		} else {
+			bar.Padding(s, s, s, tb.Left+s).DragWindow()
+		}
 	}
 }
 
 func (a *appState) breadcrumbPath() string {
+	return strings.Join(a.breadcrumbItems(), " › ")
+}
+
+func (a *appState) breadcrumbItems() []string {
 	if a.Root == "" {
-		return "未打开目录"
+		return []string{"未打开目录"}
 	}
-	parts := strings.Split(strings.Trim(a.Root, "/"), "/")
+	parts := strings.Split(strings.Trim(a.Root, string(filepath.Separator)), string(filepath.Separator))
 	out := []string{rootName}
 	for _, part := range parts {
 		if part != "" {
 			out = append(out, part)
 		}
 	}
-	return strings.Join(out, " › ")
+	return out
+}
+
+// openBreadcrumb opens the folder for breadcrumbs index (0 = volume root).
+func (a *appState) openBreadcrumb(index int) {
+	if a.Root == "" || index < 0 {
+		return
+	}
+	items := a.breadcrumbItems()
+	if index >= len(items)-1 {
+		return // already there (last crumb is not a link)
+	}
+	if index == 0 {
+		if runtime.GOOS == "windows" {
+			return
+		}
+		a.openFolder("/")
+		return
+	}
+	sep := string(filepath.Separator)
+	parts := strings.Split(strings.Trim(a.Root, sep), sep)
+	var cleaned []string
+	for _, p := range parts {
+		if p != "" {
+			cleaned = append(cleaned, p)
+		}
+	}
+	if index > len(cleaned) {
+		return
+	}
+	path := strings.Join(cleaned[:index], sep)
+	if runtime.GOOS != "windows" {
+		path = "/" + path
+	}
+	a.openFolder(path)
 }
 
 func (a *appState) currentItem() *mediaItem {
