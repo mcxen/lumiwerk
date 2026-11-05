@@ -183,3 +183,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 
 - [x] T23.1 Windows 包未带 libmpv（仓库只有 resources/darwin-universal 的 dylib），内置播放器在 Windows 上无法加载；发布工作流构建前下载 libmpv-2.dll 到 resources/windows-<arch>，随 exe 同目录发布并校验
 - [x] T23.2 设置页统一组件（settings_form.go）：setGroup/setRow/setToggle/setSelect/setChoice/setChecks/setButton/setText/setSlider，140px 标签列，所有页面改用，去掉说明文字与仅含说明的「标签」页
+
+## Phase 24: 历史记录与缩放跳变
+
+- [x] T24.1 历史：目录停留 20 秒才记入「历史」，按规范化路径去重并置顶；加载 history.json 时合并重复（前进/后退轨迹不变）
+- [x] T24.2 大图缩放跳变根因：clampZoom 下限为原图 50%，大照片适应窗口远低于 50%，首次滚轮即被抬到约 2 倍；改为不高于适应比例。原图未就绪时不再退回适应尺寸
