@@ -174,7 +174,6 @@ type appState struct {
 	Info            infoState
 	Gesture         gestureState
 	Undo            undoStack
-	TagFilter       string
 	Pinned          bool
 	AutoScroll      bool
 	AutoPlay        bool
@@ -866,9 +865,6 @@ func (a *appState) applyFilterLocked() {
 			if (a.FilterMode == 1 && (!isImageFile(ext) && !isRawFile(ext))) || (a.FilterMode == 2 && !isVideoFile(ext)) {
 				continue
 			}
-			if a.TagFilter != "" && !containsString(a.Items[i].Tags, a.TagFilter) {
-				continue
-			}
 		}
 		a.Visible = append(a.Visible, i)
 	}
@@ -1552,31 +1548,6 @@ func (a *appState) sidebarView(c *ui.Context) {
 			})
 			a.folderDropTarget(c, row, hist)
 			row.OnClick(func() { a.openFolder(hist) })
-		}
-		if !tagsSupported {
-			return
-		}
-		ui.Divider(c)
-		// Finder tags section (placeholder groups matching FlowVision sidebar).
-		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, tagsLabel).FontSize(11).Bold().TextColor(t.TextMuted)
-		})
-		for _, tag := range finderLabelNames() {
-			name := tag
-			item := ui.Text(c, name).FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
-			if a.TagFilter == name {
-				item.TextColor(t.Accent).Bold()
-			}
-			item.OnClick(func() {
-				if a.TagFilter == name {
-					a.TagFilter = ""
-				} else {
-					a.TagFilter = name
-					safeGo("loadTags", a.loadTags)
-				}
-				a.applyFilter()
-			})
 		}
 	})
 }
