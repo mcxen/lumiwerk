@@ -237,8 +237,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      # The build jobs uploaded installers and update archives/manifests.
-      # Strip install scripts / deltas, verify the kept set, then publish.
+      # The build jobs uploaded installers, update archives, deltas and
+      # manifests. Strip install scripts, verify the kept set, then publish.
       - name: Verify and publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -251,14 +251,14 @@ jobs:
             echo "::error::$tag is published already; bump the version in mygo.json to release again" >&2
             exit 1
           fi
-          # Drop install scripts, deltas and other clutter mygo -upload may
-          # still attach; keep only the installers users actually download
-          # plus updater manifests and SHA256SUMS.
+          # Drop install scripts and other clutter mygo -upload may attach;
+          # keep installers, update archives, deltas (against the last
+          # published releases, updates.deltas), manifests and SHA256SUMS.
           names="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           while IFS= read -r name; do
             [ -z "$name" ] && continue
             case "$name" in
-              install.sh|install.ps1|*.delta|*.blockmap|latest*.yml)
+              install.sh|install.ps1|*.blockmap|latest*.yml)
                 echo "removing $name"
                 gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes
                 ;;
@@ -279,6 +279,15 @@ jobs:
           missing=0
           for w in $want; do
             echo "$names" | grep -qxF "$w" || { echo "::error::$tag has no $w" >&2; missing=1; }
+          done
+          # Every delta a manifest names must be attached, or clients fail
+          # the delta and download the full archive.
+          for p in darwin-universal windows-amd64 windows-arm64 linux-amd64 linux-arm64; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "update-$p.json" --dir "$RUNNER_TEMP" --clobber
+            for d in $(jq -r '.deltas[]?.url | sub(".*/"; "")' "$RUNNER_TEMP/update-$p.json"); do
+              echo "$names" | grep -qxF "$d" || { echo "::error::$tag has no $d" >&2; missing=1; }
+            done
+            echo "update-$p.json deltas: $(jq -r '[.deltas[]?.from] | join(" ")' "$RUNNER_TEMP/update-$p.json")"
           done
           [ "$missing" = 0 ] || exit 1
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --title "Lumiwerk $tag"

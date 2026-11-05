@@ -5,7 +5,7 @@
   "updates": {
     "publicKey": "j2gsimsIEc/O44jowQYfoJyH3gI5sRUF8GjVEI1guK8=",
     "github": "mcxen/lumiwerk",
-    "deltas": 0
+    "deltas": 3
   },
   "main": "./src"
 }
