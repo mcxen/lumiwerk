@@ -211,6 +211,7 @@ type appState struct {
 	layoutGen     uint64
 	flowCache     flowLayoutCache
 	opBusy        bool
+	work          workState
 	treeCache     map[string]treeEntry
 	selAnchor     selectionAnchor
 	keyPivot      int
@@ -1915,6 +1916,7 @@ func (a *appState) statusBar(c *ui.Context) {
 	bar.Children(func() {
 		// 左侧：选中项信息
 		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1)
+		a.workIndicator(c)
 
 		// 右侧：性能指标（可选）
 		if len(a.Visible) > 0 {

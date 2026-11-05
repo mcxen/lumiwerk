@@ -512,17 +512,20 @@ func (a *appState) exportEditor() {
 	}
 	src := a.Editor.Path
 	a.closeEditor()
-	a.toast("正在导出…")
+	work := a.beginWork("导出", len(segments))
 	safeGo("editor.go:515", func() {
+		defer a.endWork(work)
 		var created []string
 		failed := 0
 		for i, seg := range segments {
 			dest := flowUnique(filepath.Join(filepath.Dir(src), trimOutputName(src, seg.Start, seg.End, i)), false, created)
 			if err := exportVideoEdit(src, dest, filter, seg.Start, seg.End); err != nil {
 				failed++
+				a.stepWork(work)
 				continue
 			}
 			created = append(created, dest)
+			a.stepWork(work)
 		}
 		if a.Window == nil {
 			return

@@ -123,12 +123,18 @@ func (a *appState) startArchive(op fileOperation) {
 		a.finishOperation(applied)
 		return
 	}
+	label := "压缩"
+	if op.op == opExtract {
+		label = "解压"
+	}
+	work := a.beginWork(label, 0)
 	safeGo("undo.go:119", func() {
 		applied, err := perform(op)
 		if a.Window == nil {
 			return
 		}
 		a.update(func() {
+			a.endWork(work)
 			if err != nil && errors.Is(err, errNeedZipPassword) && op.op == opExtract {
 				a.promptZip("extract", op.paths, op.dropSource)
 				return
@@ -154,10 +160,13 @@ func (a *appState) runOperation(op fileOperation) {
 		return
 	}
 	a.opBusy = true
+	work := a.beginOperationWork(&op)
 	safeGo("undo.go:142", func() {
 		applied, err := perform(op)
+		applied.onStep = nil
 		a.update(func() {
 			a.opBusy = false
+			a.endWork(work)
 			if err != nil {
 				a.toast(err.Error())
 				return
@@ -168,6 +177,26 @@ func (a *appState) runOperation(op fileOperation) {
 			a.finishOperation(applied)
 		})
 	})
+}
+
+// beginOperationWork shows a copy or move as it runs, counting the items
+// placed; other operations are quick and show nothing.
+func (a *appState) beginOperationWork(op *fileOperation) int {
+	label, total := "", len(op.paths)
+	switch op.op {
+	case opCopy:
+		label = "拷贝"
+	case opMove:
+		label = "移动"
+	default:
+		return 0
+	}
+	if len(op.mappings) > 0 {
+		total = len(op.mappings)
+	}
+	work := a.beginWork(label, total)
+	op.onStep = func() { a.stepWork(work) }
+	return work
 }
 
 // undo and redo do their file work in the background, one operation at a

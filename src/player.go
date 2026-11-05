@@ -373,6 +373,7 @@ func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playb
 		if status := a.VideoSave.statusLabel(); status != "" {
 			ui.Text(c, status).FontSize(11).TextColor(ui.RGB(180, 180, 185)).SingleLine()
 			if a.VideoSave.phase == saveRunning {
+				ui.Progress(c, float64(a.VideoSave.progress)).Width(70).Label("另存进度")
 				if ui.Button(c.Key("video-save-cancel"), "取消").Clicked() {
 					a.cancelVideoSave()
 				}

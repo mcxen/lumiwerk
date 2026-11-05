@@ -150,6 +150,9 @@ type fileOperation struct {
 	password   string
 	dropSource bool
 	detail     string
+	// onStep, when set, runs after each path a copy or move places, from
+	// the goroutine running the operation, for its progress.
+	onStep func()
 }
 
 // perform applies a real file operation. Rename uses FlowVision's two-phase
@@ -163,6 +166,7 @@ func perform(op fileOperation) (fileOperation, error) {
 				if err := movePath(mapping.From, mapping.To); err != nil {
 					return op, err
 				}
+				op.step()
 			}
 			return op, nil
 		}
@@ -184,6 +188,7 @@ func perform(op fileOperation) (fileOperation, error) {
 				op.replaced = true
 			}
 			reserved = append(reserved, dst)
+			op.step()
 			if op.op == opMove {
 				mappings = append(mappings, pathPair{From: src, To: dst})
 			} else {
@@ -259,6 +264,12 @@ func perform(op fileOperation) (fileOperation, error) {
 		}
 	}
 	return op, nil
+}
+
+func (op *fileOperation) step() {
+	if op.onStep != nil {
+		op.onStep()
+	}
 }
 
 func rejectSelfCopy(paths []string, dest string) error {

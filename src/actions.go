@@ -458,7 +458,6 @@ func (a *appState) compressPlain(drop bool) {
 	if len(paths) == 0 {
 		return
 	}
-	a.toast("正在压缩…")
 	a.startArchive(fileOperation{op: opCompress, paths: paths, dropSource: drop})
 }
 
@@ -472,7 +471,6 @@ func (a *appState) compressWithPassword(drop bool) {
 	if len(paths) == 0 {
 		return
 	}
-	a.toast("正在压缩…")
 	a.startArchive(fileOperation{op: opCompress, paths: paths, password: pass, dropSource: drop})
 }
 
@@ -490,7 +488,6 @@ func (a *appState) extractSelection(drop bool) {
 		a.toast("请先选择压缩包文件。")
 		return
 	}
-	a.toast("正在解压…")
 	a.startArchive(fileOperation{op: opExtract, paths: paths, dropSource: drop})
 }
 
@@ -516,7 +513,6 @@ func (a *appState) commitZipPrompt() {
 		op.op = opExtract
 	} else {
 		op.op = opCompress
-		a.toast("正在压缩…")
 	}
 	a.ZipAsk = false
 	a.ZipPass = ""
@@ -1198,7 +1194,9 @@ func (a *appState) rotateSelection(degrees int) {
 		a.toast("请先选择图片或视频")
 		return
 	}
+	work := a.beginWork("旋转", len(media))
 	safeGo("actions.go:1173", func() {
+		defer a.endWork(work)
 		var failed []string
 		for _, path := range media {
 			ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
@@ -1211,6 +1209,7 @@ func (a *appState) rotateSelection(degrees int) {
 			if err != nil {
 				failed = append(failed, filepath.Base(path))
 			}
+			a.stepWork(work)
 		}
 		if a.Window == nil {
 			return
@@ -1279,13 +1278,14 @@ func (a *appState) collectSelection() {
 	if parent == "" {
 		parent = filepath.Dir(paths[0])
 	}
-	a.toast("正在归集…")
+	work := a.beginWork("归集", 0)
 	safeGo("actions.go:1255", func() {
 		result, err := collectSubfolderFiles(paths, parent, time.Now())
 		if a.Window == nil {
 			return
 		}
 		a.update(func() {
+			a.endWork(work)
 			if err != nil {
 				a.toast(err.Error())
 				return
@@ -1381,18 +1381,20 @@ func (a *appState) runCropRect(paths []string, x, y, width, height int) {
 }
 
 func (a *appState) finishCrop(paths []string, crop func(string) error) {
-	a.toast("正在裁剪…")
+	work := a.beginWork("裁剪", len(paths))
 	safeGo("actions.go:1356", func() {
 		var failed []string
 		for _, path := range paths {
 			if err := crop(path); err != nil {
 				failed = append(failed, filepath.Base(path))
 			}
+			a.stepWork(work)
 		}
 		if a.Window == nil {
 			return
 		}
 		a.update(func() {
+			a.endWork(work)
 			if len(failed) == len(paths) {
 				a.toast("视频裁剪失败。")
 				return
@@ -1443,13 +1445,14 @@ func (a *appState) commitTrim() {
 	src := item.Path
 	a.TrimAsk = false
 	dest := flowUnique(filepath.Join(filepath.Dir(src), trimOutputName(src, start, end, 0)), false, nil)
-	a.toast("正在导出片段…")
+	work := a.beginWork("导出片段", 0)
 	safeGo("actions.go:1418", func() {
 		err := trimVideoLossless(src, dest, start, end)
 		if a.Window == nil {
 			return
 		}
 		a.update(func() {
+			a.endWork(work)
 			if err != nil {
 				a.toast("无损裁剪失败。")
 				return
