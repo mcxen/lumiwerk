@@ -1224,6 +1224,15 @@ func (a *appState) rootView(c *ui.Context) {
 			a.goForward()
 		}
 	}
+	// Up/Down step through the folder in the large view and the gallery,
+	// pictures and videos alike; video volume moved to Shift+Up/Down.
+	if a.InLargeView && !a.Editor.Open && !a.modalOpen() {
+		if c.Shortcut(0, ui.KeyUp) {
+			a.prevImage()
+		} else if c.Shortcut(0, ui.KeyDown) {
+			a.nextImage()
+		}
+	}
 	a.videoPlayerKeys(c)
 	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
 		a.Window.ToggleMaximize()
@@ -1383,6 +1392,7 @@ func (a *appState) rootView(c *ui.Context) {
 				a.toggleVideoPlayback()
 			}
 		} else if a.Chosen >= 0 {
+			a.Gallery = false // Space is the plain quick look; G opens the gallery
 			a.openItem(a.Chosen)
 		}
 	}
@@ -1926,7 +1936,7 @@ func (a *appState) largeImageView(c *ui.Context) {
 		a.mediaOverlay(c, item)
 		a.zoomHUD(c)
 		a.edgeArrows(c)
-		if !a.galleryActive() {
+		if !a.galleryActive() || item.IsVideo {
 			a.largeControls(c, item)
 		}
 	})

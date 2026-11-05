@@ -198,9 +198,9 @@ func (a *appState) videoPlayerKeys(c *ui.Context) {
 		a.nudgePlayhead(-10)
 	case c.Shortcut(0, ui.KeyL):
 		a.nudgePlayhead(10)
-	case c.Shortcut(0, ui.KeyUp):
+	case c.Shortcut(ui.Shift, ui.KeyUp):
 		a.setVideoVolume(a.VideoVolume + 0.1)
-	case c.Shortcut(0, ui.KeyDown):
+	case c.Shortcut(ui.Shift, ui.KeyDown):
 		a.setVideoVolume(a.VideoVolume - 0.1)
 	case c.Shortcut(ui.Shift, ui.KeyComma), c.Shortcut(0, ui.KeyBracketLeft):
 		a.nudgeSpeed(-0.25)

@@ -109,7 +109,12 @@ func (a *appState) galleryStrip(c *ui.Context, size float32) {
 			} else {
 				cell.Opacity(0.7)
 			}
-			cell.Children(func() { paintMediaThumb(c, item, size, ui.Cover) })
+			cell.Children(func() {
+				paintMediaThumb(c, item, size, ui.Cover)
+				if item.IsVideo {
+					ui.Icon(c, lucidePlay).Absolute().Right(3).Bottom(3).FontSize(12).TextColor(ui.RGB(255, 255, 255))
+				}
+			})
 			if cell.Clicked() && !item.IsDir {
 				a.openLargeImage(i)
 			}

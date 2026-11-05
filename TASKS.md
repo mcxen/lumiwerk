@@ -129,3 +129,11 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T16.3 New windows default to justified layout, thumb 150; justified cards sized by aspect ratio and rows filled; grid uses fit (no crop), tighter padding/gaps
 - [x] T16.4 App declares zh-Hans (`mygo.App.SetLanguages`) so MyGo controls, menus and the updater speak Chinese; no remaining English UI literals
 - [x] T16.5 Platform labels (`src/labels.go`): root (Macintosh HD / 此电脑 / /), reveal (Finder / 资源管理器 / 文件管理器); Finder tags hidden off macOS; "在 Lumiwerk 中打开所在文件夹" distinct from reveal
+
+## Phase 17: Gallery Mode
+- [x] T17.1 Immersive gallery (G / toolbar button): black stage, no chrome, Esc returns to the grid
+- [x] T17.2 Rounded thumbnail strip near the bottom edge (H pins it), only visible thumbnails built and loaded
+- [x] T17.3 Bottom progress bar with click/drag jump and compact `n / N`
+- [x] T17.4 Mixed images and videos: videos in strip and progress bar, inline playback through the existing playback session (libmpv with `mpvbackend`, FFmpeg fallback)
+- [x] T17.5 Plain large view kept: Space opens it, Up/Down step previous/next media (video volume on Shift+Up/Down)
+- [x] T17.6 macOS hidden title bar (`TitleBarHiddenInset`): traffic lights over the toolbar, which pads past them and drags the window
