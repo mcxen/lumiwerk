@@ -189,28 +189,40 @@ type appState struct {
 	RightDown      bool
 	LargeDrag      dragState
 	HUD            string
-	HUDUntil       time.Time
-	Settings       settingsState
-	Diagnostics    diagnosticsState
-	Tabs           tabState
-	Profiles       prefsFile
-	Batch          batchState
-	Renaming       bool
-	FocusSearch    bool
-	LastQuery      string
-	RenamePath     string
-	RenameVal      string
-	Clip           []string
-	Cut            map[string]bool
-	PendingSelect  []string
-	layoutGen      uint64
-	flowCache      flowLayoutCache
-	opBusy         bool
-	treeCache      map[string]treeEntry
-	selAnchor      selectionAnchor
-	keyPivot       int
-	revealFrames   int
-	lastUp         time.Time
+	// toasts waits for the next frame to show through c.Toast; lastToast
+	// is the newest message, for tests.
+	toasts        []pendingToast
+	toastMu       sync.Mutex
+	lastToast     string
+	HUDUntil      time.Time
+	Settings      settingsState
+	Diagnostics   diagnosticsState
+	Tabs          tabState
+	Profiles      prefsFile
+	Batch         batchState
+	Renaming      bool
+	FocusSearch   bool
+	LastQuery     string
+	RenamePath    string
+	RenameVal     string
+	Clip          []string
+	Cut           map[string]bool
+	PendingSelect []string
+	layoutGen     uint64
+	flowCache     flowLayoutCache
+	opBusy        bool
+	work          workState
+	// tableSort is the detail table's header sort, mirroring Sort.
+	tableSort     ui.SortOrder
+	columnsLoaded bool
+	columnsAt     time.Time
+	dense         *ui.Theme
+	denseBase     *ui.Theme
+	treeCache     map[string]treeEntry
+	selAnchor     selectionAnchor
+	keyPivot      int
+	revealFrames  int
+	lastUp        time.Time
 	// frameStamp is the current build's time. frameNow publishes it only
 	// after the build finishes, so a decode running at the start of the
 	// next frame still sees the cards the previous frame showed.
@@ -1647,7 +1659,7 @@ func (a *appState) mainView(c *ui.Context) {
 		if !a.InLargeView {
 			a.zoomHUD(c)
 		}
-		a.toastOverlay(c)
+		a.showToasts(c)
 	})
 }
 
@@ -1910,6 +1922,7 @@ func (a *appState) statusBar(c *ui.Context) {
 	bar.Children(func() {
 		// 左侧：选中项信息
 		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1)
+		a.workIndicator(c)
 
 		// 右侧：性能指标（可选）
 		if len(a.Visible) > 0 {
@@ -2717,43 +2730,6 @@ func (a *appState) applyFilter() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.applyFilterLocked()
-}
-
-func (a *appState) detailView(c *ui.Context) {
-	t := c.Theme()
-	state := a.mediaListState()
-	if a.takeReveal() {
-		a.ListState.ScrollIntoView(a.Chosen)
-	}
-	list := ui.List(c, state.List, len(a.Visible), func(i int) {
-		item := a.visibleItem(i)
-		if item == nil {
-			return
-		}
-		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
-		if a.Chosen == i || a.Selected.Has(item.Path) {
-			row.Background(t.SurfacePressed)
-		}
-		row.Children(func() {
-			icon := imageIcon
-			if item.IsDir {
-				icon = dirIcon
-			} else if isVideoFile(item.Ext) {
-				icon = videoIcon
-			}
-			ui.Icon(c, icon).FontSize(16)
-			ui.Text(c, item.Name).Grow(1).FontSize(12).SingleLine()
-			ui.Textf(c, "%.1f MB", float64(item.Size)/(1024*1024)).FontSize(11).TextColor(t.TextMuted)
-			ui.Text(c, time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05")).FontSize(11).TextColor(t.TextMuted)
-		})
-		a.cardPointer(row, i)
-		a.fileDragSource(row, item.Path)
-		row.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-		if a.isCut(item.Path) {
-			row.Opacity(0.4)
-		}
-	})
-	list.Grow(1).TrackScroll(&a.browseScroll)
 }
 
 func (a *appState) currentProfile() profile {

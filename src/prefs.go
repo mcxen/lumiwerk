@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/egoist/mygo/ui"
 )
 
 type profile struct {
@@ -75,6 +77,8 @@ type prefsFile struct {
 	// closeToTray (the default) hides the window and leaves the app
 	// running; closeQuit quits. Anything else is treated as closeToTray.
 	CloseAction string `json:"closeAction,omitempty"`
+	// DetailColumns keeps the widths and order of the list layout's columns.
+	DetailColumns ui.TableLayout `json:"detailColumns,omitempty"`
 }
 
 const (
