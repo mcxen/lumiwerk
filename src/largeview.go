@@ -162,7 +162,10 @@ func (a *appState) clampZoom(z float32) float32 {
 	if fit <= 0 {
 		return clampFloat32(z, 0.1, 8)
 	}
-	return clampFloat32(z, 0.5/fit, 10/fit)
+	// The limits are in original pixels, but never exclude fit: a photo far
+	// larger than the window fits below 50%, and clamping to 50% made the
+	// first wheel notch jump from fit to twice the size.
+	return clampFloat32(z, min(0.5/fit, 0.5), max(10/fit, 4))
 }
 
 // fitScale is the scale Fit(Contain) applies to the original pixels.

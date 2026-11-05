@@ -62,8 +62,8 @@ func TestResetZoomClearsPan(t *testing.T) {
 func TestZoomLimitsMatchOriginalWidth(t *testing.T) {
 	a := newLargeState()
 	fit := a.fitScale(&a.Items[0])
-	if got := a.clampZoom(0); abs32(got-0.5/fit) > 0.001 {
-		t.Fatalf("minimum zoom = %v, want %v", got, 0.5/fit)
+	if got := a.clampZoom(0); abs32(got-min(0.5/fit, 0.5)) > 0.001 {
+		t.Fatalf("minimum zoom = %v, want %v", got, min(0.5/fit, 0.5))
 	}
 	if got := a.clampZoom(100); abs32(got-10/fit) > 0.001 {
 		t.Fatalf("maximum zoom = %v, want %v", got, 10/fit)
@@ -129,5 +129,21 @@ func TestLargeViewZoomControls(t *testing.T) {
 func TestTagColors(t *testing.T) {
 	if got := tagColor("红色"); got == tagColor("蓝色") {
 		t.Fatal("tag colors should differ")
+	}
+}
+
+// A photo much larger than the window must zoom smoothly from fit.
+func TestWheelZoomContinuesFromFit(t *testing.T) {
+	a := newLargeState()
+	a.Items[0].Info = mediaInfo{Width: 6000, Height: 4000}
+	a.Zoom = 1
+	w, h := a.largeSize()
+	a.zoomAt(w/2, h/2, 1.05)
+	if abs32(a.Zoom-1.05) > 0.001 {
+		t.Fatalf("zoom after one notch = %v, want 1.05", a.Zoom)
+	}
+	a.zoomAt(w/2, h/2, 1/1.05/1.05)
+	if a.Zoom >= 1 {
+		t.Fatalf("cannot zoom out below fit: %v", a.Zoom)
 	}
 }

@@ -1987,7 +1987,8 @@ func (a *appState) largeImageView(c *ui.Context) {
 				} else {
 					tr := a.transform()
 					if !sharpReady(item, a.zoomPercent(item)) {
-						tr = a.fitTransform()
+						// Keep the zoomed size on the thumbnail while the
+						// original loads; snapping back to fit read as a jump.
 						a.HUD = "原图加载中"
 						a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
 					}
