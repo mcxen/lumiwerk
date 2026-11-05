@@ -126,21 +126,12 @@ func main() {
 		}
 	})
 
-	// The window's own openFolder records folders in a.History; persist that
-	// trail when the process ends. OnWillQuit runs on the main thread after
-	// the windows are gone and before the event loop stops, so the write
-	// completes before exit.
+	// openFolder already writes the trail; OnWillQuit flushes once more so a
+	// late sidebar dwell is not lost if the process exits right after it.
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) {
-		a.mu.Lock()
-		history.History, history.Cursor = a.History, a.Cursor
-		history.Visited = a.Visited
-		history.Recent = a.Recent
-		history.LastImage = a.lastLargePath()
-		cleared := a.historyCleared
-		a.mu.Unlock()
-		if len(history.History) > 0 || len(history.Recent) > 0 || cleared {
-			saveHistory(history)
-		}
+		// openFolder already persists the trail; flush again on quit so a
+		// dwell that finished after the last navigate is not lost.
+		a.persistBrowsingHistory()
 	})
 
 	if err := mygo.App.Run(); err != nil {

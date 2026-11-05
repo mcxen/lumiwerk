@@ -482,6 +482,9 @@ func (a *appState) openFolder(path string) {
 		a.Cursor = len(a.History) - 1
 	}
 	a.mu.Unlock()
+	// Flush the trail now so session restore survives a crash or a quit
+	// that never reaches OnWillQuit. Sidebar Recent still waits for dwell.
+	a.persistBrowsingHistory()
 	a.noteTabRoot(path)
 	a.noteRecentFolder(path)
 	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))

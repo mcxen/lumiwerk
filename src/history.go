@@ -76,8 +76,8 @@ func (a *appState) noteDwell(path string, seq int) {
 
 func (a *appState) recordVisit(path string, seq int) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if seq != a.dwellSeq || pathKey(a.Root) != pathKey(path) {
+		a.mu.Unlock()
 		return
 	}
 	if a.Visited == nil {
@@ -85,6 +85,10 @@ func (a *appState) recordVisit(path string, seq int) {
 	}
 	a.Visited[path] = time.Now().Unix()
 	a.Recent = dedupeRecent(append([]string{path}, a.Recent...), nil)
+	a.mu.Unlock()
+	// Sidebar recent still waits for historyDwell; once recorded, flush so
+	// a crash after the dwell keeps the list without waiting for quit.
+	a.persistBrowsingHistory()
 }
 
 func historyPath() string {
@@ -198,6 +202,39 @@ func visitLabel(unix int64, now time.Time) string {
 		return t.Format("15:04")
 	}
 	return t.Format("01-02 15:04")
+}
+
+// persistBrowsingHistory writes the navigation trail so a relaunch can
+// reopen the current folder. History/Cursor are the session-restore
+// source and must be flushed without waiting for historyDwell; Recent
+// and Visited are written only once the sidebar has already recorded
+// them. A missing trail is left untouched so a first launch stays empty.
+func (a *appState) persistBrowsingHistory() {
+	a.mu.Lock()
+	h := historyFile{
+		History:   append([]string(nil), a.History...),
+		Cursor:    a.Cursor,
+		Visited:   cloneVisited(a.Visited),
+		Recent:    append([]string(nil), a.Recent...),
+		LastImage: a.lastLargePath(),
+	}
+	cleared := a.historyCleared
+	a.mu.Unlock()
+	if len(h.History) == 0 && len(h.Recent) == 0 && !cleared {
+		return
+	}
+	saveHistory(h)
+}
+
+func cloneVisited(m map[string]int64) map[string]int64 {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]int64, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // clearHistory empties the trail and its visit times and saves at once.

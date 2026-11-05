@@ -68,6 +68,9 @@ func (a *appState) shelfMainWindow() {
 		a.suspendBackground()
 		logInfof("main window shelved")
 	}
+	// Closing to the tray is the usual "I'm done" gesture; flush before
+	// the process can be killed while hidden.
+	a.persistBrowsingHistory()
 	a.Window.Hide()
 	a.syncTrayTip()
 }
