@@ -171,3 +171,10 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T21.3 正常播放始终内置播放器；去掉「使用内置」开关对外抛的默认路径；右键保留「用系统播放器打开」
 - [x] T21.4 播放内核选型说明写入 `lumiwerk-ui-shots/player-options.md`（继续改进 libmpv）
 - [x] T21.5 发布资产精简：`updates.deltas=0`；发布前删除 install.sh/ps1 与 *.delta；保留 dmg / tar.gz / setup.exe / deb / update-*.json / SHA256SUMS
+
+## Phase 22: 右键菜单精简
+
+- [x] T22.1 项目右键顶层精简为 打开/用系统播放器打开(视频)/在文件管理器中显示/简介/复制/剪切/粘贴/重命名/废纸篓
+- [x] T22.2 归组为原生子菜单：复制与移动、旋转、视频、压缩、评级、Finder 标签、共享、打开方式
+- [x] T22.3 文件夹级操作（刷新、终端、新建、收藏当前目录、移动到此）移出项目菜单，留在空白处菜单；「快速压缩」并入「压缩为 ZIP」
+- [x] T22.4 构建菜单时不再读取系统剪贴板（避免阻塞），新增菜单顶层数量测试

@@ -233,67 +233,86 @@ func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
 	a.fileMenu(m, true)
 }
 
-func (a *appState) fileContextMenu(m *ui.Menu) { a.fileMenu(m, false) }
+// fileContextMenu is the menu of empty space in a folder: folder-level
+// actions only (new, paste, refresh), no item actions.
+func (a *appState) fileContextMenu(m *ui.Menu) {
+	none := a.Root == ""
+	if m.Item("粘贴").Disabled(none || !a.canPaste()).Chosen() {
+		a.doPaste(false)
+	}
+	if m.Item("移动到此").Disabled(none || !a.canPaste()).Chosen() {
+		a.doPaste(true)
+	}
+	m.Separator()
+	if m.Item("新建文件夹").Disabled(none).Chosen() {
+		a.newFolder()
+	}
+	if m.Item("新建文本文件").Disabled(none).Chosen() {
+		a.newTextFile()
+	}
+	m.Separator()
+	if m.Item("刷新").Disabled(none).Chosen() {
+		a.refresh()
+	}
+	if m.Item("在终端中打开").Disabled(none).Chosen() {
+		a.openInTerminal()
+	}
+	favLabel := "收藏当前目录"
+	if favoriteContains(a.Profiles.Favorites, a.Root) {
+		favLabel = "取消收藏当前目录"
+	}
+	if m.Item(favLabel).Disabled(none).Chosen() {
+		a.toggleFavorite(a.Root)
+	}
+}
 
 func (a *appState) largeContextMenu(m *ui.Menu, item *mediaItem) {
-	if m.Item("适应窗口").Chosen() {
-		a.resetZoom()
-	}
-	if m.Item("实际大小").Chosen() {
-		a.zoom100()
-	}
+	m.Submenu("缩放", func(sub *ui.Menu) {
+		if sub.Item("适应窗口").Chosen() {
+			a.resetZoom()
+		}
+		if sub.Item("实际大小").Chosen() {
+			a.zoom100()
+		}
+	})
 	if item != nil && item.IsVideo && m.Item("另存视频…").Chosen() {
 		a.chooseVideoSave(item)
-	}
-	if item != nil && item.IsVideo && m.Item("用系统播放器打开").Chosen() {
-		_ = openWithDefault(item.Path)
 	}
 	m.Separator()
 	a.fileMenu(m, false)
 }
 
+// fileMenu is the menu of one or more items. The top level stays short;
+// everything else is in native submenus. Shortcuts live in the app menu
+// and key handlers, so moving an item here does not change its key.
 func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	paths := a.operationPaths()
 	none := len(paths) == 0
+	one := len(paths) == 1
+	var video *mediaItem
+	if a.InLargeView {
+		if item := a.currentItem(); item != nil && item.IsVideo {
+			video = item
+		}
+	}
+	videos := !none && allVideos(paths)
+
 	if canOpen && m.Item("打开").Disabled(none).Chosen() {
 		a.openItem(a.Chosen)
 	}
-	if len(paths) == 1 && isDir(paths[0]) && m.Item("在新标签页中打开").Chosen() {
+	if one && isDir(paths[0]) && m.Item("在新标签页中打开").Chosen() {
 		a.openInNewTab(paths[0])
 	}
-	if m.Item("刷新").Disabled(a.Root == "").Chosen() {
-		a.refresh()
+	if one && videos && m.Item("用系统播放器打开").Chosen() {
+		_ = openWithDefault(paths[0])
 	}
+	a.openWithMenu(m, paths)
 	if m.Item(revealLabel).Disabled(none).Chosen() {
 		a.revealInFinder()
-	}
-	if m.Item("在终端中打开").Disabled(a.Root == "" && none).Chosen() {
-		a.openInTerminal()
-	}
-	if m.Item("复制路径").Disabled(none).Chosen() {
-		a.copyPath()
 	}
 	if m.Item("显示简介").Disabled(none).Chosen() {
 		a.showInfo()
 	}
-	if m.Item("制作副本").Disabled(none).Chosen() {
-		a.duplicateSelection()
-	}
-	if len(paths) == 1 && filepath.Dir(paths[0]) != a.Root && m.Item(openParentLabel).Chosen() {
-		a.showOriginalFolder()
-	}
-	if len(paths) == 1 {
-		label := "添加到收藏"
-		if favoriteContains(a.Profiles.Favorites, paths[0]) {
-			label = "取消收藏"
-		}
-		if m.Item(label).Chosen() {
-			a.toggleFavorite(paths[0])
-		}
-	}
-	a.openWithMenu(m, paths)
-	a.tagMenu(m, paths)
-	a.ratingMenu(m, paths)
 	m.Separator()
 	if m.Item("复制").Disabled(none).Chosen() {
 		a.doCopy()
@@ -301,104 +320,119 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item("剪切").Disabled(none).Chosen() {
 		a.doCut()
 	}
-	if m.Item("粘贴").Disabled(a.Root == "" || !a.canPaste()).Chosen() {
+	if m.Item("粘贴").Disabled(a.Root == "").Chosen() {
 		a.doPaste(false)
 	}
-	if m.Item("移动到此").Disabled(a.Root == "" || !a.canPaste()).Chosen() {
-		a.doPaste(true)
-	}
-	m.Separator()
-	if m.Item("重命名…").Disabled(none).Chosen() {
+	if len(paths) > 1 {
+		if m.Item("批量重命名…").Chosen() {
+			a.startBatchRename()
+		}
+	} else if m.Item("重命名…").Disabled(none).Chosen() {
 		a.startRename()
 	}
-	if m.Item("批量重命名…").Disabled(len(paths) < 2).Chosen() {
-		a.startBatchRename()
-	}
-	if m.Item("快速重命名当前目录").Disabled(a.Root == "").Chosen() {
-		a.quickRenameFolder()
-	}
-	if m.Item("复制到…").Disabled(none).Chosen() {
-		a.doCopyTo()
-	}
-	if m.Item("移动到…").Disabled(none).Chosen() {
-		a.doMove()
-	}
-	if m.Item("复制到配置目录").Disabled(none).Chosen() {
-		a.copyToConfigured()
-	}
-	if m.Item("复制到下载").Disabled(none).Chosen() {
-		a.transferToDownloads(opCopy)
-	}
-	if m.Item("移动到下载").Disabled(none).Chosen() {
-		a.transferToDownloads(opMove)
-	}
-	if len(paths) > 1 && allDirectories(paths) && m.Item("提取子文件夹文件并归集").Chosen() {
-		a.collectSelection()
-	}
-	if allVideos(paths) && m.Item("裁剪视频尺寸…").Chosen() {
-		a.promptCrop(paths)
-	}
-	if a.InLargeView {
-		if item := a.currentItem(); item != nil && item.IsVideo && m.Item("无损裁剪片段…").Chosen() {
-			a.promptTrim()
+	m.Separator()
+
+	m.Submenu("复制与移动", func(sub *ui.Menu) {
+		if sub.Item("复制路径").Disabled(none).Chosen() {
+			a.copyPath()
 		}
+		if sub.Item("制作副本").Disabled(none).Chosen() {
+			a.duplicateSelection()
+		}
+		sub.Separator()
+		if sub.Item("复制到…").Disabled(none).Chosen() {
+			a.doCopyTo()
+		}
+		if sub.Item("移动到…").Disabled(none).Chosen() {
+			a.doMove()
+		}
+		if sub.Item("复制到配置目录").Disabled(none).Chosen() {
+			a.copyToConfigured()
+		}
+		if sub.Item("复制到下载").Disabled(none).Chosen() {
+			a.transferToDownloads(opCopy)
+		}
+		if sub.Item("移动到下载").Disabled(none).Chosen() {
+			a.transferToDownloads(opMove)
+		}
+		sub.Separator()
+		if sub.Item("用所选项目新建文件夹").Disabled(none).Chosen() {
+			a.newFolderWithSelection()
+		}
+		if len(paths) > 1 && allDirectories(paths) && sub.Item("提取子文件夹文件并归集").Chosen() {
+			a.collectSelection()
+		}
+	})
+	if !videos && !(one && isDir(paths[0])) {
+		m.Submenu("旋转", func(sub *ui.Menu) {
+			if sub.Item("向右旋转 90°").Disabled(none).Chosen() {
+				a.rotateSelection(90)
+			}
+			if sub.Item("向左旋转 90°").Disabled(none).Chosen() {
+				a.rotateSelection(270)
+			}
+			if sub.Item("旋转 180°").Disabled(none).Chosen() {
+				a.rotateSelection(180)
+			}
+		})
 	}
+	if videos {
+		m.Submenu("视频", func(sub *ui.Menu) {
+			if video != nil && sub.Item("截存当前画面").Chosen() {
+				a.captureCurrentFrame()
+			}
+			if video != nil && sub.Item("无损裁剪片段…").Chosen() {
+				a.promptTrim()
+			}
+			if sub.Item("裁剪视频尺寸…").Chosen() {
+				a.promptCrop(paths)
+			}
+		})
+	}
+	if !none {
+		m.Submenu("压缩", func(sub *ui.Menu) {
+			if allArchives(paths) {
+				if sub.Item("解压到当前目录").Chosen() {
+					a.extractSelection(false)
+				}
+				if sub.Item("解压并删除压缩包").Chosen() {
+					a.extractSelection(true)
+				}
+				sub.Separator()
+			}
+			if sub.Item("压缩为 ZIP").Chosen() {
+				a.quickCompress()
+			}
+			if sub.Item("加密压缩…").Chosen() {
+				a.encryptCompress(false)
+			}
+			if _, ok := configuredZipPassword(a.Profiles); ok && sub.Item("使用默认密码加密压缩").Chosen() {
+				a.compressWithPassword(false)
+			}
+			if sub.Item("压缩并删除源文件").Chosen() {
+				a.compressPlain(true)
+			}
+		})
+	}
+	a.tagMenu(m, paths)
+	a.ratingMenu(m, paths)
 	a.shareMenu(m, paths)
-	if a.InLargeView {
-		if item := a.currentItem(); item != nil && item.IsVideo && m.Item("截存当前画面").Chosen() {
-			a.captureCurrentFrame()
+	if one {
+		label := "添加到收藏"
+		if favoriteContains(a.Profiles.Favorites, paths[0]) {
+			label = "取消收藏"
 		}
-	}
-	if m.Item("旋转文件 90°").Disabled(none).Chosen() {
-		a.rotateSelection(90)
-	}
-	if m.Item("旋转文件 270°").Disabled(none).Chosen() {
-		a.rotateSelection(270)
-	}
-	if m.Item("旋转文件 180°").Disabled(none).Chosen() {
-		a.rotateSelection(180)
-	}
-	favLabel := "收藏当前目录"
-	if favoriteContains(a.Profiles.Favorites, a.Root) {
-		favLabel = "取消收藏当前目录"
-	}
-	if m.Item(favLabel).Disabled(a.Root == "").Chosen() {
-		a.toggleFavorite(a.Root)
+		if !isDir(paths[0]) {
+			label = ""
+		}
+		if label != "" && m.Item(label).Chosen() {
+			a.toggleFavorite(paths[0])
+		}
+		if filepath.Dir(paths[0]) != a.Root && m.Item(openParentLabel).Chosen() {
+			a.showOriginalFolder()
+		}
 	}
 	m.Separator()
-	if allArchives(paths) {
-		if m.Item("解压到当前目录").Chosen() {
-			a.extractSelection(false)
-		}
-		if m.Item("解压并删除压缩包").Chosen() {
-			a.extractSelection(true)
-		}
-	}
-	if m.Item("快速压缩").Disabled(none).Chosen() {
-		a.quickCompress()
-	}
-	if m.Item("压缩为 ZIP").Disabled(none).Chosen() {
-		a.compressPlain(false)
-	}
-	if m.Item("压缩并删除源文件").Disabled(none).Chosen() {
-		a.compressPlain(true)
-	}
-	if m.Item("加密压缩…").Disabled(none).Chosen() {
-		a.encryptCompress(false)
-	}
-	if _, ok := configuredZipPassword(a.Profiles); ok && m.Item("使用默认密码加密压缩").Disabled(none).Chosen() {
-		a.compressWithPassword(false)
-	}
-	m.Separator()
-	if m.Item("新建文件夹").Disabled(a.Root == "").Chosen() {
-		a.newFolder()
-	}
-	if m.Item("新建文本文件").Disabled(a.Root == "").Chosen() {
-		a.newTextFile()
-	}
-	if m.Item("用所选项目新建文件夹").Disabled(none).Chosen() {
-		a.newFolderWithSelection()
-	}
 	if m.Item("移到废纸篓").Disabled(none).Chosen() {
 		a.doTrash()
 	}
@@ -1308,13 +1342,14 @@ func (a *appState) shareMenu(m *ui.Menu, paths []string) {
 	}
 	a.ShareHold = services
 	kept := append([]string(nil), paths...)
-	for i := range services {
-		i := i
-		label := "共享：" + services[i].Title
-		if m.Item(label).Chosen() {
-			a.ShareHold[i].perform(kept)
+	m.Submenu("共享", func(sub *ui.Menu) {
+		for i := range services {
+			i := i
+			if sub.Item(services[i].Title).Chosen() {
+				a.ShareHold[i].perform(kept)
+			}
 		}
-	}
+	})
 }
 
 func (a *appState) promptCrop(paths []string) {
