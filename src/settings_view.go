@@ -21,7 +21,6 @@ var settingsPages = visibleSettingsPages([]settingsPage{
 	{"general", "通用", lucideSliders},
 	{"view", "查看", lucideImage},
 	{"actions", "操作", lucideMouse},
-	{"tags", "标签", lucideTag},
 	{"advanced", "高级", lucideTerminal},
 })
 
@@ -151,49 +150,12 @@ func (a *appState) settingsBody(c *ui.Context) {
 							a.settingsViewPage(c, pal)
 						case "actions":
 							a.settingsActionsPage(c, pal)
-						case "tags":
-							a.settingsTagsPage(c, pal)
 						default:
 							a.settingsAdvancedPage(c, pal)
 						}
 					})
 				})
 			})
-		})
-	})
-}
-
-// settingsGroup is GodGo's group: a muted title, a rounded chip container
-// of rows, and an optional note under it.
-func settingsGroup(c *ui.Context, pal *settingsPalette, title, note string, fn func()) {
-	ui.Column(c).Gap(8).Children(func() {
-		if title != "" {
-			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(pal.textMuted).Padding(0, 4)
-		}
-		rows := ui.Column(c).Radius(12).Background(pal.chip).Padding(4, 16).Children(fn)
-		_ = rows
-		if note != "" {
-			ui.Text(c, note).FontSize(12).TextColor(pal.textFaint).Padding(0, 4)
-		}
-	})
-}
-
-// settingsRow is GodGo's row: label and optional detail on the left,
-// control on the right, hairline separators between rows.
-func settingsRow(c *ui.Context, pal *settingsPalette, key, label, detail string, control func()) {
-	ui.Column(c).Gap(0).Children(func() {
-		row := ui.Row(c.Key("row-"+key)).Padding(11, 0).Gap(16).AlignItems(ui.Center)
-		if detail != "" {
-			row.AlignItems(ui.Center)
-		}
-		row.Children(func() {
-			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(c, label).FontSize(13.5).TextColor(pal.text)
-				if detail != "" {
-					ui.Text(c, detail).FontSize(12).TextColor(pal.textMuted).MinWidth(0)
-				}
-			})
-			ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(control)
 		})
 	})
 }
@@ -298,25 +260,21 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"view", "包含文件夹", "folder recursive 文件夹"},
 		{"view", "默认布局", "layout justified waterfall grid detail 布局"},
 		{"view", "默认缩略图", "thumbnail size 缩略图"},
-		{"view", "文件夹优先排序", "folder first sort 排序"},
-		{"view", "全路径排序", "full path sort 递归 排序"},
+		{"view", "文件夹优先", "folder first sort 排序"},
+		{"view", "递归时全路径排序", "full path sort 递归 排序"},
 		{"view", "媒体单元模式", "media unit 媒体 单元"},
-		{"actions", "复制目标目录", "copy destination 复制 目标"},
-		{"actions", "删除前确认", "confirm delete 删除 确认"},
-		{"actions", "用系统播放器打开", "system player 系统 播放器 外部"},
-		{"actions", "快捷操作", "quick action shortcut 快捷 操作"},
-		{"actions", "快速重命名", "quick rename rule 重命名"},
-		{"actions", "ZIP 默认密码", "zip password archive 压缩 密码"},
-		{"tags", tagsLabel, "finder tag 标签"},
-		{"tags", "过滤标签", "filter tag 过滤 标签"},
-		{"tags", "默认评分", "rating star 评分"},
-		{"advanced", "缩略图缓存大小", "cache limit mb 缓存"},
-		{"advanced", "并发解码线程数", "workers decode 并发 解码 线程"},
-		{"advanced", "日志级别", "log level debug 日志 级别"},
-		{"advanced", "打开日志目录", "open log folder 日志 目录"},
-		{"advanced", "打开诊断窗口", "diagnostics window 诊断"},
-		{"advanced", "清除缩略图缓存", "clear cache 清理 缓存"},
-		{"advanced", "重置偏好设置", "reset preferences 重置 偏好"},
-		{"advanced", "导出诊断报告", "export report 导出 报告"},
+		{"actions", "按 Enter 时", "enter rename open 回车 重命名"},
+		{"actions", "图片复制快捷键", "shortcut copy image 快捷键 复制"},
+		{"actions", "视频复制快捷键", "shortcut copy video 快捷键 复制"},
+		{"actions", "快捷键", "shortcut guide 快捷键 对照"},
+		{"actions", "快速重命名规则", "quick rename rule 重命名"},
+		{"actions", "图片复制到", "copy destination 复制 目标"},
+		{"actions", "视频复制到", "copy destination 复制 目标"},
+		{"actions", "播放结束", "playback end loop next 播放 循环"},
+		{"actions", "默认密码", "zip password archive 压缩 密码"},
+		{"advanced", "缩略图缓存数量", "cache limit 缓存"},
+		{"advanced", "后台解码并发", "workers decode 并发 解码"},
+		{"advanced", "缩略图与临时文件", "clear cache 清理 缓存"},
+		{"advanced", "运行诊断", "diagnostics 诊断 日志"},
 	}
 }

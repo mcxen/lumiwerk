@@ -1,85 +1,55 @@
-// Settings pages for actions, in the GodGo group/row layout.
+// Settings page for actions.
 package main
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 )
 
 func (a *appState) settingsActionsPage(c *ui.Context, pal *settingsPalette) {
-	settingsGroup(c, pal, "Enter 键：", "", func() {
-		settingsRow(c, pal, "enter", "按 Enter 时", "", func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Radio(c, &a.Settings.EnterOpens, false, "重命名")
-				ui.Radio(c, &a.Settings.EnterOpens, true, "打开 / 关闭")
-			})
-		})
-	})
-	settingsGroup(c, pal, "文件操作：", "", func() {
-		settingsRow(c, pal, "quickrule", "快速重命名", "在当前文件夹内快速重命名的规则", func() {
-			ui.TextInput(c, &a.Settings.QuickRule).Grow(1).MinWidth(160)
-			if ui.Button(c.Key("settings-apply"), "应用").Clicked() {
-				a.applyActionSettings()
-			}
-		})
-		a.destinationSetting(c, "图片文件：", &a.Settings.Dest, "image")
-		settingsRow(c, pal, "imgshortcut", "图片复制快捷键", "", func() {
-			ui.MenuButton(c, a.Settings.ImageShortcut, func(m *ui.Menu) {
-				a.shortcutMenu(m, &a.Settings.ImageShortcut)
-			})
-		})
-		a.destinationSetting(c, "视频文件：", &a.Settings.VideoDest, "video")
-		settingsRow(c, pal, "vidshortcut", "视频复制快捷键", "", func() {
-			ui.MenuButton(c, a.Settings.VideoShortcut, func(m *ui.Menu) {
-				a.shortcutMenu(m, &a.Settings.VideoShortcut)
-			})
-		})
-		settingsRow(c, pal, "vidend", "播放结束", "停在末帧、播放下一个或循环", func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndStop, "停在末帧")
-				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndNext, "下一个")
-				ui.Radio(c, &a.Settings.PlaybackEnd, playbackEndLoop, "循环")
-			})
-			if normalizePlaybackEnd(a.Settings.PlaybackEnd) != normalizePlaybackEnd(a.Profiles.PlaybackEnd) {
-				a.applyActionSettings()
-			}
-		})
-	})
-	settingsGroup(c, pal, "ZIP 默认密码：", "", func() {
-		settingsRow(c, pal, "zip", "密码", "可选；用于加密压缩", func() {
-			ui.TextInput(c, &a.Settings.ZipPassword).Password().Tooltip("可选").Width(160)
-		})
-		settingsRow(c, pal, "zipuse", "默认加密", "默认使用上面的密码进行加密压缩", func() {
-			settingsToggle(c, "zipuse", &a.Settings.ZipUsePassword, pal)
-		})
-	})
-	settingsGroup(c, pal, "操作指引：", "", func() {
-		settingsRow(c, pal, "guide", "说明与快捷键", "点击按钮后会以弹窗显示说明，按 Esc 可先关闭弹窗，再按 Esc 关闭设置窗口。", func() {
-			ui.Row(c).Gap(8).Children(func() {
-				if ui.Button(c.Key("operation-guide"), "操作说明").Clicked() {
-					safeGo("dialog.operationGuide", func() { a.showOperationGuide(false) })
-				}
-				if ui.Button(c.Key("shortcut-guide"), "快捷键对照").Clicked() {
-					safeGo("dialog.shortcutGuide", func() { a.showOperationGuide(true) })
-				}
-			})
-		})
-	})
-	if warning := shortcutConflict(a.Settings.ImageShortcut, a.Settings.VideoShortcut); warning != "" {
-		ui.Text(c, warning).FontSize(11).TextColor(pal.warn)
-	}
-}
-
-func (a *appState) destinationSetting(c *ui.Context, label string, value *string, kind string) {
-	pal := settingsPaletteFor(c)
-	settingsRow(c, pal, "dest-"+kind, strings.TrimSuffix(label, "："), "复制到配置目录", func() {
-		ui.TextInput(c, value).Tooltip(*value).Grow(1).MinWidth(160)
-		if ui.Button(c.Key("settings-pick-"+kind), "选择文件夹").Clicked() {
-			safeGo("dialog.pickActionDestination", func() { a.pickActionDestination(kind) })
+	setGroup(c, "键盘", func() {
+		setChoice(c, "enter", "按 Enter 时", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开 / 关闭"})
+		if setSelect(c, "imgshortcut", "图片复制快捷键", &a.Settings.ImageShortcut, shortcutChoices, shortcutName) {
+			a.applyActionSettings()
+		}
+		if setSelect(c, "vidshortcut", "视频复制快捷键", &a.Settings.VideoShortcut, shortcutChoices, shortcutName) {
+			a.applyActionSettings()
+		}
+		if warning := shortcutConflict(a.Settings.ImageShortcut, a.Settings.VideoShortcut); warning != "" {
+			setRow(c, "", func() { ui.Text(c, warning).FontSize(12).TextColor(pal.warn) })
+		}
+		if setButton(c, "shortcut-guide", "快捷键", "快捷键对照") {
+			safeGo("dialog.shortcutGuide", func() { a.showOperationGuide(true) })
+		}
+		if setButton(c, "operation-guide", "操作说明", "查看") {
+			safeGo("dialog.operationGuide", func() { a.showOperationGuide(false) })
 		}
 	})
+	setGroup(c, "文件操作", func() {
+		if setText(c, "quickrule", "快速重命名规则", &a.Settings.QuickRule, "", "应用", false) {
+			a.applyActionSettings()
+		}
+		if setText(c, "dest-image", "图片复制到", &a.Settings.Dest, "", "选择…", false) {
+			safeGo("dialog.pickActionDestination", func() { a.pickActionDestination("image") })
+		}
+		if setText(c, "dest-video", "视频复制到", &a.Settings.VideoDest, "", "选择…", false) {
+			safeGo("dialog.pickActionDestination", func() { a.pickActionDestination("video") })
+		}
+	})
+	setGroup(c, "播放", func() {
+		if setChoice(c, "vidend", "播放结束", &a.Settings.PlaybackEnd,
+			[]string{playbackEndStop, playbackEndNext, playbackEndLoop}, []string{"停在末帧", "下一个", "循环"}) {
+			a.applyActionSettings()
+		}
+	})
+	setGroup(c, "ZIP 加密", func() {
+		setText(c, "zip", "默认密码", &a.Settings.ZipPassword, "未设置", "", true)
+		setToggle(c, "zipuse", "默认加密", &a.Settings.ZipUsePassword)
+	})
 }
 
-var _ = fmt.Sprintf
+func shortcutName(key string) string {
+	if key == "" {
+		return "无"
+	}
+	return key
+}

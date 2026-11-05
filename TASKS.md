@@ -178,3 +178,8 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T22.2 归组为原生子菜单：复制与移动、旋转、视频、压缩、评级、Finder 标签、共享、打开方式
 - [x] T22.3 文件夹级操作（刷新、终端、新建、收藏当前目录、移动到此）移出项目菜单，留在空白处菜单；「快速压缩」并入「压缩为 ZIP」
 - [x] T22.4 构建菜单时不再读取系统剪贴板（避免阻塞），新增菜单顶层数量测试
+
+## Phase 23: Windows 播放内核与设置界面统一
+
+- [x] T23.1 Windows 包未带 libmpv（仓库只有 resources/darwin-universal 的 dylib），内置播放器在 Windows 上无法加载；发布工作流构建前下载 libmpv-2.dll 到 resources/windows-<arch>，随 exe 同目录发布并校验
+- [x] T23.2 设置页统一组件（settings_form.go）：setGroup/setRow/setToggle/setSelect/setChoice/setChecks/setButton/setText/setSlider，140px 标签列，所有页面改用，去掉说明文字与仅含说明的「标签」页

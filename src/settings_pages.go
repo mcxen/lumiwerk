@@ -11,84 +11,33 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// settingsField is one label/control line: a 140px label column, then the
-// control, on the spec's 32px standard row and 12px form rhythm.
-func settingsField(c *ui.Context, label string, control func()) {
-	t := c.Theme()
-	ui.Row(c).FillWidth().MinHeight(32).Gap(12).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, label).Width(140).FontSize(13).TextColor(t.Text).SingleLine().Shrink(0)
-		ui.Row(c).Grow(1).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(control)
-	})
-}
-
-// settingsNote is the 11px helper line under a field or a group.
-func settingsNote(c *ui.Context, text string) {
-	ui.Text(c, text).FontSize(11).TextColor(c.Theme().TextMuted).MinWidth(0)
-}
-
-// settingsOption is a checkbox line; it reports whether the user flipped it
-// on this frame so the caller can persist the new value.
-func settingsOption(c *ui.Context, key string, value *bool, label string) bool {
-	changed := false
-	ui.Row(c).FillWidth().MinHeight(32).AlignItems(ui.Center).Children(func() {
-		if ui.Checkbox(c.Key(key), value, label).Changed() {
-			changed = true
-		}
-	})
-	return changed
-}
-
-// settingsSectionNote pairs a group title's helper text with the group body.
-func settingsBlock(c *ui.Context, title, note string, body func()) {
-	settingsSection(c, title, func() {
-		body()
-		if note != "" {
-			settingsNote(c, note)
-		}
-	})
-}
-
 func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
-	settingsBlock(c, "配置槽", "Opt+1–9 切换配置，Cmd+Opt+1–9 把当前视图存到该配置。每个配置记录类型过滤、布局、缩略图尺寸、侧栏与排序。", func() {
-		a.profileSlots(c, pal)
+	setGroup(c, "配置", func() {
+		setRow(c, "配置槽", func() { a.profileSlots(c, pal) })
 	})
-	settingsSection(c, "外观", func() {
-		before := a.Profiles.View.Theme
-		settingsField(c, "主题", func() {
-			ui.Radio(c.Key("theme-system"), &a.Profiles.View.Theme, "system", "跟随系统")
-			ui.Radio(c.Key("theme-light"), &a.Profiles.View.Theme, "light", "浅色")
-			ui.Radio(c.Key("theme-dark"), &a.Profiles.View.Theme, "dark", "深色")
-		})
-		if a.Profiles.View.Theme != before {
+	setGroup(c, "外观", func() {
+		if setChoice(c, "theme", "主题", &a.Profiles.View.Theme,
+			[]string{"system", "light", "dark"}, []string{"跟随系统", "浅色", "深色"}) {
 			a.setTheme(a.Profiles.View.Theme)
 		}
 	})
-	settingsSection(c, "启动", func() {
-		settingsField(c, "启动目录", func() {
-			ui.TextInput(c.Key("start-folder"), &a.Settings.StartFolder).Grow(1).MinWidth(160).
-				Placeholder("未设置，回到上次浏览的目录").Tooltip(a.Settings.StartFolder)
-			if ui.Button(c.Key("pick-start-folder"), "选择…").Clicked() {
-				safeGo("dialog.pickStartFolder", a.pickStartFolder)
-			}
-		})
-		if settingsOption(c, "restore-session", &a.Profiles.RestoreSession, "恢复上次会话") {
+	setGroup(c, "启动", func() {
+		if setText(c, "start-folder", "启动目录", &a.Settings.StartFolder, "上次浏览的目录", "选择…", false) {
+			safeGo("dialog.pickStartFolder", a.pickStartFolder)
+		}
+		if setToggle(c, "restore-session", "恢复上次会话", &a.Profiles.RestoreSession) {
 			a.Profiles.RestoreOff = !a.Profiles.RestoreSession
 			savePrefs(a.Profiles)
 		}
 	})
-	settingsSection(c, "窗口", func() {
-		before := a.Profiles.CloseAction
-		settingsField(c, "关闭窗口时", func() {
-			ui.Radio(c.Key("close-tray"), &a.Profiles.CloseAction, closeToTray, "收进菜单栏")
-			ui.Radio(c.Key("close-quit"), &a.Profiles.CloseAction, closeQuit, "直接退出")
-		})
-		if a.Profiles.CloseAction != before {
+	setGroup(c, "窗口", func() {
+		if setChoice(c, "close", "关闭窗口时", &a.Profiles.CloseAction,
+			[]string{closeToTray, closeQuit}, []string{"收进菜单栏", "直接退出"}) {
 			if a.Profiles.CloseAction != closeQuit {
 				a.Profiles.CloseAction = closeToTray
 			}
 			savePrefs(a.Profiles)
 		}
-		settingsNote(c, "收进菜单栏后应用继续在后台运行，点菜单栏图标回到窗口。Cmd+Q 或托盘里的「退出」才会结束进程。")
 	})
 }
 
@@ -185,101 +134,68 @@ func layoutName(mode int) string {
 
 func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 	view := &a.Profiles.View
-	settingsBlock(c, "类型过滤", "关闭某一类后，下次扫描不再把它列入媒体区。", func() {
-		changed := false
-		for _, option := range []struct {
-			key   string
-			label string
-			value *bool
-		}{
-			{"filter-hidden", "隐藏文件", &view.Hidden},
+	setGroup(c, "类型过滤", func() {
+		if setChecks(c, "显示", []setCheck{
 			{"filter-images", "图像文件", &view.Images},
 			{"filter-raw", "RAW 文件", &view.RAW},
 			{"filter-videos", "视频文件", &view.Videos},
 			{"filter-archives", "压缩文件", &view.Archives},
 			{"filter-all", "全部类型", &view.AllTypes},
+			{"filter-hidden", "隐藏文件", &view.Hidden},
 			{"filter-folders", "包含文件夹", &view.RecursiveFolders},
-		} {
-			if settingsOption(c, option.key, option.value, option.label) {
-				changed = true
-			}
-		}
-		if changed {
+		}) {
 			a.setViewFilter()
 		}
 	})
-	settingsSection(c, "布局", func() {
-		before := a.Settings.Layout
-		settingsField(c, "默认布局", func() {
-			modes := make([]int, 0, len(layoutOptions))
-			for _, option := range layoutOptions {
-				modes = append(modes, option.mode)
-			}
-			settingsPopup(c, "layout-popup", &a.Settings.Layout, modes, layoutName, 140, pal)
-		})
-		if a.Settings.Layout != before {
+	setGroup(c, "布局", func() {
+		modes := make([]int, 0, len(layoutOptions))
+		for _, option := range layoutOptions {
+			modes = append(modes, option.mode)
+		}
+		if setSelect(c, "layout-popup", "默认布局", &a.Settings.Layout, modes, layoutName) {
 			a.LayoutMode = a.Settings.Layout
 			a.refresh()
 		}
-		beforeThumb := a.Settings.Thumb
-		settingsField(c, "默认缩略图", func() {
-			ui.Slider(c.Key("settings-thumb"), &a.Settings.Thumb, 64, 512).Width(180).Label("默认缩略图")
-			ui.Text(c, fmt.Sprintf("%d px", int(a.Settings.Thumb))).FontSize(11).
-				TextColor(c.Theme().TextMuted).Width(52).TextAlign(ui.End)
-		})
-		if a.Settings.Thumb != beforeThumb {
+		if setSlider(c, "settings-thumb", "默认缩略图", &a.Settings.Thumb, 64, 512, " px") {
 			a.setThumbSize(a.Settings.Thumb)
 		}
 	})
-	settingsSection(c, "显示", func() {
-		if settingsOption(c, "folder-first", &a.FolderFirst, "文件夹优先排序") {
+	setGroup(c, "排序", func() {
+		if setToggle(c, "folder-first", "文件夹优先", &a.FolderFirst) {
 			a.refresh()
 		}
-		if settingsOption(c, "full-path-sort", &a.FullPathSort, "全路径排序（递归模式）") {
+		if setToggle(c, "full-path-sort", "递归时全路径排序", &a.FullPathSort) {
 			a.refresh()
 		}
-		if settingsOption(c, "media-unit", &a.Profiles.View.MediaUnit, "媒体单元模式") {
+		if setToggle(c, "media-unit", "媒体单元模式", &a.Profiles.View.MediaUnit) {
 			a.setMediaUnit(a.Profiles.View.MediaUnit)
 		}
 	})
 }
 
-func (a *appState) settingsTagsPage(c *ui.Context, pal *settingsPalette) {
-	settingsGroup(c, pal, "标签与评分", "", func() {
-		settingsRow(c, pal, "tags-info", "Finder 标签和评分", "在文件的右键菜单中设置 Finder 标签和评分。", func() {})
-	})
-}
-
 func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
-	settingsGroup(c, pal, "性能", "", func() {
-		settingsRow(c, pal, "cache", "缩略图缓存数量", "", func() {
-			ui.Slider(c, &a.Settings.CacheCap, 64, 1024).Width(180).Label("缩略图缓存数量")
-		})
-		settingsRow(c, pal, "workers", "后台解码并发", "", func() {
-			ui.Slider(c, &a.Settings.Workers, 1, 16).Width(180).Label("后台解码并发")
-		})
+	setGroup(c, "性能", func() {
+		if setSlider(c, "cache", "缩略图缓存数量", &a.Settings.CacheCap, 64, 1024, "") {
+			thumbLRU.SetLimit(int(a.Settings.CacheCap))
+		}
+		setSlider(c, "workers", "后台解码并发", &a.Settings.Workers, 1, 16, "")
 	})
-	settingsGroup(c, pal, "清理缓存：", "", func() {
-		settingsRow(c, pal, "clear", "缩略图与临时文件",
-			fmt.Sprintf("内存 %.0f MiB（上限 %.0f MiB），磁盘 %.0f MiB。清理会释放它们和上次的临时文件；缩略图会在浏览时重新生成。",
-				float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024)),
-			func() {
-				if ui.Button(c.Key("settings-clear-caches"), "清理").Clicked() {
-					thumbLRU.Clear()
-					diskThumbs.Clear()
-					sweepTempLeftovers()
-					logInfof("settings: caches cleared by the user")
-				}
-			})
-	})
-	settingsGroup(c, pal, "诊断：", "", func() {
-		settingsRow(c, pal, "diagnostics", "运行诊断", "查看最近警告、错误、运行指标和日志位置。", func() {
-			if ui.Button(c.Key("settings-open-diagnostics"), "打开诊断").Clicked() {
-				a.showDiagnostics()
-			}
+	setGroup(c, "清理缓存", func() {
+		setRow(c, "已用", func() {
+			ui.Text(c, fmt.Sprintf("内存 %.0f / %.0f MiB · 磁盘 %.0f MiB",
+				float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024))).
+				FontSize(13).TextColor(c.Theme().Text)
 		})
+		if setButton(c, "settings-clear-caches", "缩略图与临时文件", "清理") {
+			thumbLRU.Clear()
+			diskThumbs.Clear()
+			sweepTempLeftovers()
+			logInfof("settings: caches cleared by the user")
+		}
 	})
-	if ui.Button(c.Key("settings-save"), "应用").Clicked() {
-		thumbLRU.SetLimit(int(a.Settings.CacheCap))
-	}
+	setGroup(c, "诊断", func() {
+		if setButton(c, "settings-open-diagnostics", "运行诊断", "打开诊断") {
+			a.showDiagnostics()
+		}
+	})
 }

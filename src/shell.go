@@ -61,14 +61,3 @@ func (a *appState) browserLayout(c *ui.Context) {
 		a.browserShell(c)
 	}
 }
-
-// settingsSection is the label/content group every settings pane is built
-// from: a 14px bold title in a 120px column, then the fields, 12px apart as
-// the spec's form rhythm (the pane itself carries the 24px padding).
-func settingsSection(c *ui.Context, title string, body func()) {
-	t := c.Theme()
-	ui.Row(c).FillWidth().Gap(16).AlignItems(ui.Start).Children(func() {
-		ui.Text(c, title).Width(120).FontSize(14).FontWeight(600).TextColor(t.Text).Padding(4, 0)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(12).Children(body)
-	})
-}
