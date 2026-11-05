@@ -182,10 +182,14 @@ func heroFrame(w, h int, stageW, stageH float32) (float32, float32, bool) {
 
 // mediaSize is the pixel size of an item, from its metadata or thumbnail.
 func mediaSize(item *mediaItem, pic *ui.Bitmap) (int, int) {
-	w, h := item.Info.Width, item.Info.Height
-	if (w <= 0 || h <= 0) && pic != nil {
-		w, h = pic.Size()
+	// The bitmap on screen decides the frame's aspect: metadata can be
+	// unrotated (EXIF) or stale, and a mismatched frame cropped wide images.
+	if pic != nil {
+		if w, h := pic.Size(); w > 0 && h > 0 {
+			return w, h
+		}
 	}
+	w, h := item.Info.Width, item.Info.Height
 	if (w <= 0 || h <= 0) && item.Bitmap != nil {
 		w, h = item.Bitmap.Size()
 	}

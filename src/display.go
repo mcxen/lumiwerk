@@ -113,91 +113,55 @@ func (a *appState) openItem(index int) {
 	a.openLargeImage(index)
 }
 
+// viewMenu is the toolbar's 显示与浏览 menu: frequent toggles only.
+// Toolbar buttons (sidebar, 无字模式, filter, layout, sort, gallery) and
+// set-and-forget preferences (file types, theme) are not repeated here.
 func (a *appState) viewMenu(m *ui.Menu) {
 	view := a.Profiles.View
-	if m.Item("置顶").Checked(a.Pinned).Shortcut(0, ui.KeyT).Chosen() {
-		a.togglePinned()
+	if m.Item("显示隐藏文件").Checked(view.Hidden).Shortcut(a.binding("hidden").Mods, a.binding("hidden").Key).Chosen() {
+		a.toggleViewOption("hidden")
 	}
-	if m.Item("设置…").Shortcut(ui.Cmd, ui.KeyComma).Chosen() {
-		a.openSettings()
-		a.settingsWindow()
-	}
-	if m.Item("自定义布局样式…").Chosen() {
-		a.openSettings()
-		a.Settings.Pane = 0
-		a.settingsWindow()
-	}
-	m.Separator()
-	for _, item := range []struct {
-		label, option string
-		on            bool
-	}{
-		{"显示隐藏文件", "hidden", view.Hidden},
-		{"显示所有类型文件", "all", view.AllTypes},
-		{"显示图像文件", "images", view.Images},
-		{"显示相机 RAW 文件", "raw", view.RAW},
-		{"显示视频文件", "videos", view.Videos},
-		{"显示压缩文件", "archives", view.Archives},
-	} {
-		if m.Item(item.label).Checked(item.on).Chosen() {
-			a.toggleViewOption(item.option)
-		}
-	}
-	m.Separator()
-	if m.Item("返回上一级目录").Disabled(a.Root == "" || a.Root == "/").Shortcut(ui.Cmd, ui.KeyUp).Chosen() {
-		a.goUp()
-	}
-	if m.Item("无字模式").Checked(view.NoCaption).Shortcut(ui.Cmd|ui.Shift, ui.KeyH).Chosen() {
-		a.toggleCaption()
-	}
-	m.Separator()
-	if m.Item("自动播放选中视频").Checked(view.AutoPlaySelected).Chosen() {
-		a.Profiles.View.AutoPlaySelected = !view.AutoPlaySelected
-		savePrefs(a.Profiles)
-	}
-	m.Item("说明…").Disabled(true)
-	m.Separator()
-	if m.Item("递归浏览模式").Checked(a.Recursive).Shortcut(ui.Cmd|ui.Shift, ui.KeyR).Chosen() {
+	if m.Item("递归浏览模式").Checked(a.Recursive).Shortcut(a.binding("recursive").Mods, a.binding("recursive").Key).Chosen() {
 		a.setRecursive(!a.Recursive)
 	}
-	if m.Item("包含文件夹").Checked(view.RecursiveFolders).Disabled(!a.Recursive).Shortcut(ui.Cmd|ui.Shift, ui.KeyF).Chosen() {
+	if m.Item("包含文件夹").Checked(view.RecursiveFolders).Disabled(!a.Recursive).Shortcut(a.binding("folders").Mods, a.binding("folders").Key).Chosen() {
 		a.toggleViewOption("folders")
 	}
-	m.Item("说明…").Disabled(true)
 	if m.Item("媒体单元模式").Checked(a.MediaUnitRoot != "").Chosen() {
 		a.setMediaUnit(a.MediaUnitRoot == "")
 	}
 	m.Separator()
-	if m.Item("启用自动滚动").Checked(a.AutoScroll).Disabled(a.InLargeView).Chosen() {
+	if m.Item("自动滚动").Checked(a.AutoScroll).Disabled(a.InLargeView).Chosen() {
 		a.askAutoConfig("scroll")
 	}
-	if m.Item("启用自动播放").Checked(a.AutoPlay).Disabled(!a.InLargeView).Chosen() {
+	if m.Item("自动播放").Checked(a.AutoPlay).Disabled(!a.InLargeView).Chosen() {
 		a.askAutoConfig("play")
 	}
-	m.Separator()
-	if m.Item("最大化窗口").Shortcut(0, ui.Key1).Chosen() {
-		a.Window.ToggleMaximize()
-	}
-	if m.Item("合适窗口大小").Shortcut(0, ui.Key2).Chosen() {
-		a.Window.SetSize(1280, 820)
-		a.Window.Center()
-	}
-	if m.Item("调整窗口至图片实际大小").Disabled(!a.InLargeView).Shortcut(0, ui.Key3).Chosen() {
-		a.fitWindowToImage(false)
-	}
-	if m.Item("调整窗口至图片当前大小").Disabled(!a.InLargeView).Shortcut(0, ui.Key4).Chosen() {
-		a.fitWindowToImage(true)
-	}
-	if m.Item("将窗口居中").Shortcut(0, ui.Key5).Chosen() {
-		a.Window.Center()
-	}
-	m.Separator()
-	for _, item := range []struct{ label, theme string }{
-		{"跟随系统主题", "system"}, {"浅色模式", "light"}, {"黑暗模式", "dark"},
-	} {
-		if m.Item(item.label).Radio(view.Theme == item.theme).Chosen() {
-			a.setTheme(item.theme)
+	m.Submenu("窗口", func(sub *ui.Menu) {
+		if sub.Item("置顶").Checked(a.Pinned).Shortcut(a.binding("pin").Mods, a.binding("pin").Key).Chosen() {
+			a.togglePinned()
 		}
+		if sub.Item("最大化窗口").Shortcut(a.binding("maximize").Mods, a.binding("maximize").Key).Chosen() {
+			a.Window.ToggleMaximize()
+		}
+		if sub.Item("合适窗口大小").Shortcut(a.binding("fitwindow").Mods, a.binding("fitwindow").Key).Chosen() {
+			a.Window.SetSize(1280, 820)
+			a.Window.Center()
+		}
+		if sub.Item("调整至图片实际大小").Disabled(!a.InLargeView).Shortcut(0, ui.Key3).Chosen() {
+			a.fitWindowToImage(false)
+		}
+		if sub.Item("调整至图片当前大小").Disabled(!a.InLargeView).Shortcut(0, ui.Key4).Chosen() {
+			a.fitWindowToImage(true)
+		}
+		if sub.Item("将窗口居中").Shortcut(a.binding("center").Mods, a.binding("center").Key).Chosen() {
+			a.Window.Center()
+		}
+	})
+	m.Separator()
+	if m.Item("设置…").Shortcut(a.binding("settings").Mods, a.binding("settings").Key).Chosen() {
+		a.openSettings()
+		a.settingsWindow()
 	}
 }
 

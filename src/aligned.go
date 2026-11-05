@@ -285,10 +285,10 @@ func newAppMenu(a *appState) *mygo.Menu {
 			mygo.Separator(),
 			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.setCopyDestination", a.setCopyDestination) }},
-			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+			{Label: "设置…", Accelerator: a.accel("settings"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.settingsWindow() })
 			}},
-			{Label: "复制到配置目录", Accelerator: "CmdOrCtrl+Shift+C", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
+			{Label: "复制到配置目录", Accelerator: a.accel("copycfg"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
 			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
 			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
 			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
@@ -322,42 +322,33 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "粘贴", Accelerator: "CmdOrCtrl+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(false) }) }},
 			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(true) }) }},
 			mygo.Separator(),
-			{Label: "重命名…", Accelerator: "F2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
+			{Label: "重命名…", Accelerator: a.accel("rename"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
 			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
 			{Label: revealLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
-			{Label: "显示简介", Accelerator: "CmdOrCtrl+I", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
+			{Label: "显示简介", Accelerator: a.accel("info"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
 			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.duplicateSelection() }) }},
 			{Label: openParentLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
-			{Label: "运行诊断…", Accelerator: "CmdOrCtrl+Shift+D", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.update(a.showDiagnostics)
-			}},
-			{Label: "置顶", Accelerator: "T", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
-			{Label: "自定义布局样式…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.update(func() { a.openSettings(); a.Settings.Pane = 0; a.settingsWindow() })
-			}},
-			{Label: "显示隐藏文件", Accelerator: "CmdOrCtrl+Shift+.", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("hidden") }) }},
-			{Label: "显示所有类型文件", Accelerator: "CmdOrCtrl+Shift+,", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("all") }) }},
-			{Label: "显示图像文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("images") }) }},
-			{Label: "显示相机 RAW 文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("raw") }) }},
-			{Label: "显示视频文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("videos") }) }},
-			{Label: "显示压缩文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("archives") }) }},
-			{Label: "返回上一级目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
-			{Label: "递归浏览模式", Accelerator: "CmdOrCtrl+Shift+R", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
-			{Label: "包含文件夹", Accelerator: "CmdOrCtrl+Shift+F", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
+			{Label: "显示隐藏文件", Accelerator: a.accel("hidden"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("hidden") }) }},
+			{Label: "递归浏览模式", Accelerator: a.accel("recursive"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
+			{Label: "包含文件夹", Accelerator: a.accel("folders"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
 			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.setMediaUnit(!a.Profiles.View.MediaUnit) })
 			}},
+			mygo.Separator(),
 			{Label: "启用自动滚动", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("scroll") }) }},
 			{Label: "启用自动播放", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("play") }) }},
-			{Label: "最大化窗口", Accelerator: "1", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.ToggleMaximize() }},
-			{Label: "合适窗口大小", Accelerator: "2", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
-			{Label: "将窗口居中", Accelerator: "5", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
-			{Label: "跟随系统主题", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("system") }) }},
-			{Label: "浅色模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("light") }) }},
-			{Label: "黑暗模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setTheme("dark") }) }},
-			{Label: "隐藏/显示侧栏", Accelerator: "CmdOrCtrl+B", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.SidebarShown = !a.SidebarShown }) }},
+			{Label: "窗口", Submenu: []*mygo.MenuItem{
+				{Label: "置顶", Accelerator: a.accel("pin"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
+				{Label: "最大化窗口", Accelerator: a.accel("maximize"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.ToggleMaximize() }},
+				{Label: "合适窗口大小", Accelerator: a.accel("fitwindow"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
+				{Label: "将窗口居中", Accelerator: a.accel("center"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
+			}},
+			mygo.Separator(),
+			{Label: "运行诊断…", Accelerator: a.accel("diagnostics"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(a.showDiagnostics)
+			}},
 		}},
 	})
 }
@@ -1244,17 +1235,17 @@ func (a *appState) rootView(c *ui.Context) {
 		}
 	}
 	a.videoPlayerKeys(c)
-	if c.Shortcut(0, ui.Key1) && !a.InLargeView {
+	if a.keyHit(c, "maximize") && !a.InLargeView {
 		a.Window.ToggleMaximize()
 	}
-	if c.Shortcut(0, ui.Key2) && !a.InLargeView {
+	if a.keyHit(c, "fitwindow") && !a.InLargeView {
 		a.Window.SetSize(1280, 820)
 		a.Window.Center()
 	}
-	if c.Shortcut(0, ui.Key5) && !a.InLargeView {
+	if a.keyHit(c, "center") && !a.InLargeView {
 		a.Window.Center()
 	}
-	if c.Shortcut(0, ui.KeyT) && !a.InLargeView {
+	if a.keyHit(c, "pin") && !a.InLargeView {
 		a.togglePinned()
 	}
 	// Large-view single-key shortcuts matching FlowVision.
@@ -1330,16 +1321,22 @@ func (a *appState) rootView(c *ui.Context) {
 			}
 		}
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyPeriod) && !a.modalOpen() {
+	if a.keyHit(c, "hidden") && !a.modalOpen() {
 		a.toggleViewOption("hidden")
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyComma) && !a.modalOpen() {
+	if a.keyHit(c, "alltypes") && !a.modalOpen() {
 		a.toggleViewOption("all")
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyR) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+	if a.keyHit(c, "nocaption") && !a.modalOpen() && !a.Renaming {
+		a.toggleCaption()
+	}
+	if a.keyHit(c, "sidebar") && !a.modalOpen() {
+		a.SidebarShown = !a.SidebarShown
+	}
+	if a.keyHit(c, "recursive") && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.setRecursive(!a.Recursive)
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
+	if a.keyHit(c, "folders") && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open {
 		a.toggleViewOption("folders")
 	}
 	if c.Shortcut(0, ui.Key3) && a.InLargeView && !a.videoLargeView() {
@@ -1992,7 +1989,7 @@ func (a *appState) largeImageView(c *ui.Context) {
 						a.HUD = "原图加载中"
 						a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
 					}
-					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Cover).Grow(1).Transform(tr) }) {
+					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr) }) {
 						ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr)
 					}
 				}
