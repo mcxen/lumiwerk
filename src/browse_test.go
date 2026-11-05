@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -83,12 +84,30 @@ func TestDragPathsFollowSelection(t *testing.T) {
 	}
 }
 
+func setTrashPathForTest(t *testing.T, fn func(string) (string, error)) {
+	t.Helper()
+	original := trashPath
+	trashPath = fn
+	t.Cleanup(func() { trashPath = original })
+}
+
 func TestTrashDeletePutsBack(t *testing.T) {
 	dir := t.TempDir()
+	trashDir := filepath.Join(dir, "trash")
+	if err := os.Mkdir(trashDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	setTrashPathForTest(t, func(src string) (string, error) {
+		dest := filepath.Join(trashDir, filepath.Base(src))
+		if err := os.Rename(src, dest); err != nil {
+			return "", err
+		}
+		return dest, nil
+	})
 	applied, err := perform(fileOperation{op: opDelete, paths: []string{path}})
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +117,10 @@ func TestTrashDeletePutsBack(t *testing.T) {
 	}
 	if len(applied.mappings) != 1 || applied.mappings[0].From != path {
 		t.Fatalf("trash mapping = %#v", applied.mappings)
+	}
+	trashed := applied.mappings[0].To
+	if _, err := os.Stat(trashed); err != nil {
+		t.Fatalf("trashed copy missing: %v", err)
 	}
 	inverse, ok := inverseOf(applied)
 	if !ok || inverse.op != opMove || inverse.mappings[0].To != path {
@@ -109,6 +132,75 @@ func TestTrashDeletePutsBack(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != "keep" {
 		t.Fatalf("restored = %q err=%v", got, err)
+	}
+	if _, err := os.Stat(trashed); !os.IsNotExist(err) {
+		t.Fatalf("trash copy remained: %v", err)
+	}
+}
+
+func TestTrashDeleteFailureRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	trashDir := filepath.Join(dir, "trash")
+	if err := os.Mkdir(trashDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(first, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setTrashPathForTest(t, func(src string) (string, error) {
+		if filepath.Base(src) == "second.txt" {
+			return "", errors.New("模拟废纸篓失败")
+		}
+		dest := filepath.Join(trashDir, filepath.Base(src))
+		if err := os.Rename(src, dest); err != nil {
+			return "", err
+		}
+		return dest, nil
+	})
+	applied, err := perform(fileOperation{op: opDelete, paths: []string{first, second}})
+	if err == nil {
+		t.Fatal("failed trash should report an error")
+	}
+	if len(applied.mappings) != 0 {
+		t.Fatalf("partial mappings survived: %#v", applied.mappings)
+	}
+	for _, path := range []string{first, second} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s was not restored: %v", filepath.Base(path), err)
+		}
+	}
+	entries, err := os.ReadDir(trashDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("trash still holds %v", entries)
+	}
+}
+
+func TestTrashPermissionErrorReachesUser(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	mapped := finderTrashError([]byte("execution error: Not authorized to send Apple events to Finder. (-1743)"), errors.New("exit status 1"))
+	var perm *trashPermissionError
+	if !errors.As(mapped, &perm) || !errors.Is(mapped, errTrashPermission) {
+		t.Fatalf("permission error = %#v", mapped)
+	}
+	if strings.Contains(mapped.Error(), "exit status") || !strings.Contains(mapped.Error(), "自动化") {
+		t.Fatalf("unclear user-facing error %q", mapped)
+	}
+	setTrashPathForTest(t, func(string) (string, error) { return "", mapped })
+	a := &appState{}
+	err := a.performTracked(fileOperation{op: opDelete, paths: []string{"/ignored.txt"}})
+	if !errors.Is(err, errTrashPermission) {
+		t.Fatalf("tracked operation error = %#v", err)
+	}
+	if !strings.Contains(a.HUD, "自动化") || strings.Contains(a.HUD, "exit status") {
+		t.Fatalf("toast = %q", a.HUD)
 	}
 }
 

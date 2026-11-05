@@ -365,6 +365,19 @@ func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playb
 			Step(0.01).Label("音量").Changed() {
 			a.setVideoVolume(volume)
 		}
+		if save := ui.Button(c.Key("video-save"), "另存视频…").
+			Tooltip("把当前视频另存一份").Padding(4, 8).Radius(5).
+			TextColor(ui.RGB(245, 245, 247)).Disabled(a.VideoSave.active()); save.Clicked() {
+			a.chooseVideoSave(item)
+		}
+		if status := a.VideoSave.statusLabel(); status != "" {
+			ui.Text(c, status).FontSize(11).TextColor(ui.RGB(180, 180, 185)).SingleLine()
+			if a.VideoSave.phase == saveRunning {
+				if ui.Button(c.Key("video-save-cancel"), "取消").Clicked() {
+					a.cancelVideoSave()
+				}
+			}
+		}
 		ui.Box(c).Grow(1)
 		clock := formatPlaybackTime(pos) + " / " + formatPlaybackTime(duration)
 		if status := playbackStatusLabel(snapshot); status != "" {
@@ -455,6 +468,9 @@ func (a *appState) videoMoreMenu(m *ui.Menu, item *mediaItem, snapshot playbackS
 	}
 	if m.Item("截存当前画面").Chosen() {
 		a.captureCurrentFrame()
+	}
+	if m.Item("另存视频…").Chosen() {
+		a.chooseVideoSave(item)
 	}
 	if m.Item("裁剪画面").Chosen() {
 		if item != nil {

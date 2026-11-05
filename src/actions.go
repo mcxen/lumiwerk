@@ -236,12 +236,14 @@ func (a *appState) mediaContextMenu(m *ui.Menu, index int) {
 func (a *appState) fileContextMenu(m *ui.Menu) { a.fileMenu(m, false) }
 
 func (a *appState) largeContextMenu(m *ui.Menu, item *mediaItem) {
-	_ = item
 	if m.Item("适应窗口").Chosen() {
 		a.resetZoom()
 	}
 	if m.Item("实际大小").Chosen() {
 		a.zoom100()
+	}
+	if item != nil && item.IsVideo && m.Item("另存视频…").Chosen() {
+		a.chooseVideoSave(item)
 	}
 	m.Separator()
 	a.fileMenu(m, false)

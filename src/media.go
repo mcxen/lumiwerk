@@ -190,19 +190,23 @@ func perform(op fileOperation) (fileOperation, error) {
 		op.created = created
 		op.mappings = mappings
 	case opDelete:
-		for _, path := range op.paths {
-			var err error
-			if op.permanent {
-				err = os.RemoveAll(path)
-			} else {
-				var moved []string
-				moved, err = trashPaths([]string{path})
-				if err == nil && len(moved) > 0 && moved[0] != "" {
-					op.mappings = append(op.mappings, pathPair{From: path, To: moved[0]})
+		if op.permanent {
+			for _, path := range op.paths {
+				if err := os.RemoveAll(path); err != nil {
+					return op, err
 				}
 			}
+		} else {
+			op.mappings = nil
+			moved, err := trashPaths(op.paths)
 			if err != nil {
+				restoreTrashed(moved)
 				return op, err
+			}
+			for _, mapping := range moved {
+				if mapping.To != "" {
+					op.mappings = append(op.mappings, mapping)
+				}
 			}
 		}
 	case opRename:

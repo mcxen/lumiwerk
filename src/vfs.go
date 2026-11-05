@@ -150,19 +150,67 @@ func execWaitOrStart(name string, args ...string) error {
 	return nil
 }
 
-// trash moves paths to the platform trash. It reports the paths the platform
-// answered with so undo can restore them; an empty result means best-effort.
-func trashPaths(paths []string) (moved []string, err error) {
+// trashPath is the injectable "move to Trash" capability. Production keeps
+// the platform-specific, osascript-backed implementation; tests replace it
+// with a temporary directory.
+var trashPath = platformTrash
+
+// finderTrashCommand runs the real Finder AppleScript. Tests replace it to
+// simulate an automation permission denial without waiting for osascript.
+var finderTrashCommand = func(script string) ([]byte, error) {
+	return execCommand("osascript", "-e", script).CombinedOutput()
+}
+
+var errTrashPermission = errors.New("废纸篓自动化权限不足")
+
+type trashPermissionError struct{}
+
+func (*trashPermissionError) Error() string {
+	return "无法移到废纸篓：Lumiwerk 没有获得控制 Finder 的自动化权限。请在「系统设置 → 隐私与安全性 → 自动化」中允许 Lumiwerk 控制 Finder。"
+}
+
+func (*trashPermissionError) Is(target error) bool { return target == errTrashPermission }
+
+func finderTrashError(out []byte, err error) error {
+	detail := strings.TrimSpace(string(out))
+	lower := strings.ToLower(detail)
+	if strings.Contains(lower, "-1743") || strings.Contains(lower, "not authorized") ||
+		strings.Contains(lower, "not permitted") || strings.Contains(lower, "不允许") ||
+		strings.Contains(lower, "权限") {
+		return &trashPermissionError{}
+	}
+	if err == nil {
+		return nil
+	}
+	if detail != "" {
+		return fmt.Errorf("移到废纸篓失败：%s", detail)
+	}
+	return fmt.Errorf("移到废纸篓失败：%v", err)
+}
+
+// trashPaths moves paths through the injectable trash capability. The returned
+// pairs keep source and destination together, so a later failure can restore
+// every file that already moved.
+func trashPaths(paths []string) (moved []pathPair, err error) {
 	for _, path := range paths {
-		dest, trashErr := platformTrash(path)
+		dest, trashErr := trashPath(path)
 		if trashErr != nil {
 			return moved, trashErr
 		}
-		if dest != "" {
-			moved = append(moved, dest)
-		}
+		moved = append(moved, pathPair{From: path, To: dest})
 	}
 	return moved, nil
+}
+
+func restoreTrashed(moved []pathPair) {
+	for i := len(moved) - 1; i >= 0; i-- {
+		if moved[i].To == "" {
+			continue
+		}
+		if err := movePath(moved[i].To, moved[i].From); err != nil {
+			logWarnf("trash.rollback: from=%s to=%s err=%v", moved[i].To, moved[i].From, err)
+		}
+	}
 }
 
 // mediaTags reads the platform file tags of one path.

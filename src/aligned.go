@@ -235,6 +235,7 @@ type appState struct {
 	ResumePlay      bool
 	VideoVolume     float64
 	PrevVolume      float64
+	VideoSave       saveVideoState
 	playerMoved     time.Time
 	playerPtrX      float32
 	playerPtrY      float32

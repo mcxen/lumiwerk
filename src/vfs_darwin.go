@@ -62,9 +62,9 @@ func platformTrash(path string) (string, error) {
   set trashed to delete (POSIX file %s as alias)
   POSIX path of (trashed as alias)
 end tell`, strconv.Quote(path))
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		return "", err
+	out, err := finderTrashCommand(script)
+	if mapped := finderTrashError(out, err); mapped != nil {
+		return "", mapped
 	}
 	trashed := strings.TrimSpace(string(out))
 	if trashed == "" {
