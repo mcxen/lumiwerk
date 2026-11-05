@@ -25,6 +25,15 @@ func probeExif(path string, info *mediaInfo) {
 		return
 	}
 	defer f.Close()
+	// JPEG/TIFF: a direct IFD read keeps Make/Model byte-exact
+	// (imagemeta lower-cases makes it does not know) and handles IFDs
+	// stored after their data. imagemeta covers HEIC, PNG and WebP.
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg", ".tiff", ".tif":
+		if exifFallback(f, info); info.Camera != "" || info.Model != "" || info.Created != "" {
+			return
+		}
+	}
 	x, _ := imagemeta.Decode(f) // partial results are still useful
 	info.Camera = strings.TrimSpace(x.IFD0.Make)
 	info.Model = strings.TrimSpace(x.IFD0.Model)
@@ -34,9 +43,6 @@ func probeExif(path string, info *mediaInfo) {
 	}
 	if !dt.IsZero() {
 		info.Created = dt.Format("2006-01-02 15:04:05")
-	}
-	if info.Camera == "" && info.Model == "" && info.Created == "" {
-		exifFallback(f, info)
 	}
 }
 

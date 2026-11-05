@@ -149,3 +149,11 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T18.6 Embedded cover fast path (dhowden/tag, MP4/MOV/M4V `covr`, pure Go, ~0.1 ms vs 70–300 ms for an ffmpeg frame) before ffmpeg, QuickLook and libmpv
 - [x] T18.7 Trim, export, poster, playback fallback and ffprobe use the same ffmpeg/ffprobe lookup as covers (GUI-launched apps without a shell PATH)
 - [x] T18.8 Smaller clear-history control in the history header
+
+## Phase 19: 纯 Go 媒体与缓存
+
+- [x] T19.1 缩略图磁盘缓存（bbolt，用户缓存目录 lumiwerk/thumbs.db，512 MiB 上限，按写入时间淘汰到 80%；被占用时 300ms 超时后只用内存）；设置页显示大小并可清理
+- [x] T19.2 文件夹变化重扫增量化：未变文件保留缩略图/信息/标签，选中与滚动不变（沿用 mygo.WatchFiles 的去抖监控，离开文件夹即停止，未另引入 fsnotify）
+- [x] T19.3 视频元数据纯 Go 解析：MP4/MOV（go-mp4：时长、尺寸、旋转、编码）、MKV/WebM（go-mkvparse）；ffprobe 仅作后备；MKV 附件封面接入封面链
+- [x] T19.4 EXIF 由 goexif 换为 imagemeta（HEIC/PNG/WebP），JPEG/TIFF 直接读 IFD 保证输出一致
+- [x] T19.5 HEIC/HEIF 全平台解码（gen2brain/heic，WebAssembly 无 cgo），macOS 仍优先 sips
