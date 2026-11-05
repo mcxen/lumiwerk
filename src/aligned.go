@@ -966,6 +966,10 @@ func (a *appState) goUp() {
 	}
 }
 
+func (a *appState) canGoBack() bool { return a.Cursor > 0 && a.Cursor < len(a.History) }
+
+func (a *appState) canGoForward() bool { return a.Cursor >= 0 && a.Cursor+1 < len(a.History) }
+
 func (a *appState) goBack() {
 	a.mu.Lock()
 	if a.Cursor <= 0 {
@@ -1229,11 +1233,21 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
 	}
-	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketLeft) {
-		a.goBack()
-	}
-	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketRight) {
-		a.goForward()
+	if !a.InLargeView && !a.modalOpen() {
+		// As mygo's Router: Cmd+[ / Cmd+], the mouse's and keyboard's
+		// back/forward keys, and Alt+Left/Right off macOS.
+		back := c.Shortcut(ui.Cmd, ui.KeyBracketLeft) || c.Shortcut(0, ui.KeyBack)
+		forward := c.Shortcut(ui.Cmd, ui.KeyBracketRight) || c.Shortcut(0, ui.KeyForward)
+		if runtime.GOOS != "darwin" {
+			back = c.Shortcut(ui.Alt, ui.KeyLeft) || back
+			forward = c.Shortcut(ui.Alt, ui.KeyRight) || forward
+		}
+		if back {
+			a.goBack()
+		}
+		if forward {
+			a.goForward()
+		}
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		a.SidebarShown = !a.SidebarShown
@@ -1706,10 +1720,10 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.SidebarShown = !a.SidebarShown
 			}
 			ui.Box(c).Width(1).Height(18).Background(t.Border)
-			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Clicked() {
+			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Disabled(!a.canGoBack()).Clicked() {
 				a.goBack()
 			}
-			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Clicked() {
+			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Disabled(!a.canGoForward()).Clicked() {
 				a.goForward()
 			}
 		})
