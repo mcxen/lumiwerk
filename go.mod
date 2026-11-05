@@ -3,6 +3,7 @@ module github.com/mcxen/lumiwerk
 go 1.27.3
 
 require (
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.7.3
 	github.com/gen2brain/go-mpv v0.4.0
