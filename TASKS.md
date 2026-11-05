@@ -157,3 +157,9 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T19.3 视频元数据纯 Go 解析：MP4/MOV（go-mp4：时长、尺寸、旋转、编码）、MKV/WebM（go-mkvparse）；ffprobe 仅作后备；MKV 附件封面接入封面链
 - [x] T19.4 EXIF 由 goexif 换为 imagemeta（HEIC/PNG/WebP），JPEG/TIFF 直接读 IFD 保证输出一致
 - [x] T19.5 HEIC/HEIF 全平台解码（gen2brain/heic，WebAssembly 无 cgo），macOS 仍优先 sips
+
+## Phase 20: macOS 标题栏与工具栏溢出修复
+
+- [x] T20.1 侧栏顶栏避开红绿灯：TitleBarHiddenInset 下侧栏顶部留出拖拽条，收藏夹标题不再压住红绿灯；侧栏打开时工具栏不再额外左缩进
+- [x] T20.2 路径栏可点击：Breadcrumbs.Changed 后按段打开祖先目录（原先 chosen 只写在局部变量里）
+- [x] T20.3 「»」溢出菜单：布局分段与搜索框补 Label，消除空白蓝条与错位勾选
