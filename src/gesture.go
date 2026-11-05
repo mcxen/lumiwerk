@@ -199,8 +199,16 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 
 // scrollBrowseBy advances the browse scroll offset by dy in one write, so
 // the frame that follows paints the content exactly where the hand left it.
+//
+// The offset stays on whole DIPs (whole device pixels at 1x and 2x) and
+// the fraction carries to the next event: MyGo rounds picture edges to
+// device pixels but floors text pens and baselines, so at a fractional
+// offset a caption could sit a pixel off its thumbnail and flicker
+// between the two as the fraction changed, lagging behind the picture.
 func (a *appState) scrollBrowseBy(dy float32) {
-	y := a.browseScroll.Y + dy
+	want := a.browseScroll.Y + a.scrollCarry + dy
+	y := float32(math.Round(float64(want)))
+	a.scrollCarry = want - y
 	if y < 0 {
 		y = 0
 	}

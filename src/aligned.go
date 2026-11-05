@@ -162,6 +162,7 @@ type appState struct {
 	columnY      float32
 
 	InLargeView     bool
+	scrollCarry     float32
 	Gallery         bool
 	galleryPeek     bool
 	Hero            heroState

@@ -476,7 +476,10 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 		return
 	}
 	if item.Bitmap != nil {
-		img := ui.Image(c, item.Bitmap).Fit(fit).Grow(1)
+		// Rounded on the picture itself, so a letterboxed or contained
+		// cover (videos are often 16:9 in a square cell) keeps the corners
+		// the card's clip gives a picture that fills it.
+		img := ui.Image(c, item.Bitmap).Fit(fit).Grow(1).Radius(heroThumbRadius)
 		if width > 0 {
 			img.Width(width)
 		}
