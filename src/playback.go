@@ -415,6 +415,11 @@ func (s *playbackSession) Step(direction int) error {
 	if err != nil {
 		return err
 	}
+	// Pause keeps the last snapshot frame. A step has a new one; take it
+	// now or the paused snapshot will never ask again.
+	if frame := s.backend.Frame(); frame != nil {
+		s.frame = frame
+	}
 	s.position = clampPlaybackTime(at, s.duration)
 	return nil
 }
@@ -448,7 +453,10 @@ func (s *playbackSession) Snapshot() playbackSnapshot {
 		return snap
 	}
 	snap.Backend = s.backend.Name()
-	if !s.scrubbing {
+	// A pause keeps the picture already on screen. Pulling another frame
+	// here would keep showing whatever the backend is still decoding, so
+	// the view would move after the user had paused it.
+	if !s.scrubbing && (s.playing || s.seekPending || s.frame == nil) {
 		if frame := s.backend.Frame(); frame != nil {
 			s.frame = frame
 			snap.Frame = frame
@@ -498,10 +506,22 @@ func (s *playbackSession) Snapshot() playbackSnapshot {
 	if s.frame != nil || s.position > 0 {
 		s.ready = true
 	}
-	if !s.scrubbing && !s.seekPending && s.duration > 0 && s.position >= s.duration-0.0005 {
-		s.playing = false
+	// Reaching the end has to pause the backend too. Leaving it running
+	// keeps the sound going, and the next play click reopens the file
+	// because ended is set. A later position well before the end clears
+	// that flag so a clock glitch cannot stick the player on "ended".
+	reachedEnd := !s.scrubbing && !s.seekPending && s.duration > 0 && s.position >= s.duration-0.0005
+	if reachedEnd {
+		if s.playing || !s.ended {
+			s.playing = false
+			if s.backend != nil {
+				s.backend.SetPlaying(false)
+			}
+		}
 		s.ended = true
 		s.position = s.duration
+	} else if s.ended && !s.scrubbing && !s.seekPending && s.duration > 0 && s.position+0.25 < s.duration {
+		s.ended = false
 	}
 	if s.scrubbing || s.seekPending {
 		s.ended = s.duration > 0 && s.position >= s.duration-0.0005

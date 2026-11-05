@@ -28,8 +28,27 @@ const (
 	thumbOffscreen  = 5 * time.Second
 )
 
+// beginFrame starts a build. The stamp stays private until finishFrame so
+// thumbAbandoned, which compares against the published frame, does not
+// treat a still-visible card as scrolled away in the gap before markSeen.
+func (a *appState) beginFrame() {
+	atomic.StoreInt64(&a.frameStamp, time.Now().UnixNano())
+}
+
+// finishFrame publishes the build that just finished.
+func (a *appState) finishFrame() {
+	stamp := atomic.LoadInt64(&a.frameStamp)
+	if stamp == 0 {
+		return
+	}
+	atomic.StoreInt64(&a.frameNow, stamp)
+}
+
 func (a *appState) markSeen(item *mediaItem) {
-	now := atomic.LoadInt64(&a.frameNow)
+	now := atomic.LoadInt64(&a.frameStamp)
+	if now == 0 {
+		now = atomic.LoadInt64(&a.frameNow)
+	}
 	if now == 0 {
 		now = time.Now().UnixNano()
 	}

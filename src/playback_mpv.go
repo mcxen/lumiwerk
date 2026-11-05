@@ -26,6 +26,8 @@ type mpvBackend struct {
 	render      *mpv.RenderContext
 	requests    chan mpvRenderRequest
 	closed      chan struct{}
+	eventsDone  chan struct{}
+	stop        sync.Once
 	pixels      []byte
 	frame       image.Image
 	audioTracks []playbackTrack
@@ -79,7 +81,10 @@ func newMPVBackend() (playbackBackend, error) {
 		core.TerminateDestroy()
 		return nil, fmt.Errorf("mpv_initialize: %w", err)
 	}
-	backend := &mpvBackend{core: core, requests: make(chan mpvRenderRequest), closed: make(chan struct{})}
+	backend := &mpvBackend{
+		core: core, requests: make(chan mpvRenderRequest),
+		closed: make(chan struct{}), eventsDone: make(chan struct{}),
+	}
 	ready := make(chan error, 1)
 	go backend.renderLoop(ready)
 	if err := <-ready; err != nil {
@@ -91,6 +96,11 @@ func newMPVBackend() (playbackBackend, error) {
 
 // All render calls stay on one locked OS thread. Client/property calls may be
 // made concurrently by the UI thread as allowed by the libmpv API.
+//
+// libmpv stops accepting pause (and other property writes) once its event
+// queue fills, and the picture clock does not follow pause unless each
+// presented frame is reported. The event loop drains that queue; renderFrame
+// reports the swap.
 func (b *mpvBackend) renderLoop(ready chan<- error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -100,26 +110,73 @@ func (b *mpvBackend) renderLoop(ready chan<- error) {
 		return
 	}
 	b.render = render
+	go b.eventLoop()
 	ready <- nil
 	for {
 		select {
 		case request := <-b.requests:
 			request.result <- b.renderFrame(request.width, request.height)
 		case <-b.closed:
-			render.Free()
-			b.render = nil
-			if core := b.core; core != nil {
-				b.core = nil
-				core.TerminateDestroy()
-			}
+			b.shutdownRender(render)
 			return
 		}
+	}
+}
+
+// eventLoop is the one thread allowed to call WaitEvent. Without it the
+// client queue fills and mpv_set_property("pause") stops taking effect
+// while the file keeps playing.
+func (b *mpvBackend) eventLoop() {
+	defer close(b.eventsDone)
+	// Copy the core once. Taking b.mu on every poll would stall this loop
+	// behind Frame, which holds the lock while rendering, and a render that
+	// needs the event queue drained would then deadlock.
+	b.mu.Lock()
+	core := b.core
+	b.mu.Unlock()
+	if core == nil {
+		return
+	}
+	for {
+		select {
+		case <-b.closed:
+			return
+		default:
+		}
+		ev := core.WaitEvent(0.1)
+		if ev != nil && ev.EventID == mpv.EventShutdown {
+			return
+		}
+	}
+}
+
+// shutdownRender runs on the render thread. The event loop must leave
+// before the core is destroyed; Wakeup unblocks WaitEvent.
+func (b *mpvBackend) shutdownRender(render *mpv.RenderContext) {
+	b.mu.Lock()
+	core := b.core
+	b.mu.Unlock()
+	if core != nil {
+		core.Wakeup()
+	}
+	<-b.eventsDone
+	render.Free()
+	b.mu.Lock()
+	core = b.core
+	b.core = nil
+	b.render = nil
+	b.mu.Unlock()
+	if core != nil {
+		core.TerminateDestroy()
 	}
 }
 
 func (b *mpvBackend) renderFrame(width, height int) (result mpvRenderResult) {
 	if width < 2 || height < 2 {
 		return result
+	}
+	if b.render != nil {
+		b.render.Update()
 	}
 	stride := (width*4 + 63) &^ 63
 	needed := stride * height
@@ -131,6 +188,7 @@ func (b *mpvBackend) renderFrame(width, height int) (result mpvRenderResult) {
 		result.err = fmt.Errorf("mpv render: %w", err)
 		return result
 	}
+	b.render.ReportSwap()
 	frame := image.NewNRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {
 		row := pixels[y*stride : y*stride+width*4]
@@ -154,18 +212,24 @@ func (b *mpvBackend) Open(path string, at float64, playing bool) error {
 	if err := b.core.CommandString("loadfile " + strconv.Quote(path) + " replace -1" + options); err != nil {
 		return fmt.Errorf("mpv loadfile: %w", err)
 	}
+	// loadfile can clear a pause that was set before the file was current.
+	if !playing {
+		b.SetPlaying(false)
+	}
 	return nil
 }
 
 func (b *mpvBackend) Close() error {
 	b.mu.Lock()
 	core := b.core
-	b.core = nil
 	b.mu.Unlock()
 	if core == nil {
 		return nil
 	}
-	close(b.closed)
+	b.stop.Do(func() {
+		close(b.closed)
+		core.Wakeup()
+	})
 	return nil
 }
 
@@ -235,9 +299,21 @@ func (b *mpvBackend) Position() float64 { return b.double("time-pos") }
 func (b *mpvBackend) Duration() float64 { return b.double("duration") }
 
 func (b *mpvBackend) SetPlaying(playing bool) {
-	value := !playing
-	if err := b.core.SetProperty("pause", mpv.FormatFlag, value); err != nil {
-		logDebugf("video.mpv.pause: %v", err)
+	b.mu.Lock()
+	core := b.core
+	b.mu.Unlock()
+	if core == nil {
+		return
+	}
+	// String form, not FormatFlag: the flag pointer used to be a stack slot
+	// that a later call could overwrite before libmpv read it, so pause was
+	// stored as false and the file kept playing.
+	value := "yes"
+	if playing {
+		value = "no"
+	}
+	if err := core.SetPropertyString("pause", value); err != nil {
+		logWarnf("video.mpv.pause: playing=%t err=%v", playing, err)
 	}
 }
 

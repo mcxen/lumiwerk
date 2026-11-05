@@ -81,6 +81,27 @@ func TestRequestInfoStartsOneProbe(t *testing.T) {
 	}
 }
 
+func TestThumbAbandonedKeepsACardUntilTheFrameFinishes(t *testing.T) {
+	a := waterfalTestState(1)
+	a.beginFrame()
+	time.Sleep(time.Millisecond)
+	a.markSeen(&a.Items[0])
+	a.finishFrame()
+
+	// The next build has started, but this card has not been marked yet.
+	// Publishing frameNow at the start of the build used to abandon it.
+	time.Sleep(time.Millisecond)
+	a.beginFrame()
+	if a.thumbAbandoned(0, a.Items[0].Path, 0) {
+		t.Fatal("on-screen card abandoned between frames")
+	}
+	time.Sleep(time.Millisecond)
+	a.finishFrame()
+	if !a.thumbAbandoned(0, a.Items[0].Path, 0) {
+		t.Fatal("card missing from the finished frame was kept")
+	}
+}
+
 func TestQueuedDecodeAbandonedOffscreen(t *testing.T) {
 	a := waterfalTestState(2)
 	frame := time.Now().UnixNano()

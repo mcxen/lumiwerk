@@ -161,54 +161,58 @@ type appState struct {
 	columnX      float32
 	columnY      float32
 
-	InLargeView     bool
-	Visited         map[string]int64
-	historyCleared  bool
-	scrollCarry     float32
-	Gallery         bool
-	galleryPeek     bool
-	Hero            heroState
-	LargeIndex      int
-	Zoom            float32
-	Rotation        float32
-	Mirror          bool
-	Video           *videoView
-	videoEdgeDue    time.Time
-	Info            infoState
-	Gesture         gestureState
-	Undo            undoStack
-	Pinned          bool
-	AutoScroll      bool
-	AutoPlay        bool
-	autoTick        time.Time
-	AutoConfig      string
-	AutoValue       string
-	PanX, PanY      float32
-	RightDown       bool
-	LargeDrag       dragState
-	HUD             string
-	HUDUntil        time.Time
-	Settings        settingsState
-	Diagnostics     diagnosticsState
-	Tabs            tabState
-	Profiles        prefsFile
-	Batch           batchState
-	Renaming        bool
-	FocusSearch     bool
-	LastQuery       string
-	RenamePath      string
-	RenameVal       string
-	Clip            []string
-	Cut             map[string]bool
-	PendingSelect   []string
-	layoutGen       uint64
-	flowCache       flowLayoutCache
-	opBusy          bool
-	treeCache       map[string]treeEntry
-	selAnchor       selectionAnchor
-	keyPivot        int
-	revealFrames    int
-	lastUp          time.Time
+	InLargeView    bool
+	Visited        map[string]int64
+	historyCleared bool
+	scrollCarry    float32
+	Gallery        bool
+	galleryPeek    bool
+	Hero           heroState
+	LargeIndex     int
+	Zoom           float32
+	Rotation       float32
+	Mirror         bool
+	Video          *videoView
+	videoEdgeDue   time.Time
+	Info           infoState
+	Gesture        gestureState
+	Undo           undoStack
+	Pinned         bool
+	AutoScroll     bool
+	AutoPlay       bool
+	autoTick       time.Time
+	AutoConfig     string
+	AutoValue      string
+	PanX, PanY     float32
+	RightDown      bool
+	LargeDrag      dragState
+	HUD            string
+	HUDUntil       time.Time
+	Settings       settingsState
+	Diagnostics    diagnosticsState
+	Tabs           tabState
+	Profiles       prefsFile
+	Batch          batchState
+	Renaming       bool
+	FocusSearch    bool
+	LastQuery      string
+	RenamePath     string
+	RenameVal      string
+	Clip           []string
+	Cut            map[string]bool
+	PendingSelect  []string
+	layoutGen      uint64
+	flowCache      flowLayoutCache
+	opBusy         bool
+	treeCache      map[string]treeEntry
+	selAnchor      selectionAnchor
+	keyPivot       int
+	revealFrames   int
+	lastUp         time.Time
+	// frameStamp is the current build's time. frameNow publishes it only
+	// after the build finishes, so a decode running at the start of the
+	// next frame still sees the cards the previous frame showed.
+	frameStamp      int64
 	frameNow        int64
 	nextSweep       time.Time
 	PendingLarge    string
@@ -1188,7 +1192,8 @@ func (a *appState) rootView(c *ui.Context) {
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
-	atomic.StoreInt64(&a.frameNow, time.Now().UnixNano())
+	a.beginFrame()
+	defer a.finishFrame()
 	if !a.InLargeView {
 		a.settleThumbs(c)
 		a.sweepThumbs(c)

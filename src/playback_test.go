@@ -114,6 +114,46 @@ func TestPlaybackSessionControlsOneBackend(t *testing.T) {
 	}
 }
 
+func TestPausedSnapshotKeepsItsFrameAndClearsAFalseEnd(t *testing.T) {
+	red := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	red.Pix[0], red.Pix[3] = 255, 255
+	blue := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	blue.Pix[2], blue.Pix[3] = 255, 255
+	backend := &fakePlaybackBackend{duration: 10, position: 1, playing: true, frame: red}
+	kernel := newPlaybackSession()
+	kernel.backend = backend
+	kernel.path = "/tmp/movie.mp4"
+	kernel.playing = true
+	kernel.duration = 10
+	kernel.ready = true
+	if snap := kernel.Snapshot(); snap.Frame != red || !snap.Playing {
+		t.Fatalf("playing snapshot frame=%v playing=%v", snap.Frame != nil, snap.Playing)
+	}
+	backend.frame = blue
+	kernel.SetPlaying(false)
+	snap := kernel.Snapshot()
+	if snap.Playing || snap.Frame != red {
+		t.Fatalf("pause pulled a new frame or stayed playing: playing=%v same=%v", snap.Playing, snap.Frame == red)
+	}
+	if backend.playing {
+		t.Fatal("pause did not reach the backend")
+	}
+	backend.position = 10
+	snap = kernel.Snapshot()
+	if !snap.Ended || backend.playing {
+		t.Fatalf("end left the backend running: ended=%v playing=%v", snap.Ended, backend.playing)
+	}
+	backend.position = 1
+	snap = kernel.Snapshot()
+	if snap.Ended {
+		t.Fatal("a playhead well before the end stayed ended, so the next play click would reopen")
+	}
+	kernel.SetPlaying(true)
+	if backend.opens != 0 || !backend.playing {
+		t.Fatalf("resume reopened or did not play: opens=%d playing=%v", backend.opens, backend.playing)
+	}
+}
+
 func TestPlaybackSessionReportsBackendFailure(t *testing.T) {
 	original := playbackProbe
 	playbackProbe = func() (playbackBackend, error) { return nil, errors.New("unavailable") }

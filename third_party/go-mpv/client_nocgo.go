@@ -476,30 +476,38 @@ func (m *Mpv) WaitAsyncRequests() {
 
 // convertData converts data for the given format into a pointer for SetOption/SetProperty,
 // and a cleanup function that must be called once the pointer is no longer needed.
+//
+// The pointer is read by libmpv after this function returns. A *T to a local
+// does not escape (the compiler does not treat unsafe.Pointer as a use that
+// outlives the frame), so the next call can overwrite it before mpv reads
+// it. pause=true then arrives as 0 and the player keeps running. The slots
+// are heap values for that reason.
 func convertData(format Format, data interface{}) (unsafe.Pointer, func()) {
 	switch format {
 	case FormatNone:
 		return nil, func() {}
 	case FormatString, FormatOsdString:
-		b := cStr(data.(string))
-		return unsafe.Pointer(&b), func() {}
+		slot := new(*byte)
+		*slot = cStr(data.(string))
+		return unsafe.Pointer(slot), func() {}
 	case FormatFlag:
-		var val int32
+		val := new(int32)
 		if data.(bool) {
-			val = 1
-		} else {
-			val = 0
+			*val = 1
 		}
-		return unsafe.Pointer(&val), func() {}
+		return unsafe.Pointer(val), func() {}
 	case FormatInt64:
-		val, ok := data.(int64)
-		if !ok {
-			val = int64(data.(int))
+		val := new(int64)
+		if n, ok := data.(int64); ok {
+			*val = n
+		} else {
+			*val = int64(data.(int))
 		}
-		return unsafe.Pointer(&val), func() {}
+		return unsafe.Pointer(val), func() {}
 	case FormatDouble:
-		val := data.(float64)
-		return unsafe.Pointer(&val), func() {}
+		val := new(float64)
+		*val = data.(float64)
+		return unsafe.Pointer(val), func() {}
 	case FormatNode:
 		return goToNode(data)
 	default:
