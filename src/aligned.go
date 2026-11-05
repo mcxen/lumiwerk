@@ -212,6 +212,12 @@ type appState struct {
 	flowCache     flowLayoutCache
 	opBusy        bool
 	work          workState
+	// tableSort is the detail table's header sort, mirroring Sort.
+	tableSort     ui.SortOrder
+	columnsLoaded bool
+	columnsAt     time.Time
+	dense         *ui.Theme
+	denseBase     *ui.Theme
 	treeCache     map[string]treeEntry
 	selAnchor     selectionAnchor
 	keyPivot      int
@@ -2724,43 +2730,6 @@ func (a *appState) applyFilter() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.applyFilterLocked()
-}
-
-func (a *appState) detailView(c *ui.Context) {
-	t := c.Theme()
-	state := a.mediaListState()
-	if a.takeReveal() {
-		a.ListState.ScrollIntoView(a.Chosen)
-	}
-	list := ui.List(c, state.List, len(a.Visible), func(i int) {
-		item := a.visibleItem(i)
-		if item == nil {
-			return
-		}
-		row := ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center)
-		if a.Chosen == i || a.Selected.Has(item.Path) {
-			row.Background(t.SurfacePressed)
-		}
-		row.Children(func() {
-			icon := imageIcon
-			if item.IsDir {
-				icon = dirIcon
-			} else if isVideoFile(item.Ext) {
-				icon = videoIcon
-			}
-			ui.Icon(c, icon).FontSize(16)
-			ui.Text(c, item.Name).Grow(1).FontSize(12).SingleLine()
-			ui.Textf(c, "%.1f MB", float64(item.Size)/(1024*1024)).FontSize(11).TextColor(t.TextMuted)
-			ui.Text(c, time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05")).FontSize(11).TextColor(t.TextMuted)
-		})
-		a.cardPointer(row, i)
-		a.fileDragSource(row, item.Path)
-		row.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-		if a.isCut(item.Path) {
-			row.Opacity(0.4)
-		}
-	})
-	list.Grow(1).TrackScroll(&a.browseScroll)
 }
 
 func (a *appState) currentProfile() profile {
