@@ -149,3 +149,25 @@ func TestGeneralSettingsPersistsCloseAction(t *testing.T) {
 		t.Fatalf("saved close action = %q, want quit", got)
 	}
 }
+
+// TestThumbCacheMiBRoundTrip checks the thumbnail cache budget survives a
+// save and load, defaults when absent, and is clamped to the slider range.
+func TestThumbCacheMiBRoundTrip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if got := loadPrefs().ThumbCacheMiB; got != thumbBudget>>20 {
+		t.Fatalf("default = %d, want %d", got, thumbBudget>>20)
+	}
+	p := loadPrefs()
+	p.ThumbCacheMiB = 512
+	savePrefs(p)
+	if got := loadPrefs().ThumbCacheMiB; got != 512 {
+		t.Fatalf("saved = %d, want 512", got)
+	}
+	for in, want := range map[int]int{10: 64, 5000: 1024, 0: thumbBudget >> 20} {
+		p.ThumbCacheMiB = in
+		savePrefs(p)
+		if got := loadPrefs().ThumbCacheMiB; got != want {
+			t.Fatalf("stored %d loaded as %d, want %d", in, got, want)
+		}
+	}
+}

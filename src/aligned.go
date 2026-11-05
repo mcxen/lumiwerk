@@ -309,7 +309,7 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "设置…", Accelerator: a.accel("settings"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.settingsWindow() })
 			}},
-			{Label: "复制到配置目录", Accelerator: a.accel("copycfg"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
+			{Label: "复制到目标", Accelerator: a.accel("copycfg"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
 			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
 			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
 			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
@@ -346,13 +346,13 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "重命名…", Accelerator: a.accel("rename"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
 			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
 			{Label: revealLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
-			{Label: "显示简介", Accelerator: a.accel("info"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
+			{Label: "文件简介", Accelerator: a.accel("info"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
 			{Label: "制作副本", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.duplicateSelection() }) }},
 			{Label: openParentLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showOriginalFolder() }) }},
 		}},
 		{Label: "显示", Submenu: []*mygo.MenuItem{
 			{Label: "显示隐藏文件", Accelerator: a.accel("hidden"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("hidden") }) }},
-			{Label: "递归浏览模式", Accelerator: a.accel("recursive"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
+			{Label: "递归浏览", Accelerator: a.accel("recursive"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "包含文件夹", Accelerator: a.accel("folders"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.toggleViewOption("folders") }) }},
 			{Label: "媒体单元模式", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.setMediaUnit(!a.Profiles.View.MediaUnit) })
@@ -361,10 +361,10 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "启用自动滚动", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("scroll") }) }},
 			{Label: "启用自动播放", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.askAutoConfig("play") }) }},
 			{Label: "窗口", Submenu: []*mygo.MenuItem{
-				{Label: "置顶", Accelerator: a.accel("pin"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
+				{Label: "窗口置顶", Accelerator: a.accel("pin"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.togglePinned() }) }},
 				{Label: "最大化窗口", Accelerator: a.accel("maximize"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.ToggleMaximize() }},
-				{Label: "合适窗口大小", Accelerator: a.accel("fitwindow"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
-				{Label: "将窗口居中", Accelerator: a.accel("center"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
+				{Label: "合适窗口", Accelerator: a.accel("fitwindow"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.SetSize(1280, 820); a.Window.Center() }},
+				{Label: "窗口居中", Accelerator: a.accel("center"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.Window.Center() }},
 			}},
 			mygo.Separator(),
 			{Label: "运行诊断…", Accelerator: a.accel("diagnostics"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {

@@ -121,7 +121,7 @@ func (a *appState) viewMenu(m *ui.Menu) {
 	if m.Item("显示隐藏文件").Checked(view.Hidden).Shortcut(a.menuKey(a.binding("hidden"))).Chosen() {
 		a.toggleViewOption("hidden")
 	}
-	if m.Item("递归浏览模式").Checked(a.Recursive).Shortcut(a.menuKey(a.binding("recursive"))).Chosen() {
+	if m.Item("递归浏览").Checked(a.Recursive).Shortcut(a.menuKey(a.binding("recursive"))).Chosen() {
 		a.setRecursive(!a.Recursive)
 	}
 	if m.Item("包含文件夹").Checked(view.RecursiveFolders).Disabled(!a.Recursive).Shortcut(a.menuKey(a.binding("folders"))).Chosen() {
@@ -138,13 +138,13 @@ func (a *appState) viewMenu(m *ui.Menu) {
 		a.askAutoConfig("play")
 	}
 	m.Submenu("窗口", func(sub *ui.Menu) {
-		if sub.Item("置顶").Checked(a.Pinned).Shortcut(a.menuKey(a.binding("pin"))).Chosen() {
+		if sub.Item("窗口置顶").Checked(a.Pinned).Shortcut(a.menuKey(a.binding("pin"))).Chosen() {
 			a.togglePinned()
 		}
 		if sub.Item("最大化窗口").Shortcut(a.menuKey(a.binding("maximize"))).Chosen() {
 			a.Window.ToggleMaximize()
 		}
-		if sub.Item("合适窗口大小").Shortcut(a.menuKey(a.binding("fitwindow"))).Chosen() {
+		if sub.Item("合适窗口").Shortcut(a.menuKey(a.binding("fitwindow"))).Chosen() {
 			a.Window.SetSize(1280, 820)
 			a.Window.Center()
 		}
@@ -154,7 +154,7 @@ func (a *appState) viewMenu(m *ui.Menu) {
 		if sub.Item("调整至图片当前大小").Disabled(!a.InLargeView).Shortcut(a.menuKey(keyBinding{0, ui.Key4})).Chosen() {
 			a.fitWindowToImage(true)
 		}
-		if sub.Item("将窗口居中").Shortcut(a.menuKey(a.binding("center"))).Chosen() {
+		if sub.Item("窗口居中").Shortcut(a.menuKey(a.binding("center"))).Chosen() {
 			a.Window.Center()
 		}
 	})
