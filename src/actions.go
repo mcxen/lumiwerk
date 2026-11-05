@@ -748,14 +748,6 @@ func (a *appState) copyToConfigured() {
 	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
 }
 
-func (a *appState) toast(msg string) {
-	if msg == "" {
-		return
-	}
-	a.HUD = msg
-	a.HUDUntil = time.Now().Add(1600 * time.Millisecond)
-}
-
 func (a *appState) canPaste() bool {
 	paths, _ := a.filesForPaste(false)
 	return len(paths) > 0
@@ -882,24 +874,6 @@ func (a *appState) quickRenameFolder() {
 
 func (a *appState) isCut(path string) bool {
 	return a.Cut != nil && a.Cut[path]
-}
-
-func (a *appState) toastOverlay(c *ui.Context) {
-	if a.HUD == "" || a.InLargeView {
-		return
-	}
-	if time.Now().After(a.HUDUntil) {
-		a.HUD = ""
-		return
-	}
-	if d := time.Until(a.HUDUntil); d > 0 {
-		c.After(d)
-	}
-	t := c.Theme()
-	hud := ui.Row(c).Attach(ui.AnchorTop, ui.AnchorTop).Margin(8, 0).Padding(6, 12).Radius(6).Background(t.Surface).Border(1, t.Border)
-	hud.Children(func() {
-		ui.Text(c, a.HUD).FontSize(12).MaxLines(1)
-	})
 }
 
 func (a *appState) folderDialog(c *ui.Context) {
@@ -1324,7 +1298,7 @@ func (a *appState) collectSelection() {
 			if result.failed > 0 {
 				msg = fmt.Sprintf("已归集 %d 个文件（%d 个失败）", result.copied, result.failed)
 			}
-			a.toast(msg + " -> " + filepath.Base(result.folder))
+			a.toastUndo(msg + " → " + filepath.Base(result.folder))
 			a.PendingSelect = []string{result.folder}
 			a.refresh()
 		})
@@ -1484,7 +1458,7 @@ func (a *appState) commitTrim() {
 			if inverse, ok := inverseOf(applied); ok {
 				a.Undo.record(applied, inverse)
 			}
-			a.toast("已导出 " + filepath.Base(dest))
+			a.toastUndo("已导出 " + filepath.Base(dest))
 			a.KeepLarge = true
 			a.PendingLarge = src
 			a.refresh()
@@ -1790,7 +1764,7 @@ func (a *appState) duplicateSelection() {
 		a.Undo.record(applied, inverse)
 	}
 	a.PendingSelect = append([]string(nil), created...)
-	a.toast(fmt.Sprintf("已制作 %d 个副本", len(created)))
+	a.toastUndo(fmt.Sprintf("已制作 %d 个副本", len(created)))
 	a.refresh()
 }
 

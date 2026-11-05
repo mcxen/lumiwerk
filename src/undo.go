@@ -97,7 +97,7 @@ func (a *appState) performTracked(op fileOperation) error {
 		return err
 	}
 	if inverse, ok := inverseOf(applied); ok {
-		a.Undo.record(applied, inverse)
+		a.recordUndo(applied, inverse)
 	}
 	a.finishOperation(applied)
 	return nil
@@ -118,7 +118,7 @@ func (a *appState) startArchive(op fileOperation) {
 			return
 		}
 		if inverse, ok := inverseOf(applied); ok {
-			a.Undo.record(applied, inverse)
+			a.recordUndo(applied, inverse)
 		}
 		a.finishOperation(applied)
 		return
@@ -138,7 +138,7 @@ func (a *appState) startArchive(op fileOperation) {
 				return
 			}
 			if inverse, ok := inverseOf(applied); ok {
-				a.Undo.record(applied, inverse)
+				a.recordUndo(applied, inverse)
 			}
 			a.finishOperation(applied)
 		})
@@ -163,7 +163,7 @@ func (a *appState) runOperation(op fileOperation) {
 				return
 			}
 			if inverse, ok := inverseOf(applied); ok {
-				a.Undo.record(applied, inverse)
+				a.recordUndo(applied, inverse)
 			}
 			a.finishOperation(applied)
 		})
@@ -285,8 +285,8 @@ func (a *appState) finishOperation(op fileOperation) {
 	case opDelete:
 		a.noteDeleted(op.paths)
 	case opCompress, opExtract:
-		if op.detail != "" {
-			a.toast(op.detail)
+		if _, undoable := inverseOf(op); op.detail != "" && !undoable {
+			a.toast(op.detail) // an undoable one showed it with 撤销
 		}
 		if op.dropSource {
 			a.noteDeleted(op.paths)

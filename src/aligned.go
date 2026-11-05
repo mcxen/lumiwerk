@@ -189,28 +189,33 @@ type appState struct {
 	RightDown      bool
 	LargeDrag      dragState
 	HUD            string
-	HUDUntil       time.Time
-	Settings       settingsState
-	Diagnostics    diagnosticsState
-	Tabs           tabState
-	Profiles       prefsFile
-	Batch          batchState
-	Renaming       bool
-	FocusSearch    bool
-	LastQuery      string
-	RenamePath     string
-	RenameVal      string
-	Clip           []string
-	Cut            map[string]bool
-	PendingSelect  []string
-	layoutGen      uint64
-	flowCache      flowLayoutCache
-	opBusy         bool
-	treeCache      map[string]treeEntry
-	selAnchor      selectionAnchor
-	keyPivot       int
-	revealFrames   int
-	lastUp         time.Time
+	// toasts waits for the next frame to show through c.Toast; lastToast
+	// is the newest message, for tests.
+	toasts        []pendingToast
+	toastMu       sync.Mutex
+	lastToast     string
+	HUDUntil      time.Time
+	Settings      settingsState
+	Diagnostics   diagnosticsState
+	Tabs          tabState
+	Profiles      prefsFile
+	Batch         batchState
+	Renaming      bool
+	FocusSearch   bool
+	LastQuery     string
+	RenamePath    string
+	RenameVal     string
+	Clip          []string
+	Cut           map[string]bool
+	PendingSelect []string
+	layoutGen     uint64
+	flowCache     flowLayoutCache
+	opBusy        bool
+	treeCache     map[string]treeEntry
+	selAnchor     selectionAnchor
+	keyPivot      int
+	revealFrames  int
+	lastUp        time.Time
 	// frameStamp is the current build's time. frameNow publishes it only
 	// after the build finishes, so a decode running at the start of the
 	// next frame still sees the cards the previous frame showed.
@@ -1647,7 +1652,7 @@ func (a *appState) mainView(c *ui.Context) {
 		if !a.InLargeView {
 			a.zoomHUD(c)
 		}
-		a.toastOverlay(c)
+		a.showToasts(c)
 	})
 }
 

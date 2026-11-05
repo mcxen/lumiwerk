@@ -199,8 +199,8 @@ func TestTrashPermissionErrorReachesUser(t *testing.T) {
 	if !errors.Is(err, errTrashPermission) {
 		t.Fatalf("tracked operation error = %#v", err)
 	}
-	if !strings.Contains(a.HUD, "自动化") || strings.Contains(a.HUD, "exit status") {
-		t.Fatalf("toast = %q", a.HUD)
+	if !strings.Contains(a.lastToast, "自动化") || strings.Contains(a.lastToast, "exit status") {
+		t.Fatalf("toast = %q", a.lastToast)
 	}
 }
 

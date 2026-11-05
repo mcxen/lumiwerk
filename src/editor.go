@@ -537,9 +537,9 @@ func (a *appState) exportEditor() {
 				a.Undo.record(applied, inverse)
 			}
 			if failed > 0 {
-				a.toast(fmt.Sprintf("已导出 %d 段，%d 段失败", len(created), failed))
+				a.toastUndo(fmt.Sprintf("已导出 %d 段，%d 段失败", len(created), failed))
 			} else {
-				a.toast(fmt.Sprintf("已导出 %d 段", len(created)))
+				a.toastUndo(fmt.Sprintf("已导出 %d 段", len(created)))
 			}
 			a.KeepLarge = true
 			a.PendingLarge = src
