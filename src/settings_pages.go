@@ -183,7 +183,9 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 	setGroup(c, "性能", func() {
 		if setSlider(c, "cache", "缩略图缓存", &a.Settings.CacheCap, 64, 1024, " MiB") {
-			thumbLRU.SetLimit(int(a.Settings.CacheCap) << 20)
+			a.Profiles.ThumbCacheMiB = normalizeThumbCacheMiB(int(a.Settings.CacheCap))
+			thumbLRU.SetLimit(a.Profiles.ThumbCacheMiB << 20)
+			savePrefs(a.Profiles)
 		}
 	})
 	setGroup(c, "更新", func() {

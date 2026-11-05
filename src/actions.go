@@ -316,7 +316,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item(revealLabel).Disabled(none).Chosen() {
 		a.revealInFinder()
 	}
-	if m.Item("显示简介").Disabled(none).Chosen() {
+	if m.Item("文件简介").Disabled(none).Chosen() {
 		a.showInfo()
 	}
 	m.Separator()
@@ -352,7 +352,7 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 		if sub.Item("移动到…").Disabled(none).Chosen() {
 			a.doMove()
 		}
-		if sub.Item("复制到配置目录").Disabled(none).Chosen() {
+		if sub.Item("复制到目标").Disabled(none).Chosen() {
 			a.copyToConfigured()
 		}
 		if sub.Item("复制到下载").Disabled(none).Chosen() {

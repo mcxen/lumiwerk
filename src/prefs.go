@@ -82,6 +82,9 @@ type prefsFile struct {
 	// FavoritesClosed and HistoryClosed keep the sidebar's sections folded.
 	FavoritesClosed bool `json:"favoritesClosed,omitempty"`
 	HistoryClosed   bool `json:"historyClosed,omitempty"`
+	// ThumbCacheMiB is the decoded-thumbnail cache budget in MiB. Absent
+	// (0) means the default; normalizePrefs clamps it to 64–1024.
+	ThumbCacheMiB int `json:"thumbCacheMiB,omitempty"`
 }
 
 const (
@@ -156,6 +159,7 @@ func normalizePrefs(p *prefsFile) {
 		p.PreviousVolume = 1
 	}
 	p.PlaybackEnd = normalizePlaybackEnd(p.PlaybackEnd)
+	p.ThumbCacheMiB = normalizeThumbCacheMiB(p.ThumbCacheMiB)
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff
@@ -212,4 +216,18 @@ func savePrefs(p prefsFile) {
 	if err := os.Rename(tmp, path); err != nil {
 		logErrorf("could not install preferences %s: %v", path, err)
 	}
+}
+
+// normalizeThumbCacheMiB maps a stored thumbnail cache budget onto the
+// settings slider's range; zero (an older prefs.json) means the default.
+func normalizeThumbCacheMiB(mib int) int {
+	switch {
+	case mib <= 0:
+		return thumbBudget >> 20
+	case mib < 64:
+		return 64
+	case mib > 1024:
+		return 1024
+	}
+	return mib
 }
