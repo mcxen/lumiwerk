@@ -85,7 +85,8 @@ func main() {
 		a.ensureMainWindow()
 		a.syncTrayTip()
 
-		mygo.App.SetMenu(newAppMenu(a))
+		a.appMenu = newAppMenu(a)
+		mygo.App.SetMenu(a.appMenu)
 		if pendingOpen != "" {
 			a.openFolder(pendingOpen)
 			pendingOpen = ""

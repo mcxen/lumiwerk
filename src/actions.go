@@ -154,6 +154,12 @@ func (a *appState) startRename() {
 	a.Renaming = true
 	a.RenamePath = paths[0]
 	a.RenameVal = filepath.Base(paths[0])
+	a.renameArm = ""
+	a.RenameInline = len(paths) == 1 && a.inlineRenameIndex(paths[0]) >= 0
+	if a.RenameInline {
+		a.renameFresh = 3
+		a.revealFrames = 2
+	}
 }
 
 func (a *appState) commitRename() {
@@ -553,7 +559,7 @@ func (a *appState) zipDialog(c *ui.Context) {
 
 // renameDialog shows a real editable field and commits on Enter.
 func (a *appState) renameDialog(c *ui.Context) {
-	if !a.Renaming {
+	if !a.Renaming || a.RenameInline {
 		return
 	}
 	t := c.Theme()

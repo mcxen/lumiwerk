@@ -191,20 +191,29 @@ type appState struct {
 	HUD            string
 	// toasts waits for the next frame to show through c.Toast; lastToast
 	// is the newest message, for tests.
-	toasts        []pendingToast
-	toastMu       sync.Mutex
-	lastToast     string
-	HUDUntil      time.Time
-	Settings      settingsState
-	Diagnostics   diagnosticsState
-	Tabs          tabState
-	Profiles      prefsFile
-	Batch         batchState
-	Renaming      bool
-	FocusSearch   bool
-	LastQuery     string
-	RenamePath    string
-	RenameVal     string
+	toasts      []pendingToast
+	toastMu     sync.Mutex
+	lastToast   string
+	HUDUntil    time.Time
+	Settings    settingsState
+	Diagnostics diagnosticsState
+	Tabs        tabState
+	Profiles    prefsFile
+	Batch       batchState
+	Renaming    bool
+	FocusSearch bool
+	LastQuery   string
+	RenamePath  string
+	RenameVal   string
+	// RenameInline edits the name in place (rename_inline.go) rather
+	// than in the dialog; renameFresh counts frames until the field,
+	// focused, selects the name before its extension.
+	RenameInline  bool
+	renameFresh   int
+	renameArm     string
+	renameArmAt   time.Time
+	appMenu       *mygo.Menu
+	menuKeysOff   []*mygo.MenuItem
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
@@ -1202,6 +1211,14 @@ func (a *appState) rootView(c *ui.Context) {
 		a.sweepThumbs(c)
 	}
 
+	// A name typed in place takes every key: the bare-key shortcuts below
+	// would take its letters, digits and Space first.
+	a.syncMenuKeys()
+	if a.Renaming && a.RenameInline {
+		a.browserLayout(c)
+		return
+	}
+
 	// Global shortcuts.
 	if c.Shortcut(ui.Cmd, ui.KeyO) {
 		safeGo("dialog.pickFolder", a.pickFolder)
@@ -1494,6 +1511,8 @@ func (a *appState) rootView(c *ui.Context) {
 			a.copyToVideoFolder()
 		}
 	}
+
+	a.slowRename(c)
 
 	// Enter key: rename or open/close depending on preference.
 	if c.Shortcut(0, ui.KeyEnter) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
@@ -1892,6 +1911,8 @@ func (a *appState) gridView(c *ui.Context) {
 			card.Opacity(0.4)
 		}
 		selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
+		var name ui.Element
+		wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 		card.Children(func() {
 			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 			a.thumbHero(thumb, item.Path)
@@ -1907,12 +1928,19 @@ func (a *appState) gridView(c *ui.Context) {
 				paintMediaThumb(c, item, 0, ui.Contain)
 			})
 			if flowLabel > 0 {
-				ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				if a.renamingInline(i) {
+					a.inlineRenameField(c, 11, true)
+				} else {
+					name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				}
 			}
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)
 		a.cardPointer(card, i)
+		if wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {
+			a.armSlowRename(c, i, wasChosen)
+		}
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
 			a.requestThumb(root, a.Visible[i])

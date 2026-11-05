@@ -174,5 +174,6 @@ func (a *appState) refreshAppMenu() {
 	if a.Window == nil {
 		return
 	}
-	mygo.App.SetMenu(newAppMenu(a))
+	a.appMenu, a.menuKeysOff = newAppMenu(a), nil
+	mygo.App.SetMenu(a.appMenu)
 }
