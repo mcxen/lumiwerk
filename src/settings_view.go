@@ -184,7 +184,10 @@ func settingsNavRow(c *ui.Context, a *appState, p settingsPage, pal *settingsPal
 		if sel {
 			ic.TextColor(pal.accent)
 		}
-		ui.Text(c, p.title).FontSize(13.5).TextColor(pal.text).SingleLine()
+		ui.Text(c, p.title).FontSize(13.5).TextColor(pal.text).SingleLine().Grow(1)
+		if p.id == "advanced" && availableUpdate() != "" {
+			updateBadge(c, "新", pal)
+		}
 	})
 }
 

@@ -191,20 +191,29 @@ type appState struct {
 	HUD            string
 	// toasts waits for the next frame to show through c.Toast; lastToast
 	// is the newest message, for tests.
-	toasts        []pendingToast
-	toastMu       sync.Mutex
-	lastToast     string
-	HUDUntil      time.Time
-	Settings      settingsState
-	Diagnostics   diagnosticsState
-	Tabs          tabState
-	Profiles      prefsFile
-	Batch         batchState
-	Renaming      bool
-	FocusSearch   bool
-	LastQuery     string
-	RenamePath    string
-	RenameVal     string
+	toasts      []pendingToast
+	toastMu     sync.Mutex
+	lastToast   string
+	HUDUntil    time.Time
+	Settings    settingsState
+	Diagnostics diagnosticsState
+	Tabs        tabState
+	Profiles    prefsFile
+	Batch       batchState
+	Renaming    bool
+	FocusSearch bool
+	LastQuery   string
+	RenamePath  string
+	RenameVal   string
+	// RenameInline edits the name in place (rename_inline.go) rather
+	// than in the dialog; renameFresh counts frames until the field,
+	// focused, selects the name before its extension.
+	RenameInline  bool
+	renameFresh   int
+	renameArm     string
+	renameArmAt   time.Time
+	appMenu       *mygo.Menu
+	menuKeysOff   []*mygo.MenuItem
 	Clip          []string
 	Cut           map[string]bool
 	PendingSelect []string
@@ -957,6 +966,10 @@ func (a *appState) goUp() {
 	}
 }
 
+func (a *appState) canGoBack() bool { return a.Cursor > 0 && a.Cursor < len(a.History) }
+
+func (a *appState) canGoForward() bool { return a.Cursor >= 0 && a.Cursor+1 < len(a.History) }
+
 func (a *appState) goBack() {
 	a.mu.Lock()
 	if a.Cursor <= 0 {
@@ -1202,6 +1215,14 @@ func (a *appState) rootView(c *ui.Context) {
 		a.sweepThumbs(c)
 	}
 
+	// A name typed in place takes every key: the bare-key shortcuts below
+	// would take its letters, digits and Space first.
+	a.syncMenuKeys()
+	if a.Renaming && a.RenameInline {
+		a.browserLayout(c)
+		return
+	}
+
 	// Global shortcuts.
 	if c.Shortcut(ui.Cmd, ui.KeyO) {
 		safeGo("dialog.pickFolder", a.pickFolder)
@@ -1212,11 +1233,21 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyUp) {
 		a.goUp()
 	}
-	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketLeft) {
-		a.goBack()
-	}
-	if !a.InLargeView && !a.modalOpen() && c.Shortcut(ui.Cmd, ui.KeyBracketRight) {
-		a.goForward()
+	if !a.InLargeView && !a.modalOpen() {
+		// As mygo's Router: Cmd+[ / Cmd+], the mouse's and keyboard's
+		// back/forward keys, and Alt+Left/Right off macOS.
+		back := c.Shortcut(ui.Cmd, ui.KeyBracketLeft) || c.Shortcut(0, ui.KeyBack)
+		forward := c.Shortcut(ui.Cmd, ui.KeyBracketRight) || c.Shortcut(0, ui.KeyForward)
+		if runtime.GOOS != "darwin" {
+			back = c.Shortcut(ui.Alt, ui.KeyLeft) || back
+			forward = c.Shortcut(ui.Alt, ui.KeyRight) || forward
+		}
+		if back {
+			a.goBack()
+		}
+		if forward {
+			a.goForward()
+		}
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		a.SidebarShown = !a.SidebarShown
@@ -1495,6 +1526,8 @@ func (a *appState) rootView(c *ui.Context) {
 		}
 	}
 
+	a.slowRename(c)
+
 	// Enter key: rename or open/close depending on preference.
 	if c.Shortcut(0, ui.KeyEnter) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		if a.InLargeView {
@@ -1524,26 +1557,24 @@ func (a *appState) sidebarView(c *ui.Context) {
 			}
 			ui.Box(c).Height(h).FillWidth().DragWindow()
 		}
-		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "收藏夹").FontSize(11).Bold().TextColor(t.TextMuted)
+		a.sidebarSection(c, "收藏夹", &a.Profiles.FavoritesClosed, nil, func() {
+			for _, fav := range a.Profiles.Favorites {
+				fav := fav
+				if !isDir(fav) {
+					continue
+				}
+				row := ui.Row(c.Key(fav)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
+				if pathKey(a.Root) == pathKey(fav) {
+					row.Background(t.SurfacePressed)
+				}
+				row.Children(func() {
+					ui.Icon(c, dirIcon).FontSize(12)
+					ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
+				})
+				a.folderDropTarget(c, row, fav)
+				row.OnClick(func() { a.openFolder(fav) })
+			}
 		})
-		for _, fav := range a.Profiles.Favorites {
-			fav := fav
-			if !isDir(fav) {
-				continue
-			}
-			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-			if pathKey(a.Root) == pathKey(fav) {
-				row.Background(t.SurfacePressed)
-			}
-			row.Children(func() {
-				ui.Icon(c, dirIcon).FontSize(12)
-				ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
-			})
-			a.folderDropTarget(c, row, fav)
-			row.OnClick(func() { a.openFolder(fav) })
-		}
 		ui.Divider(c)
 		if a.Root == "" {
 			ui.Text(c, "打开目录后显示目录树").TextColor(t.TextMuted).Padding(12)
@@ -1563,40 +1594,57 @@ func (a *appState) sidebarView(c *ui.Context) {
 		}
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
-		// History section: recent folders visited in this session.
-		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
-			if len(a.Recent) > 0 {
-				x := ui.Box(c).Padding(2).Radius(3).Tooltip("清除历史记录")
-				x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
-				if x.Clicked() {
-					a.clearHistory()
+		// History section: recent folders visited, newest first.
+		var clear func()
+		if len(a.Recent) > 0 {
+			clear = a.clearHistory
+		}
+		a.sidebarSection(c, "历史", &a.Profiles.HistoryClosed, clear, func() {
+			for _, h := range a.Recent {
+				hist := h
+				row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
+				if pathKey(hist) == pathKey(a.Root) {
+					row.Background(t.SurfacePressed)
 				}
+				row.Children(func() {
+					ui.Icon(c, dirIcon).FontSize(12)
+					ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
+					if at := a.Visited[hist]; at > 0 {
+						ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
+					}
+				})
+				row.ContextMenu(func(m *ui.Menu) {
+					if m.Item("清除历史记录").Chosen() {
+						a.clearHistory()
+					}
+				})
+				a.folderDropTarget(c, row, hist)
+				row.OnClick(func() { a.openFolder(hist) })
 			}
 		})
-		for _, h := range a.Recent {
-			hist := h
-			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-			if pathKey(hist) == pathKey(a.Root) {
-				row.Background(t.SurfacePressed)
+	})
+}
+
+// sidebarSection is a mygo SidebarSection whose folded state is the
+// preference *closed, saved when a click on its title changes it. clear,
+// when set, puts a small clear button at the title's end.
+func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, clear func(), fn func()) {
+	t := c.Theme()
+	open := !*closed
+	ui.Box(c.Key("section-"+title)).Padding(0, 4).Shrink(0).Children(func() {
+		ui.SidebarSection(c, title, &open, fn)
+		if clear != nil {
+			x := ui.Box(c.Key("clear")).Absolute().Top(5).Right(30).Padding(2).Radius(3).Tooltip("清除历史记录")
+			x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
+			if x.Clicked() {
+				clear()
 			}
-			row.Children(func() {
-				ui.Icon(c, dirIcon).FontSize(12)
-				ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
-				if at := a.Visited[hist]; at > 0 {
-					ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
-				}
-			})
-			row.ContextMenu(func(m *ui.Menu) {
-				if m.Item("清除历史记录").Chosen() {
-					a.clearHistory()
-				}
-			})
-			a.folderDropTarget(c, row, hist)
-			row.OnClick(func() { a.openFolder(hist) })
 		}
 	})
+	if open == *closed {
+		*closed = !open
+		savePrefs(a.Profiles)
+	}
 }
 
 func (a *appState) treeRow(c *ui.Context, path string) {
@@ -1672,10 +1720,10 @@ func (a *appState) toolbarView(c *ui.Context) {
 				a.SidebarShown = !a.SidebarShown
 			}
 			ui.Box(c).Width(1).Height(18).Background(t.Border)
-			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Clicked() {
+			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Disabled(!a.canGoBack()).Clicked() {
 				a.goBack()
 			}
-			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Clicked() {
+			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Disabled(!a.canGoForward()).Clicked() {
 				a.goForward()
 			}
 		})
@@ -1877,6 +1925,8 @@ func (a *appState) gridView(c *ui.Context) {
 			card.Opacity(0.4)
 		}
 		selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
+		var name ui.Element
+		wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 		card.Children(func() {
 			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 			a.thumbHero(thumb, item.Path)
@@ -1892,12 +1942,19 @@ func (a *appState) gridView(c *ui.Context) {
 				paintMediaThumb(c, item, 0, ui.Contain)
 			})
 			if flowLabel > 0 {
-				ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				if a.renamingInline(i) {
+					a.inlineRenameField(c, 11, true)
+				} else {
+					name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				}
 			}
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)
 		a.cardPointer(card, i)
+		if wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {
+			a.armSlowRename(c, i, wasChosen)
+		}
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 		if !item.Decoded && !item.Failed && !item.Loading {
 			a.requestThumb(root, a.Visible[i])

@@ -90,6 +90,8 @@ func (a *appState) detailView(c *ui.Context) {
 			if a.Chosen == i || a.Selected.Has(item.Path) {
 				cell.Background(base.SurfacePressed)
 			}
+			var name ui.Element
+			wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 			cell.Children(func() {
 				switch detailColumns[col].ID {
 				case "name":
@@ -100,7 +102,11 @@ func (a *appState) detailView(c *ui.Context) {
 						icon = videoIcon
 					}
 					ui.Icon(c, icon).FontSize(15)
-					ui.Text(c, item.Name).FontSize(12).SingleLine()
+					if a.renamingInline(i) {
+						a.inlineRenameField(c, 12, false)
+					} else {
+						name = ui.Text(c, item.Name).FontSize(12).SingleLine()
+					}
 				case "size":
 					if !item.IsDir {
 						ui.Text(c, formatBytes(item.Size)).FontSize(11).TextColor(base.TextMuted).SingleLine()
@@ -110,6 +116,9 @@ func (a *appState) detailView(c *ui.Context) {
 				}
 			})
 			a.cardPointer(cell, i)
+			if wasChosen && name != (ui.Element{}) && pointerOver(cell, name) && cell.Clicked() && !cell.DoubleClicked() {
+				a.armSlowRename(c, i, wasChosen)
+			}
 			a.fileDragSource(cell, item.Path)
 			cell.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 			if a.isCut(item.Path) {

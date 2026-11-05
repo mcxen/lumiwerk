@@ -14,6 +14,7 @@ func (a *appState) cardPointer(card ui.Element, i int) {
 		return
 	}
 	if card.DoubleClicked() {
+		a.renameArm = ""
 		a.chooseOnly(i)
 		a.openItem(i)
 		return
