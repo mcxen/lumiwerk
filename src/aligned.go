@@ -162,6 +162,8 @@ type appState struct {
 	columnY      float32
 
 	InLargeView     bool
+	Visited         map[string]int64
+	historyCleared  bool
 	scrollCarry     float32
 	Gallery         bool
 	galleryPeek     bool
@@ -447,6 +449,10 @@ func (a *appState) openFolder(path string) {
 	a.InLargeView = false
 	a.LargeIndex = -1
 	a.scanSeq++
+	if a.Visited == nil {
+		a.Visited = map[string]int64{}
+	}
+	a.Visited[path] = time.Now().Unix()
 	if a.Cursor >= 0 && a.Cursor < len(a.History) && a.History[a.Cursor] == path {
 		// already positioned.
 	} else if a.Cursor < 0 || a.Cursor >= len(a.History) {
@@ -1170,6 +1176,7 @@ func (a *appState) view(c *ui.Context) {
 }
 
 func (a *appState) rootView(c *ui.Context) {
+	a.syncCaption()
 	t := c.Theme()
 	c.Root().Background(t.Background)
 	a.tickAutomation(c)
@@ -1528,7 +1535,10 @@ func (a *appState) sidebarView(c *ui.Context) {
 		// History section: recent folders visited in this session.
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
+			if len(a.History) > 0 && lucideIconButton(c, "history-clear", "清除历史记录", lucideClose).Clicked() {
+				a.clearHistory()
+			}
 		})
 		for i, h := range a.History {
 			hist := h
@@ -1538,7 +1548,15 @@ func (a *appState) sidebarView(c *ui.Context) {
 			}
 			row.Children(func() {
 				ui.Icon(c, dirIcon).FontSize(12)
-				ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1)
+				ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
+				if at := a.Visited[hist]; at > 0 {
+					ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
+				}
+			})
+			row.ContextMenu(func(m *ui.Menu) {
+				if m.Item("清除历史记录").Chosen() {
+					a.clearHistory()
+				}
 			})
 			a.folderDropTarget(c, row, hist)
 			row.OnClick(func() { a.openFolder(hist) })
@@ -1671,6 +1689,13 @@ func (a *appState) toolbarView(c *ui.Context) {
 				})
 				ui.Box(c).Width(1).Height(18).Background(t.Border)
 				a.layoutSwitcher(c)
+				nc := lucideIconButton(c, "nocaption", "无字模式 (⇧⌘H)", captionIcon)
+				if a.Profiles.View.NoCaption {
+					nc.Background(t.Accent)
+				}
+				if nc.Clicked() {
+					a.toggleCaption()
+				}
 				g := lucideIconButton(c, "gallery", "画廊 (G)", galleryIcon)
 				if a.Gallery {
 					g.Background(t.Accent)
@@ -1759,7 +1784,7 @@ func (a *appState) gridView(c *ui.Context) {
 	if a.takeReveal() {
 		a.Grid.ScrollIntoView(a.Chosen)
 	}
-	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell+30), func(i int) {
+	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell)+flowLabel, func(i int) {
 		item := a.visibleItem(i)
 		if item == nil {
 			return
@@ -1785,7 +1810,9 @@ func (a *appState) gridView(c *ui.Context) {
 				}
 				paintMediaThumb(c, item, 0, ui.Contain)
 			})
-			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+			if flowLabel > 0 {
+				ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+			}
 		})
 		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
 		a.fileDragSource(card, item.Path)

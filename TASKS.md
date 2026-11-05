@@ -139,3 +139,10 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T17.6 macOS hidden title bar (`TitleBarHiddenInset`): traffic lights over the toolbar, which pads past them and drags the window
 - [x] T17.7 Sidebar Finder tags section removed on every platform (with the tag filter it drove); tags stay in sort and context menus
 - [x] T17.8 Tiled browsing speed: queued thumbnail decodes no longer leave a scrolled-past card stuck loading; flow layouts build half a screen past each edge (justified 260→195 cards per frame); thumbnails ≤128 decode at 256 px (decode −17%, pixels −56%)
+
+## Phase 18: Captionless Grid, Video Covers and History
+- [x] T18.1 Esc leaves both the gallery and the Space large view back to the grid (verified)
+- [x] T18.2 无字模式: toolbar toggle and 显示 menu (⇧⌘H), persisted; grid, compact and waterfall drop the caption band
+- [x] T18.3 Video covers in release builds: ffmpeg resolved beyond the GUI PATH (Homebrew, exe folder, WinGet/Scoop/Chocolatey), then QuickLook (`qlmanage`) on macOS, then the bundled libmpv image output; failures logged with every attempt
+- [x] T18.4 History rows show the last visit right-aligned (HH:mm today, else MM-dd HH:mm), stored in history.json `visited`
+- [x] T18.5 清除历史记录 in the history header and the row context menu, saved at once

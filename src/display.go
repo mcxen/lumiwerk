@@ -149,6 +149,9 @@ func (a *appState) viewMenu(m *ui.Menu) {
 	if m.Item("返回上一级目录").Disabled(a.Root == "" || a.Root == "/").Shortcut(ui.Cmd, ui.KeyUp).Chosen() {
 		a.goUp()
 	}
+	if m.Item("无字模式").Checked(view.NoCaption).Shortcut(ui.Cmd|ui.Shift, ui.KeyH).Chosen() {
+		a.toggleCaption()
+	}
 	m.Separator()
 	if m.Item("自动播放选中视频").Checked(view.AutoPlaySelected).Chosen() {
 		a.Profiles.View.AutoPlaySelected = !view.AutoPlaySelected

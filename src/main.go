@@ -39,7 +39,7 @@ func main() {
 	// The browsing trail outlives the process: load it before any open so
 	// goBack/goForward and the sidebar already span past sessions.
 	saved := loadHistory()
-	a.History, a.Cursor = saved.History, saved.Cursor
+	a.History, a.Cursor, a.Visited = saved.History, saved.Cursor, saved.Visited
 	history := saved
 	if a.History == nil {
 		history.Cursor = -1
@@ -130,9 +130,11 @@ func main() {
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) {
 		a.mu.Lock()
 		history.History, history.Cursor = a.History, a.Cursor
+		history.Visited = a.Visited
 		history.LastImage = a.lastLargePath()
+		cleared := a.historyCleared
 		a.mu.Unlock()
-		if len(history.History) > 0 {
+		if len(history.History) > 0 || cleared {
 			saveHistory(history)
 		}
 	})

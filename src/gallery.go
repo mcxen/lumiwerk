@@ -127,3 +127,6 @@ func (a *appState) galleryStrip(c *ui.Context, size float32) {
 
 // galleryIcon is lucide's gallery-vertical-end: a large frame over a strip.
 var galleryIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="2" rx="2"/><path d="M3 21h2"/><path d="M9 21h2"/><path d="M15 21h2"/><path d="M21 21h0"/></svg>`))
+
+// captionIcon is lucide's captions: a frame with two text lines.
+var captionIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="5" rx="2" ry="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg>`))

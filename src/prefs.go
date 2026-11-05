@@ -35,6 +35,7 @@ type viewPreferences struct {
 	Theme            string  `json:"theme"`
 	AutoScrollSpeed  float64 `json:"autoScrollSpeed"`
 	AutoPlayInterval float64 `json:"autoPlayInterval"`
+	NoCaption        bool    `json:"noCaption"`
 }
 
 func defaultViewPreferences() viewPreferences {

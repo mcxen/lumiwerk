@@ -77,8 +77,29 @@ const (
 	flowPad    float32 = 8
 	flowGap    float32 = 6
 	flowMargin float32 = 0
-	flowLabel  float32 = 30
 )
+
+// flowLabel is the caption band under a card; 0 in 无字模式, where the
+// pictures take the room (syncCaption).
+var flowLabel float32 = 30
+
+// syncCaption applies 无字模式 to the card geometry, once per change.
+func (a *appState) syncCaption() {
+	want := float32(30)
+	if a.Profiles.View.NoCaption {
+		want = 0
+	}
+	if flowLabel != want {
+		flowLabel = want
+		a.layoutGen++
+	}
+}
+
+func (a *appState) toggleCaption() {
+	a.Profiles.View.NoCaption = !a.Profiles.View.NoCaption
+	savePrefs(a.Profiles)
+	a.syncCaption()
+}
 
 func (a *appState) visibleAspects() []float32 {
 	out := make([]float32, len(a.Visible))
@@ -448,7 +469,9 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 		thumb.Children(func() {
 			paintMediaThumb(c, item, width, ui.Cover)
 		})
-		ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+		if flowLabel > 0 {
+			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+		}
 	})
 	a.fileDragSource(card, item.Path)
 	a.cardPointer(card, i)

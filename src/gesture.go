@@ -264,7 +264,7 @@ func gridColumnCount(viewW, cell, gap float32) int {
 }
 
 func gridStride(thumb float64, gap float32) float32 {
-	row := float32(int(thumb+gridCellPad) + 30)
+	row := float32(int(thumb+gridCellPad)) + flowLabel
 	if gap > 0 {
 		row += gap
 	}

@@ -21,6 +21,9 @@ type historyFile struct {
 	Cursor    int       `json:"cursor"`
 	SavedAt   time.Time `json:"savedAt,omitempty"`
 	LastImage string    `json:"lastImage,omitempty"`
+	// Visited is each folder's last visit (Unix seconds); older files
+	// have none and show no time until the folder is visited again.
+	Visited map[string]int64 `json:"visited,omitempty"`
 }
 
 func historyPath() string {
@@ -121,4 +124,22 @@ func saveHistory(h historyFile) {
 	if err := os.Rename(tmp, path); err != nil {
 		logErrorf("could not install history %s: %v", path, err)
 	}
+}
+
+// visitLabel is a history row's last visit: HH:mm today, else MM-dd HH:mm.
+func visitLabel(unix int64, now time.Time) string {
+	t := time.Unix(unix, 0)
+	if y, m, d := t.Date(); y == now.Year() && m == now.Month() && d == now.Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("01-02 15:04")
+}
+
+// clearHistory empties the trail and its visit times and saves at once.
+func (a *appState) clearHistory() {
+	a.mu.Lock()
+	a.History, a.Cursor, a.Visited = nil, -1, nil
+	a.historyCleared = true
+	a.mu.Unlock()
+	saveHistory(historyFile{Cursor: -1})
 }
