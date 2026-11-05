@@ -29,7 +29,7 @@ func TestImageContextMenuTopLevelIsShort(t *testing.T) {
 		}
 	}
 	t.Logf("menu: %q", te.Menu())
-	if items > 14 {
+	if items > 13 {
 		t.Fatalf("top level has %d items: %q", items, te.Menu())
 	}
 	if err := te.ChooseMenuItem("旋转", "向右旋转 90°"); err != nil {

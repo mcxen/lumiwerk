@@ -317,9 +317,6 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item("复制").Disabled(none).Chosen() {
 		a.doCopy()
 	}
-	if m.Item("剪切").Disabled(none).Chosen() {
-		a.doCut()
-	}
 	if m.Item("粘贴").Disabled(a.Root == "").Chosen() {
 		a.doPaste(false)
 	}
@@ -333,6 +330,9 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	m.Separator()
 
 	m.Submenu("复制与移动", func(sub *ui.Menu) {
+		if sub.Item("剪切").Disabled(none).Chosen() {
+			a.doCut()
+		}
 		if sub.Item("复制路径").Disabled(none).Chosen() {
 			a.copyPath()
 		}
@@ -414,8 +414,11 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 			}
 		})
 	}
-	a.tagMenu(m, paths)
-	a.ratingMenu(m, paths)
+	if tagsSupported && len(paths) > 0 {
+		a.tagMenu(m, paths) // carries 评级 as its last entry
+	} else {
+		a.ratingMenu(m, paths)
+	}
 	a.shareMenu(m, paths)
 	if one {
 		label := "添加到收藏"
@@ -1675,6 +1678,10 @@ func (a *appState) tagMenu(m *ui.Menu, paths []string) {
 		sub.Separator()
 		if sub.Item("移除所有标签").Chosen() {
 			a.clearTags(kept)
+		}
+		if allImages(kept) {
+			sub.Separator()
+			a.ratingMenu(sub, kept)
 		}
 	})
 }

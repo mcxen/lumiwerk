@@ -213,7 +213,7 @@ jobs:
           test -n "$installer"
           test -s "$installer"
           for a in dist/${{ matrix.directory }}/*-${{ matrix.directory }}.tar.gz; do
-            if [ -e "$a" ]; then tar tzf "$a" | grep -q libmpv-2.dll; fi
+            if [ -e "$a" ]; then tar tzf "$a" > files.txt; grep -q libmpv-2.dll files.txt; fi
           done
       - name: Check Linux packages
         if: matrix.kind == 'linux'
