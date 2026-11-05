@@ -79,6 +79,9 @@ type prefsFile struct {
 	CloseAction string `json:"closeAction,omitempty"`
 	// DetailColumns keeps the widths and order of the list layout's columns.
 	DetailColumns ui.TableLayout `json:"detailColumns,omitempty"`
+	// FavoritesClosed and HistoryClosed keep the sidebar's sections folded.
+	FavoritesClosed bool `json:"favoritesClosed,omitempty"`
+	HistoryClosed   bool `json:"historyClosed,omitempty"`
 }
 
 const (

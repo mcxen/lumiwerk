@@ -1524,26 +1524,24 @@ func (a *appState) sidebarView(c *ui.Context) {
 			}
 			ui.Box(c).Height(h).FillWidth().DragWindow()
 		}
-		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, starIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "收藏夹").FontSize(11).Bold().TextColor(t.TextMuted)
+		a.sidebarSection(c, "收藏夹", &a.Profiles.FavoritesClosed, nil, func() {
+			for _, fav := range a.Profiles.Favorites {
+				fav := fav
+				if !isDir(fav) {
+					continue
+				}
+				row := ui.Row(c.Key(fav)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
+				if pathKey(a.Root) == pathKey(fav) {
+					row.Background(t.SurfacePressed)
+				}
+				row.Children(func() {
+					ui.Icon(c, dirIcon).FontSize(12)
+					ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
+				})
+				a.folderDropTarget(c, row, fav)
+				row.OnClick(func() { a.openFolder(fav) })
+			}
 		})
-		for _, fav := range a.Profiles.Favorites {
-			fav := fav
-			if !isDir(fav) {
-				continue
-			}
-			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-			if pathKey(a.Root) == pathKey(fav) {
-				row.Background(t.SurfacePressed)
-			}
-			row.Children(func() {
-				ui.Icon(c, dirIcon).FontSize(12)
-				ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
-			})
-			a.folderDropTarget(c, row, fav)
-			row.OnClick(func() { a.openFolder(fav) })
-		}
 		ui.Divider(c)
 		if a.Root == "" {
 			ui.Text(c, "打开目录后显示目录树").TextColor(t.TextMuted).Padding(12)
@@ -1563,40 +1561,57 @@ func (a *appState) sidebarView(c *ui.Context) {
 		}
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
-		// History section: recent folders visited in this session.
-		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
-			if len(a.Recent) > 0 {
-				x := ui.Box(c).Padding(2).Radius(3).Tooltip("清除历史记录")
-				x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
-				if x.Clicked() {
-					a.clearHistory()
+		// History section: recent folders visited, newest first.
+		var clear func()
+		if len(a.Recent) > 0 {
+			clear = a.clearHistory
+		}
+		a.sidebarSection(c, "历史", &a.Profiles.HistoryClosed, clear, func() {
+			for _, h := range a.Recent {
+				hist := h
+				row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
+				if pathKey(hist) == pathKey(a.Root) {
+					row.Background(t.SurfacePressed)
 				}
+				row.Children(func() {
+					ui.Icon(c, dirIcon).FontSize(12)
+					ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
+					if at := a.Visited[hist]; at > 0 {
+						ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
+					}
+				})
+				row.ContextMenu(func(m *ui.Menu) {
+					if m.Item("清除历史记录").Chosen() {
+						a.clearHistory()
+					}
+				})
+				a.folderDropTarget(c, row, hist)
+				row.OnClick(func() { a.openFolder(hist) })
 			}
 		})
-		for _, h := range a.Recent {
-			hist := h
-			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-			if pathKey(hist) == pathKey(a.Root) {
-				row.Background(t.SurfacePressed)
+	})
+}
+
+// sidebarSection is a mygo SidebarSection whose folded state is the
+// preference *closed, saved when a click on its title changes it. clear,
+// when set, puts a small clear button at the title's end.
+func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, clear func(), fn func()) {
+	t := c.Theme()
+	open := !*closed
+	ui.Box(c.Key("section-"+title)).Padding(0, 4).Shrink(0).Children(func() {
+		ui.SidebarSection(c, title, &open, fn)
+		if clear != nil {
+			x := ui.Box(c.Key("clear")).Absolute().Top(5).Right(30).Padding(2).Radius(3).Tooltip("清除历史记录")
+			x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
+			if x.Clicked() {
+				clear()
 			}
-			row.Children(func() {
-				ui.Icon(c, dirIcon).FontSize(12)
-				ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
-				if at := a.Visited[hist]; at > 0 {
-					ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
-				}
-			})
-			row.ContextMenu(func(m *ui.Menu) {
-				if m.Item("清除历史记录").Chosen() {
-					a.clearHistory()
-				}
-			})
-			a.folderDropTarget(c, row, hist)
-			row.OnClick(func() { a.openFolder(hist) })
 		}
 	})
+	if open == *closed {
+		*closed = !open
+		savePrefs(a.Profiles)
+	}
 }
 
 func (a *appState) treeRow(c *ui.Context, path string) {
