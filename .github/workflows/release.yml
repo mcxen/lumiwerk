@@ -175,6 +175,21 @@ jobs:
       # build), then invoke the binary: go run would re-resolve and relink
       # it in every build job. -sign - keeps macOS ad-hoc (no Developer ID
       # on this repository yet); updates need only the Ed25519 update key.
+      # Windows: libmpv is not in the repository (only the macOS dylibs
+      # are), so fetch shinchiro's self-contained libmpv-2.dll into
+      # resources/<platform>; mygo ships it next to Lumiwerk.exe, where the
+      # loader looks first.
+      - name: Fetch libmpv for Windows
+        if: matrix.kind == 'windows'
+        shell: bash
+        run: |
+          set -eu
+          arch=x86_64; [ "${{ matrix.directory }}" = windows-arm64 ] && arch=aarch64
+          gh release download -R shinchiro/mpv-winbuild-cmake -p "mpv-dev-${arch}-2*.7z" -O mpv-dev.7z
+          mkdir -p "resources/${{ matrix.directory }}"
+          7z e -y mpv-dev.7z libmpv-2.dll -o"resources/${{ matrix.directory }}"
+          rm mpv-dev.7z
+          test -s "resources/${{ matrix.directory }}/libmpv-2.dll"
       - name: Build and upload to the draft release
         # GOFLAGS passes mpvbackend through mygo's productionTags into the
         # app build: the release bundles libmpv, so compile the real mpv
@@ -197,6 +212,9 @@ jobs:
           installer="$(find "dist/${{ matrix.directory }}" -maxdepth 1 -name '*-setup-*.exe' -type f -print -quit)"
           test -n "$installer"
           test -s "$installer"
+          for a in dist/${{ matrix.directory }}/*-${{ matrix.directory }}.tar.gz; do
+            if [ -e "$a" ]; then tar tzf "$a" | grep -q libmpv-2.dll; fi
+          done
       - name: Check Linux packages
         if: matrix.kind == 'linux'
         run: |
