@@ -80,7 +80,9 @@ func (a *appState) settingsWindow() {
 		StateKey:    "settings",
 		Content:     ui.View(a.settingsView),
 		AlwaysOnTop: true,
+		Hidden:      true,
 	})
+	w.OnReadyToShow(w.Show)
 	a.Settings.Window = w
 	w.OnClosed(func() {
 		delete(settingsUI.extra, w)
