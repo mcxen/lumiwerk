@@ -163,3 +163,11 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T20.1 侧栏顶栏避开红绿灯：TitleBarHiddenInset 下侧栏顶部留出拖拽条，收藏夹标题不再压住红绿灯；侧栏打开时工具栏不再额外左缩进
 - [x] T20.2 路径栏可点击：Breadcrumbs.Changed 后按段打开祖先目录（原先 chosen 只写在局部变量里）
 - [x] T20.3 「»」溢出菜单：布局分段与搜索框补 Label，消除空白蓝条与错位勾选
+
+## Phase 21: 播放内核流畅与发布精简
+
+- [x] T21.1 确认正式包用捆绑 libmpv（go-mpv/purego），FFmpeg 为后备；图↔视频卡顿根因：每次切换销毁并重建 mpv
+- [x] T21.2 复用 playback backend：`Park`/`loadfile replace`；加载中显示缩略图；离开大图才 Close
+- [x] T21.3 正常播放始终内置播放器；去掉「使用内置」开关对外抛的默认路径；右键保留「用系统播放器打开」
+- [x] T21.4 播放内核选型说明写入 `lumiwerk-ui-shots/player-options.md`（继续改进 libmpv）
+- [x] T21.5 发布资产精简：`updates.deltas=0`；发布前删除 install.sh/ps1 与 *.delta；保留 dmg / tar.gz / setup.exe / deb / update-*.json / SHA256SUMS
