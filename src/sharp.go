@@ -401,7 +401,7 @@ func decodeSharpRegion(path string, at float64, region sharpRegion) (*ui.Bitmap,
 }
 
 func sharpRegionJPEG(path string, at float64, region sharpRegion) ([]byte, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return nil, err
 	}
 	vf := fmt.Sprintf("crop=%d:%d:%d:%d", region.SrcW, region.SrcH, region.SrcX, region.SrcY)
@@ -414,7 +414,7 @@ func sharpRegionJPEG(path string, at float64, region sharpRegion) ([]byte, error
 		args = append(args, "-ss", fmt.Sprintf("%.3f", at))
 	}
 	args = append(args, "-i", path, "-vf", vf, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.Command(toolPath("ffmpeg"), args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

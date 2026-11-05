@@ -61,7 +61,7 @@ func (d *ffmpegDecoder) startLocked() error {
 	if d.started {
 		return nil
 	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return fmt.Errorf("ffmpeg not found: %w", err)
 	}
 	if d.sourceFrame <= 0 {
@@ -73,7 +73,7 @@ func (d *ffmpegDecoder) startLocked() error {
 	}
 	d.stderr = &strings.Builder{}
 	args := playbackArgsMapped(d.path, d.startAt, d.sourceFrame, d.plain, d.edge, d.audioMap, d.videoMap)
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.Command(toolPath("ffmpeg"), args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -90,7 +90,7 @@ func (d *ffmpegDecoder) startLocked() error {
 
 func probeFrameDuration(path string) time.Duration {
 	const fallback = 100 * time.Millisecond
-	out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
+	out, err := exec.Command(toolPath("ffprobe"), "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=avg_frame_rate,r_frame_rate",
 		"-of", "default=noprint_wrappers=1", path).Output()
 	if err != nil {
@@ -206,7 +206,7 @@ func grabVideoStill(path string, at float64) (image.Image, error) {
 	if at < 0 {
 		at = 0
 	}
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+	cmd := exec.Command(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", path,
 		"-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
 	out, err := cmd.Output()
@@ -475,7 +475,7 @@ type soundtrack struct {
 var errSoundtrackLate = errors.New("soundtrack late")
 
 func newSoundtrackRate(path string, at, speed float64) (*soundtrack, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return nil, err
 	}
 	if at < 0 {
@@ -508,7 +508,7 @@ func (d *soundtrack) startLocked(at float64) error {
 		d.stdout = nil
 	}
 	d.pending = nil
-	cmd := exec.Command("ffmpeg", soundtrackArgsMapped(d.path, at, d.audioMap, d.videoMap)...)
+	cmd := exec.Command(toolPath("ffmpeg"), soundtrackArgsMapped(d.path, at, d.audioMap, d.videoMap)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

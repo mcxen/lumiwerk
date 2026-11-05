@@ -146,3 +146,6 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T18.3 Video covers in release builds: ffmpeg resolved beyond the GUI PATH (Homebrew, exe folder, WinGet/Scoop/Chocolatey), then QuickLook (`qlmanage`) on macOS, then the bundled libmpv image output; failures logged with every attempt
 - [x] T18.4 History rows show the last visit right-aligned (HH:mm today, else MM-dd HH:mm), stored in history.json `visited`
 - [x] T18.5 清除历史记录 in the history header and the row context menu, saved at once
+- [x] T18.6 Embedded cover fast path (dhowden/tag, MP4/MOV/M4V `covr`, pure Go, ~0.1 ms vs 70–300 ms for an ffmpeg frame) before ffmpeg, QuickLook and libmpv
+- [x] T18.7 Trim, export, poster, playback fallback and ffprobe use the same ffmpeg/ffprobe lookup as covers (GUI-launched apps without a shell PATH)
+- [x] T18.8 Smaller clear-history control in the history header

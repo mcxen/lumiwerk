@@ -615,7 +615,7 @@ func (b *ffmpegBackend) validate(path string) error {
 
 // execLookPath is a variable so fallback construction is testable without a
 // machine-specific media installation.
-var execLookPath = func(file string) (string, error) { return exec.LookPath(file) }
+var execLookPath = lookTool
 
 func (b *ffmpegBackend) Name() string { return "FFmpeg" }
 
@@ -1065,7 +1065,7 @@ func markPlaybackTrack(tracks []playbackTrack, selected int) []playbackTrack {
 }
 
 func probePlaybackTracks(path string) (audio, video []playbackTrack) {
-	out, err := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", path).Output()
+	out, err := exec.Command(toolPath("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", path).Output()
 	if err != nil || len(out) == 0 {
 		return nil, nil
 	}

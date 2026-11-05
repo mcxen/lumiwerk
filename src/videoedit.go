@@ -57,7 +57,7 @@ func replaceWithTemp(original, temp string) error {
 }
 
 func runFFmpeg(args []string) error {
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.Command(toolPath("ffmpeg"), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -125,7 +125,7 @@ func cropVideoRect(path string, x, y, width, height int) error {
 }
 
 func cropWithFilter(path, filter string) error {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return errors.New("未找到 ffmpeg。")
 	}
 	ext := filepath.Ext(path)
@@ -162,7 +162,7 @@ func trimVideoLossless(src, dest string, start, end float64) error {
 	if end <= start {
 		return errors.New("裁剪结束时间必须晚于开始时间。")
 	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return errors.New("未找到 ffmpeg。")
 	}
 	tmp := dest + ".partial" + filepath.Ext(dest)
@@ -192,7 +192,7 @@ func exportVideoEdit(src, dest, filter string, start, end float64) error {
 	if end <= start {
 		return errors.New("裁剪结束时间必须晚于开始时间。")
 	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return errors.New("未找到 ffmpeg。")
 	}
 	tmp := dest + ".partial" + filepath.Ext(dest)

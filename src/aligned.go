@@ -1536,8 +1536,12 @@ func (a *appState) sidebarView(c *ui.Context) {
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
-			if len(a.History) > 0 && lucideIconButton(c, "history-clear", "清除历史记录", lucideClose).Clicked() {
-				a.clearHistory()
+			if len(a.History) > 0 {
+				x := ui.Box(c).Padding(2).Radius(3).Tooltip("清除历史记录")
+				x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
+				if x.Clicked() {
+					a.clearHistory()
+				}
 			}
 		})
 		for i, h := range a.History {

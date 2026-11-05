@@ -813,13 +813,13 @@ func validSegments(segs []editSegment, duration float64) []editSegment {
 }
 
 func videoThumbAt(path string, at float64) (*ui.Bitmap, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, err := lookTool("ffmpeg"); err != nil {
 		return nil, err
 	}
 	if at < 0 {
 		at = 0
 	}
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+	cmd := exec.Command(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", path,
 		"-frames:v", "1", "-vf", "scale=160:90:force_original_aspect_ratio=increase,crop=160:90",
 		"-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "6", "-")
