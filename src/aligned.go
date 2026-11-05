@@ -551,6 +551,7 @@ func (a *appState) scanFolder(root string, seq int) {
 			return
 		}
 		a.noteSelectionAnchorLocked()
+		carryItemState(a.Items, files)
 		a.Items = files
 		a.applyFilterLocked()
 		a.restorePendingSelection()
@@ -2751,4 +2752,27 @@ func (a *appState) saveProfile(i int) {
 	a.Profiles.Profiles[i] = a.currentProfile()
 	a.Profiles.Active = i
 	savePrefs(a.Profiles)
+}
+
+// carryItemState keeps what a rescan of the same folder already knows:
+// unchanged files (same path, size and time) keep their thumbnail, info
+// and tags, so a watcher event only loads what was added or changed and
+// the grid does not flash every card back to a spinner.
+func carryItemState(old, fresh []mediaItem) {
+	if len(old) == 0 {
+		return
+	}
+	byPath := make(map[string]*mediaItem, len(old))
+	for i := range old {
+		byPath[old[i].Path] = &old[i]
+	}
+	for i := range fresh {
+		o := byPath[fresh[i].Path]
+		if o == nil || o.Size != fresh[i].Size || o.ModTime != fresh[i].ModTime || o.Loading {
+			continue
+		}
+		f := &fresh[i]
+		f.Bitmap, f.Decoded, f.Failed, f.ThumbEdge = o.Bitmap, o.Decoded, o.Failed, o.ThumbEdge
+		f.Info, f.InfoLoaded, f.Tags = o.Info, o.InfoLoaded, o.Tags
+	}
 }
