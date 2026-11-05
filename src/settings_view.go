@@ -303,7 +303,7 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"view", "媒体单元模式", "media unit 媒体 单元"},
 		{"actions", "复制目标目录", "copy destination 复制 目标"},
 		{"actions", "删除前确认", "confirm delete 删除 确认"},
-		{"actions", "使用外部播放器", "external player 外部 播放器"},
+		{"actions", "用系统播放器打开", "system player 系统 播放器 外部"},
 		{"actions", "快捷操作", "quick action shortcut 快捷 操作"},
 		{"actions", "快速重命名", "quick rename rule 重命名"},
 		{"actions", "ZIP 默认密码", "zip password archive 压缩 密码"},

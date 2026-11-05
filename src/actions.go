@@ -245,6 +245,9 @@ func (a *appState) largeContextMenu(m *ui.Menu, item *mediaItem) {
 	if item != nil && item.IsVideo && m.Item("另存视频…").Chosen() {
 		a.chooseVideoSave(item)
 	}
+	if item != nil && item.IsVideo && m.Item("用系统播放器打开").Chosen() {
+		_ = openWithDefault(item.Path)
+	}
 	m.Separator()
 	a.fileMenu(m, false)
 }

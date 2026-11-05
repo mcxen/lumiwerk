@@ -108,10 +108,8 @@ func (a *appState) openItem(index int) {
 		_ = openWithDefault(item.Path)
 		return
 	}
-	if item.IsVideo && !a.Profiles.View.InternalPlayer {
-		_ = openWithDefault(item.Path)
-		return
-	}
+	// Videos always open in the built-in player (libmpv / FFmpeg). External
+	// players are available from the context menu only.
 	a.openLargeImage(index)
 }
 
@@ -155,10 +153,6 @@ func (a *appState) viewMenu(m *ui.Menu) {
 	m.Separator()
 	if m.Item("自动播放选中视频").Checked(view.AutoPlaySelected).Chosen() {
 		a.Profiles.View.AutoPlaySelected = !view.AutoPlaySelected
-		savePrefs(a.Profiles)
-	}
-	if m.Item("使用内置视频播放器").Checked(view.InternalPlayer).Chosen() {
-		a.Profiles.View.InternalPlayer = !view.InternalPlayer
 		savePrefs(a.Profiles)
 	}
 	m.Item("说明…").Disabled(true)
