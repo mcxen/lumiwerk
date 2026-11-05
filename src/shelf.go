@@ -20,13 +20,13 @@ func (a *appState) ensureMainWindow() {
 	if a.Window != nil {
 		return
 	}
-	w := mygo.NewWindow(mygo.WindowOptions{
+	w := mygo.NewWindow(windowChrome(mygo.WindowOptions{
 		Title:    appName,
 		Width:    1280,
 		Height:   820,
 		StateKey: mainWindowStateKey,
 		Content:  ui.View(a.view),
-	})
+	}))
 	w.OnClose(a.mainWindowClosing)
 	w.OnShow(func() { a.unshelve() })
 	w.OnClosed(func() {

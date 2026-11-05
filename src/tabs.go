@@ -72,6 +72,9 @@ func (a *appState) tabsBar(c *ui.Context) {
 	}
 	t := c.Theme()
 	bar := ui.Row(c).Gap(4).Padding(4, 6).Background(t.Surface)
+	if tb := c.TitleBar(); tb.Left > 0 {
+		bar.Padding(4, 6, 4, tb.Left+6).DragWindow()
+	}
 	bar.Children(func() {
 		for i, tb := range a.Tabs.Tabs {
 			i := i

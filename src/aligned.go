@@ -1389,7 +1389,7 @@ func (a *appState) rootView(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyG) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() && !a.Editor.Open {
 		a.toggleGallery()
 	}
-	if c.Shortcut(0, ui.KeyT) && a.galleryImmersive() {
+	if c.Shortcut(0, ui.KeyH) && a.galleryActive() {
 		a.galleryPeek = !a.galleryPeek
 	}
 	if c.Shortcut(0, ui.KeyI) && a.InLargeView {
@@ -1603,7 +1603,7 @@ func (a *appState) mainView(c *ui.Context) {
 		a.folderDropTarget(c, col, a.Root)
 	}
 	col.Children(func() {
-		if !a.galleryImmersive() {
+		if !a.galleryActive() {
 			a.tabsBar(c)
 			a.toolbarView(c)
 			ui.Divider(c)
@@ -1625,7 +1625,7 @@ func (a *appState) mainView(c *ui.Context) {
 		} else {
 			a.gridView(c)
 		}
-		if !a.galleryImmersive() {
+		if !a.galleryActive() {
 			a.statusBar(c)
 		}
 		if !a.InLargeView {
@@ -1715,7 +1715,12 @@ func (a *appState) toolbarView(c *ui.Context) {
 		}
 		lucideMenuButton(c, "显示与浏览", a.viewMenu)
 	}).Padding(6, 10).Background(t.Surface)
-	_ = bar
+	// Under a hidden macOS title bar the top row keeps clear of the
+	// traffic lights and drags the window.
+	if tb := c.TitleBar(); tb.Left > 0 && len(a.Tabs.Tabs) == 0 {
+		s := t.Space(1)
+		bar.Padding(s, s, s, tb.Left+s).DragWindow()
+	}
 }
 
 func (a *appState) breadcrumbPath() string {
@@ -1865,7 +1870,7 @@ func (a *appState) largeImageView(c *ui.Context) {
 	}
 	a.ensureMediaInfo(item)
 	bg := t.Background
-	if a.galleryImmersive() {
+	if a.galleryActive() {
 		bg = ui.RGB(0, 0, 0)
 	}
 	box := ui.Box(c).Fill().Background(bg)
@@ -1921,7 +1926,9 @@ func (a *appState) largeImageView(c *ui.Context) {
 		a.mediaOverlay(c, item)
 		a.zoomHUD(c)
 		a.edgeArrows(c)
-		a.largeControls(c, item)
+		if !a.galleryActive() {
+			a.largeControls(c, item)
+		}
 	})
 }
 
