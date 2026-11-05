@@ -162,6 +162,8 @@ type appState struct {
 	columnY      float32
 
 	InLargeView     bool
+	Gallery         bool
+	galleryPeek     bool
 	Hero            heroState
 	LargeIndex      int
 	Zoom            float32
@@ -1384,6 +1386,12 @@ func (a *appState) rootView(c *ui.Context) {
 			a.openItem(a.Chosen)
 		}
 	}
+	if c.Shortcut(0, ui.KeyG) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() && !a.Editor.Open {
+		a.toggleGallery()
+	}
+	if c.Shortcut(0, ui.KeyT) && a.galleryImmersive() {
+		a.galleryPeek = !a.galleryPeek
+	}
 	if c.Shortcut(0, ui.KeyI) && a.InLargeView {
 		a.Info.EXIF = !a.Info.EXIF
 	}
@@ -1595,10 +1603,14 @@ func (a *appState) mainView(c *ui.Context) {
 		a.folderDropTarget(c, col, a.Root)
 	}
 	col.Children(func() {
-		a.tabsBar(c)
-		a.toolbarView(c)
-		ui.Divider(c)
-		if a.InLargeView {
+		if !a.galleryImmersive() {
+			a.tabsBar(c)
+			a.toolbarView(c)
+			ui.Divider(c)
+		}
+		if a.galleryActive() {
+			a.galleryView(c)
+		} else if a.InLargeView {
 			a.largeImageView(c)
 		} else if a.Root == "" {
 			a.emptyView(c)
@@ -1613,7 +1625,9 @@ func (a *appState) mainView(c *ui.Context) {
 		} else {
 			a.gridView(c)
 		}
-		a.statusBar(c)
+		if !a.galleryImmersive() {
+			a.statusBar(c)
+		}
 		if !a.InLargeView {
 			a.zoomHUD(c)
 		}
@@ -1682,6 +1696,13 @@ func (a *appState) toolbarView(c *ui.Context) {
 				})
 				ui.Box(c).Width(1).Height(18).Background(t.Border)
 				a.layoutSwitcher(c)
+				g := lucideIconButton(c, "gallery", "画廊 (G)", galleryIcon)
+				if a.Gallery {
+					g.Background(t.Accent)
+				}
+				if g.Clicked() {
+					a.toggleGallery()
+				}
 				oldThumb := a.Thumb
 				beforeBand := thumbBand(thumbEdge(a.Thumb))
 				box := a.browseBox
@@ -1843,7 +1864,11 @@ func (a *appState) largeImageView(c *ui.Context) {
 		return
 	}
 	a.ensureMediaInfo(item)
-	box := ui.Box(c).Fill().Background(t.Background)
+	bg := t.Background
+	if a.galleryImmersive() {
+		bg = ui.RGB(0, 0, 0)
+	}
+	box := ui.Box(c).Fill().Background(bg)
 	a.tickLongPress(c, item)
 	box.Children(func() {
 		// The gesture surface sits behind the controls so buttons still receive clicks.
