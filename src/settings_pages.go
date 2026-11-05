@@ -183,6 +183,13 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 		}
 		setSlider(c, "workers", "后台解码并发", &a.Settings.Workers, 1, 16, "")
 	})
+	setGroup(c, "更新", func() {
+		if setSelect(c, "update-source", "更新源", &a.Settings.UpdateSource, updateSourceChoices, updateSourceName) {
+			a.Profiles.UpdateSource = a.Settings.UpdateSource
+			savePrefs(a.Profiles)
+			applyUpdateSource(a.Profiles.UpdateSource)
+		}
+	})
 	setGroup(c, "清理缓存", func() {
 		setRow(c, "已用", func() {
 			ui.Text(c, fmt.Sprintf("内存 %.0f / %.0f MiB · 磁盘 %.0f MiB",

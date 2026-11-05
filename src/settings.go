@@ -34,6 +34,8 @@ type settingsState struct {
 	StartFolder string
 	// Layout is the default layout chosen on the view pane.
 	Layout int
+	// UpdateSource is the updater download source (update_mirror.go).
+	UpdateSource string
 }
 
 func (a *appState) openSettings() {
@@ -53,6 +55,7 @@ func (a *appState) openSettings() {
 		ZipPassword:    a.Profiles.ZipPassword,
 		ZipUsePassword: a.Profiles.ZipUsePassword,
 		Layout:         a.LayoutMode,
+		UpdateSource:   a.Profiles.UpdateSource,
 	}
 	if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
 		a.Settings.StartFolder = a.Profiles.Profiles[active].Root
