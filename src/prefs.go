@@ -74,8 +74,8 @@ type prefsFile struct {
 	// RestoreOff is the persisted opt-out for restoring the last session.
 	RestoreOff bool `json:"restoreOff,omitempty"`
 	// CloseAction is what the main window's close button and Cmd+W do.
-	// closeToTray (the default) hides the window and leaves the app
-	// running; closeQuit quits. Anything else is treated as closeToTray.
+	// closeToTray (the default) hides the window into the tray and leaves
+	// the app running; closeQuit quits. Anything else is treated as closeToTray.
 	CloseAction string `json:"closeAction,omitempty"`
 	// DetailColumns keeps the widths and order of the list layout's columns.
 	DetailColumns ui.TableLayout `json:"detailColumns,omitempty"`
@@ -85,7 +85,7 @@ type prefsFile struct {
 }
 
 const (
-	// closeToTray hides the main window into the menu bar.
+	// closeToTray hides the main window into the system tray.
 	closeToTray = "tray"
 	// closeQuit quits the app when the main window closes.
 	closeQuit = "quit"

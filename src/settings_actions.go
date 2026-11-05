@@ -7,25 +7,19 @@ import (
 
 func (a *appState) settingsActionsPage(c *ui.Context, pal *settingsPalette) {
 	setGroup(c, "键盘", func() {
-		setChoice(c, "enter", "按 Enter 时", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开 / 关闭"})
-		if setSelect(c, "imgshortcut", "图片复制快捷键", &a.Settings.ImageShortcut, shortcutChoices, shortcutName) {
+		setChoice(c, "enter", "按 Enter 时", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开/关闭"})
+		if setSelect(c, "imgshortcut", "图片复制键", &a.Settings.ImageShortcut, shortcutChoices, shortcutName) {
 			a.applyActionSettings()
 		}
-		if setSelect(c, "vidshortcut", "视频复制快捷键", &a.Settings.VideoShortcut, shortcutChoices, shortcutName) {
+		if setSelect(c, "vidshortcut", "视频复制键", &a.Settings.VideoShortcut, shortcutChoices, shortcutName) {
 			a.applyActionSettings()
 		}
 		if warning := shortcutConflict(a.Settings.ImageShortcut, a.Settings.VideoShortcut); warning != "" {
 			setRow(c, "", func() { ui.Text(c, warning).FontSize(12).TextColor(pal.warn) })
 		}
-		if setButton(c, "shortcut-guide", "快捷键", "快捷键对照") {
-			safeGo("dialog.shortcutGuide", func() { a.showOperationGuide(true) })
-		}
-		if setButton(c, "operation-guide", "操作说明", "查看") {
-			safeGo("dialog.operationGuide", func() { a.showOperationGuide(false) })
-		}
 	})
 	setGroup(c, "文件操作", func() {
-		if setText(c, "quickrule", "快速重命名规则", &a.Settings.QuickRule, "", "应用", false) {
+		if setText(c, "quickrule", "重命名规则", &a.Settings.QuickRule, "", "应用", false) {
 			a.applyActionSettings()
 		}
 		if setText(c, "dest-image", "图片复制到", &a.Settings.Dest, "", "选择…", false) {

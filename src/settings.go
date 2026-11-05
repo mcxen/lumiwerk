@@ -25,7 +25,6 @@ type settingsState struct {
 	PlaybackEnd    string
 	ShowArchives   bool
 	CacheCap       float64
-	Workers        float64
 	QuickRule      string
 	ZipPassword    string
 	ZipUsePassword bool
@@ -49,8 +48,7 @@ func (a *appState) openSettings() {
 		EnterOpens:     a.Profiles.EnterOpens,
 		PlaybackEnd:    normalizePlaybackEnd(a.Profiles.PlaybackEnd),
 		ShowArchives:   a.Profiles.View.Archives,
-		CacheCap:       float64(thumbLRU.limit),
-		Workers:        float64(cap(thumbGate)),
+		CacheCap:       cacheCapMiB(thumbLRU.Limit()),
 		QuickRule:      a.Profiles.QuickRename,
 		ZipPassword:    a.Profiles.ZipPassword,
 		ZipUsePassword: a.Profiles.ZipUsePassword,
@@ -79,6 +77,19 @@ func (a *appState) setStartFolder(path string) {
 		a.Profiles.Profiles[i].Root = path
 		savePrefs(a.Profiles)
 	}
+}
+
+// cacheCapMiB converts the thumbnail cache byte budget to the MiB value
+// shown on the advanced settings slider (64–1024).
+func cacheCapMiB(bytes int) float64 {
+	mib := float64((bytes + (1 << 20) - 1) >> 20)
+	if mib < 64 {
+		return 64
+	}
+	if mib > 1024 {
+		return 1024
+	}
+	return mib
 }
 
 func firstNonEmpty(values ...string) string {
@@ -169,27 +180,4 @@ func (a *appState) pickActionDestination(kind string) {
 		}
 		a.applyActionSettings()
 	})
-}
-
-func (a *appState) showOperationGuide(shortcuts bool) {
-	message := "单击选择，双击打开；空格打开或播放/暂停。左右方向键切换媒体，滚轮或双指缩放，Esc 退出大图。"
-	if shortcuts {
-		message = fmt.Sprintf(`快捷键对照：
-
-图片复制：%s    视频复制：%s
-空格：打开/播放暂停    Esc：退出大图
-左右：图片切换；视频 ±5 秒    Shift+左右：视频 ±1 秒
-J/L：视频 ±10 秒    K 或空格：播放/暂停    上下：视频音量
-Home/End：视频到首尾    0–9：视频跳到 0%%–90%%
-Cmd+左右：视频逐帧    Cmd+S：截存画面    M：视频静音，图片移到下载
-Q/E：左旋/右旋    F：视频全屏，图片镜像    Z：缩放 100%%    X：缩放适合
-W/S：放大/缩小    =/-：缩略图放大/缩小    0：重置缩略图
-1：最大化    2：合适窗口    5：居中    3/4：图片窗口适配
-T：窗口置顶    Cmd+Down：打开选中项
-I：信息/EXIF    U：文件简介    F2：重命名    F3：搜索    F5：刷新
-Delete：移到废纸篓    Cmd+1~9：Finder 标签    Ctrl+1~5：评级
-Alt+Enter：全屏    Opt+1~9：切换配置    Cmd+Opt+1~9：保存配置`,
-			a.Settings.ImageShortcut, a.Settings.VideoShortcut)
-	}
-	_, _ = mygo.Dialog.Message(mygo.MessageOptions{Parent: a.Settings.Window, Title: "操作指引", Message: message, Buttons: []string{"好"}})
 }
