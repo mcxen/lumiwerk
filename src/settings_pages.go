@@ -193,7 +193,7 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 		}
 		if v := availableUpdate(); v != "" {
 			setRow(c, "新版本可用", func() {
-				ui.Text(c, "v"+strings.TrimPrefix(v, "v")).FontSize(13).TextColor(c.Theme().Text)
+				updateBadge(c, "v"+strings.TrimPrefix(v, "v"), pal)
 			})
 		}
 	})
@@ -225,5 +225,13 @@ func availableUpdate() (v string) {
 			v = ""
 		}
 	}()
-	return updater.AvailableVersion()
+	return updateProbe()
+}
+
+// updateProbe reads the version the updater found; tests replace it.
+var updateProbe = updater.AvailableVersion
+
+// updateBadge is a mygo Badge in the accent color, for a newer version.
+func updateBadge(c *ui.Context, text string, pal *settingsPalette) ui.Element {
+	return ui.Badge(c, text).Background(pal.accent).TextColor(ui.Hex("#ffffff"))
 }
