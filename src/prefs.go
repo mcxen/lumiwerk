@@ -58,6 +58,7 @@ type prefsFile struct {
 	ViewSet           bool                  `json:"viewSet"`
 	ImageDestination  string                `json:"imageDestination,omitempty"`
 	VideoDestination  string                `json:"videoDestination,omitempty"`
+	UpdateSource      string                `json:"updateSource,omitempty"`
 	ImageCopyShortcut string                `json:"imageCopyShortcut,omitempty"`
 	VideoCopyShortcut string                `json:"videoCopyShortcut,omitempty"`
 	EnterOpens        bool                  `json:"enterOpens,omitempty"`
