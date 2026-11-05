@@ -756,10 +756,32 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 	a.playerPtrSeen = false
 	a.playerEndSeen = false
 	a.playerSkipClick = false
-	a.shutdownVideo()
 	volume := a.VideoVolume
 	if volume < 0 {
 		volume = 0
+	}
+	// Keep one libmpv/FFmpeg backend across image↔video and video↔video
+	// switches: tearing it down and recreating the render thread is what
+	// made stepping through a mixed folder feel janky.
+	if a.Video != nil && a.Video.kernel != nil {
+		a.Video.path = path
+		a.Video.frame = nil
+		a.Video.Still = nil
+		a.Video.err = nil
+		a.Video.kernel.SetVolume(volume)
+		if err := a.Video.kernel.Open(path, at, playing); err != nil {
+			a.Video.err = err
+			logErrorf("video.open: path=%s err=%v", path, err)
+			return
+		}
+		if edgeBackend, ok := a.Video.kernel.backend.(*ffmpegBackend); ok {
+			edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
+			edgeBackend.SetNotify(func() { a.update(func() {}) })
+		}
+		if !playing {
+			a.requestSharpFrame()
+		}
+		return
 	}
 	kernel := newPlaybackSession()
 	kernel.SetVolume(volume)
@@ -779,6 +801,20 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 	if !playing {
 		a.requestSharpFrame()
 	}
+}
+
+// parkVideo pauses and unloads the current file but keeps the playback
+// backend alive for the next video. Used when the large view shows an image.
+func (a *appState) parkVideo() {
+	if a.Video == nil || a.Video.kernel == nil {
+		return
+	}
+	a.Video.kernel.Park()
+	a.Video.path = ""
+	a.Video.frame = nil
+	a.Video.Still = nil
+	a.Video.err = nil
+	a.playerEndSeen = false
 }
 
 func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bitmap {
@@ -826,6 +862,25 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 				return
 			}
 			ui.Text(c, "视频解码失败").TextColor(c.Theme().Danger)
+			return
+		}
+		// Show the grid thumbnail immediately while libmpv warms up the
+		// first frame — avoids a blank stage on image→video switches.
+		if item := a.currentItem(); item != nil && item.Bitmap != nil {
+			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
+			if transformed {
+				img.Transform(a.transform())
+			}
+			ui.Row(c).Attach(ui.AnchorCenter, ui.AnchorBottom).Gap(8).
+				Padding(8, 12).Radius(8).Background(ui.RGBA(0, 0, 0, 0.55)).AlignItems(ui.Center).
+				Children(func() {
+					ui.Spinner(c)
+					label := "正在加载"
+					if snapshot.Phase == playBuffering {
+						label = "正在缓冲"
+					}
+					ui.Text(c, label).FontSize(12).TextColor(ui.RGB(255, 255, 255))
+				})
 			return
 		}
 		ui.Column(c).AlignItems(ui.Center).Gap(8).Children(func() {

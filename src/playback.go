@@ -223,6 +223,29 @@ func (s *playbackSession) Close() {
 	s.err = nil
 }
 
+// Park pauses and unloads the current file without destroying the backend
+// (libmpv render thread / FFmpeg process). The next Open reuses it.
+func (s *playbackSession) Park() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.backend == nil {
+		return
+	}
+	s.playing = false
+	s.backend.SetPlaying(false)
+	if p, ok := s.backend.(interface{ Park() }); ok {
+		p.Park()
+	}
+	s.path = ""
+	s.frame = nil
+	s.ready = false
+	s.ended = false
+	s.seekPending = false
+	s.scrubbing = false
+	s.phase = playIdle
+	s.err = nil
+}
+
 func (s *playbackSession) SetPlaying(playing bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -677,6 +700,19 @@ func (b *ffmpegBackend) Close() error {
 	b.stopLocked()
 	b.mu.Unlock()
 	return nil
+}
+
+// Park stops the decoder/audio but leaves the backend reusable for Open.
+func (b *ffmpegBackend) Park() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	b.stopLocked()
+	b.path = ""
+	b.playing = false
+	b.frame = nil
 }
 
 func (b *ffmpegBackend) SetNotify(fn func()) {

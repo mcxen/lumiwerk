@@ -2574,8 +2574,14 @@ func (a *appState) openLargeImage(index int) {
 	a.Zoom, a.Rotation, a.Mirror = 1, 0, false
 	a.PanX, a.PanY = 0, 0
 	a.HUD, a.HUDUntil = "", time.Time{}
-	a.closeVideo()
 	item := &a.Items[a.Visible[index]]
+	// Keep the libmpv/FFmpeg backend across switches: park on image, reuse
+	// on the next video. Full teardown only happens when leaving large view.
+	if item.IsVideo {
+		// ensureVideo / openPlayback will loadfile-replace on the live core.
+	} else {
+		a.parkVideo()
+	}
 	a.setTitle(fmt.Sprintf("%s (%d/%d)", item.Name, index+1, len(a.Visible)))
 	if !item.Decoded && !item.Failed && !item.Loading {
 		a.loadThumb(a.Root, a.Visible[index])

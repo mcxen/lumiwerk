@@ -169,6 +169,17 @@ func (b *mpvBackend) Close() error {
 	return nil
 }
 
+// Park unloads the file but keeps the libmpv core and software renderer.
+func (b *mpvBackend) Park() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.frame = nil
+	if b.core == nil {
+		return
+	}
+	_ = b.core.CommandString("stop")
+}
+
 func (b *mpvBackend) Frame() image.Image {
 	b.mu.Lock()
 	defer b.mu.Unlock()
