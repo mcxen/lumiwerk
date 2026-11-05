@@ -135,7 +135,7 @@ func TestGeneralSettingsPersistsCloseAction(t *testing.T) {
 		a.settingsGeneralPage(c, settingsPaletteFor(c))
 	}, 900, 700)
 	te.Frame()
-	if !te.HasText("关闭窗口时") || !te.HasText("收进菜单栏") || !te.HasText("直接退出") {
+	if !te.HasText("关闭窗口时") || !te.HasText("隐藏到托盘") || !te.HasText("直接退出") {
 		t.Fatalf("close setting missing: %q", te.Texts())
 	}
 	if err := te.Click("直接退出"); err != nil {
