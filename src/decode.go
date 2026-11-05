@@ -10,8 +10,19 @@ import (
 	"os"
 	"sync"
 
+	// HEIC/HEIF decoder for image.Decode (libheif in WebAssembly, no cgo);
+	// macOS still prefers sips, this covers Linux, Windows and sips failures.
+	"github.com/gen2brain/heic"
 	"golang.org/x/image/draw"
 )
+
+// heic registers itself for the heic/heix/hevc brands; many cameras and
+// converters write the generic mif1 brand as the major one.
+func init() {
+	for _, brand := range []string{"mif1", "msf1"} {
+		image.RegisterFormat("heic", "????ftyp"+brand, heic.Decode, heic.DecodeConfig)
+	}
+}
 
 // decodePool reuses JPEG readers' internal buffers across calls.
 var decodeBufs sync.Pool
