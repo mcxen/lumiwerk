@@ -219,10 +219,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      # The build jobs uploaded installers, update archives, deltas and
-      # manifests to the draft release. Verify the set is complete — a
-      # release without a platform's manifest would strand its apps —
-      # then publish it, which makes installed apps see the update.
+      # The build jobs uploaded installers and update archives/manifests.
+      # Strip install scripts / deltas, verify the kept set, then publish.
       - name: Verify and publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -235,8 +233,22 @@ jobs:
             echo "::error::$tag is published already; bump the version in mygo.json to release again" >&2
             exit 1
           fi
+          # Drop install scripts, deltas and other clutter mygo -upload may
+          # still attach; keep only the installers users actually download
+          # plus updater manifests and SHA256SUMS.
           names="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
-          want="install.sh SHA256SUMS lumiwerk-$version.dmg"
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            case "$name" in
+              install.sh|install.ps1|*.delta|*.blockmap|latest*.yml)
+                echo "removing $name"
+                gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes
+                ;;
+            esac
+          done <<< "$names"
+          names="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          # darwin-universal covers both Apple Silicon and Intel.
+          want="SHA256SUMS lumiwerk-$version.dmg"
           for p in darwin-universal windows-amd64 windows-arm64 linux-amd64 linux-arm64; do
             a="lumiwerk-$version-$p.tar.gz"
             want="$want $a update-$p.json"
@@ -285,7 +297,7 @@ jobs:
               if [ -z "$url" ]; then continue; fi
               name="${url##*/}"
               case "$name" in
-                update-*|*.delta|*.blockmap|*.json|latest*.yml) continue ;;
+                update-*|*.delta|*.blockmap|*.json|latest*.yml|install.sh|install.ps1) continue ;;
               esac
               echo "- [${name}](https://tvv.tw/${url})"
               n=$((n+1))
