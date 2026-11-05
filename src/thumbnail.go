@@ -10,8 +10,8 @@ import (
 // but stays small enough that a folder of photos does not decode originals.
 func thumbEdge(slider float64) int {
 	edge := int(slider * 2)
-	if edge < 384 {
-		edge = 384
+	if edge < 256 {
+		edge = 256
 	}
 	if edge > 1024 {
 		edge = 1024
@@ -23,6 +23,8 @@ func thumbEdge(slider float64) int {
 // does not rebuild every thumbnail for a one-pixel change.
 func thumbBand(edge int) int {
 	switch {
+	case edge <= 256:
+		return 256
 	case edge < 448:
 		return 384
 	case edge < 640:

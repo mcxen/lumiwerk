@@ -281,6 +281,9 @@ func selectionChrome(c *ui.Context, el ui.Element, on bool) {
 // The canvas is one fixed-height spacer; cards are absolutely positioned
 // children built only for the visible window, so a folder of 100k photos
 // builds tens of widgets a frame instead of all of them.
+// flowOverscan is how many screens the flow layouts build past each edge.
+const flowOverscan = 0.5
+
 func (a *appState) waterfallView(c *ui.Context) {
 	root := a.Root
 	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
@@ -302,13 +305,14 @@ func (a *appState) waterfallView(c *ui.Context) {
 		contentH = height
 	}
 	a.revealFlow(boxes, height)
-	// The scroll window the cards must cover, grown one screen each way
-	// so fast scrolling shows cards instead of gaps.
-	top := a.browseScroll.Y - height
+	// The scroll window the cards must cover, grown half a screen each
+	// way so fast scrolling shows cards instead of gaps; a full screen
+	// built and painted three screens of cards every frame.
+	top := a.browseScroll.Y - height*flowOverscan
 	if top < 0 {
 		top = 0
 	}
-	bottom := a.browseScroll.Y + height*2
+	bottom := a.browseScroll.Y + height*(1+flowOverscan)
 	if bottom > contentH {
 		bottom = contentH
 	}
@@ -359,8 +363,8 @@ func (a *appState) justifiedView(c *ui.Context) {
 	// Rows have one height, so the visible ones follow from the scroll
 	// offset: build those plus one screen each way, and stand the rest in
 	// with two spacers, as waterfallView does with its canvas.
-	first := int((a.browseScroll.Y - height - flowPad) / stride)
-	last := int((a.browseScroll.Y+height*2-flowPad)/stride) + 1
+	first := int((a.browseScroll.Y - height*flowOverscan - flowPad) / stride)
+	last := int((a.browseScroll.Y+height*(1+flowOverscan)-flowPad)/stride) + 1
 	first = max(0, min(first, len(rows)))
 	last = max(first, min(last, len(rows)))
 	scroll.Children(func() {

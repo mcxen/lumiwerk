@@ -137,3 +137,5 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T17.4 Mixed images and videos: videos in strip and progress bar, inline playback through the existing playback session (libmpv with `mpvbackend`, FFmpeg fallback)
 - [x] T17.5 Plain large view kept: Space opens it, Up/Down step previous/next media (video volume on Shift+Up/Down)
 - [x] T17.6 macOS hidden title bar (`TitleBarHiddenInset`): traffic lights over the toolbar, which pads past them and drags the window
+- [x] T17.7 Sidebar Finder tags section removed on every platform (with the tag filter it drove); tags stay in sort and context menus
+- [x] T17.8 Tiled browsing speed: queued thumbnail decodes no longer leave a scrolled-past card stuck loading; flow layouts build half a screen past each edge (justified 260→195 cards per frame); thumbnails ≤128 decode at 256 px (decode −17%, pixels −56%)

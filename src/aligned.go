@@ -1080,13 +1080,6 @@ func (a *appState) loadThumb(root string, index int) {
 			a.clearThumbClaim(index, path, gen)
 			return
 		}
-		// 检查是否已滚动出屏幕超过 1 秒，优先可见项
-		if index < len(a.Items) {
-			seen := atomic.LoadInt64(&a.Items[index].Seen)
-			if seen > 0 && time.Since(time.Unix(0, seen)) > time.Second {
-				return
-			}
-		}
 		if a.thumbAbandoned(index, path, gen) {
 			return
 		}
