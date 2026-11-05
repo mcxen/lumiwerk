@@ -55,7 +55,7 @@ func baseName(path string) string {
 // mediaThumbJPEG decodes through Go; videos go through ffmpeg when installed.
 func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 	if video {
-		return videoThumbJPEGFFmpeg(path, edge)
+		return videoThumb(path, edge)
 	}
 	if edge < 64 {
 		edge = 64
@@ -63,21 +63,9 @@ func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 	return goThumbnailJPEG(path, edge)
 }
 
-func videoThumbJPEGFFmpeg(path string, edge int) ([]byte, error) {
-	if edge < 64 {
-		edge = 64
-	}
-	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path,
-		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, errors.New("empty video thumbnail")
-	}
-	return out, nil
+// platformVideoThumb: no built-in video thumbnailer is used here yet.
+func platformVideoThumb(path string, edge int) ([]byte, error) {
+	return nil, errors.New("no platform thumbnailer")
 }
 
 // platformTags: Linux has no file tags this app can read and write yet.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -77,7 +78,7 @@ end tell`, strconv.Quote(path))
 // the system ImageIO service (sips) decodes HEIC, RAW and everything else.
 func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 	if video {
-		return videoThumbJPEGFFmpeg(path, edge)
+		return videoThumb(path, edge)
 	}
 	if edge < 64 {
 		edge = 64
@@ -100,22 +101,23 @@ func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
-// videoThumbJPEGFFmpeg takes one scaled frame of a video.
-func videoThumbJPEGFFmpeg(path string, edge int) ([]byte, error) {
-	if edge < 64 {
-		edge = 64
-	}
-	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path,
-		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
-	out, err := cmd.Output()
+// platformVideoThumb asks QuickLook (qlmanage ships with macOS) for the
+// cover of the formats AVFoundation reads.
+func platformVideoThumb(path string, edge int) ([]byte, error) {
+	dir, err := os.MkdirTemp("", "lumiwerk-ql-*")
 	if err != nil {
 		return nil, err
 	}
-	if len(out) == 0 {
-		return nil, errors.New("empty video thumbnail")
+	defer os.RemoveAll(dir)
+	cmd := exec.Command("/usr/bin/qlmanage", "-t", "-s", strconv.Itoa(edge), "-o", dir, path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("qlmanage: %v %s", err, strings.TrimSpace(string(out)))
 	}
-	return out, nil
+	data, err := os.ReadFile(filepath.Join(dir, filepath.Base(path)+".png"))
+	if err != nil {
+		return nil, fmt.Errorf("qlmanage: no thumbnail: %w", err)
+	}
+	return data, nil
 }
 
 // platformTags reads Finder tags through the xattr metadata.
