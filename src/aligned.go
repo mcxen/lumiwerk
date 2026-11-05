@@ -1090,7 +1090,14 @@ func (a *appState) loadThumb(root string, index int) {
 		if a.thumbAbandoned(index, path, gen) {
 			return
 		}
-		data, err := thumbBytes(path, video, edge)
+		data, fromDisk := diskThumbs.Get(path, edge)
+		var err error
+		if !fromDisk {
+			data, err = thumbBytes(path, video, edge)
+			if err == nil {
+				diskThumbs.Put(path, edge, data)
+			}
+		}
 		if err != nil && !video {
 			data, err = os.ReadFile(path)
 		}

@@ -9,6 +9,7 @@ require (
 	github.com/gen2brain/go-mpv v0.4.0
 	github.com/mozillazg/go-pinyin v0.21.0
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/image v0.46.0
 )
 

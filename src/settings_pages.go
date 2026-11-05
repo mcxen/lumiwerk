@@ -261,11 +261,12 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 	})
 	settingsGroup(c, pal, "清理缓存：", "", func() {
 		settingsRow(c, pal, "clear", "缩略图与临时文件",
-			fmt.Sprintf("已用 %.0f MiB（上限 %.0f MiB）。清理会释放它们和上次的临时文件；缩略图会在浏览时重新生成。",
-				float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024)),
+			fmt.Sprintf("内存 %.0f MiB（上限 %.0f MiB），磁盘 %.0f MiB。清理会释放它们和上次的临时文件；缩略图会在浏览时重新生成。",
+				float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024)),
 			func() {
 				if ui.Button(c.Key("settings-clear-caches"), "清理").Clicked() {
 					thumbLRU.Clear()
+					diskThumbs.Clear()
 					sweepTempLeftovers()
 					logInfof("settings: caches cleared by the user")
 				}
