@@ -969,13 +969,14 @@ func (a *appState) confirmDelete(n int, permanent bool) bool {
 		detail = "此操作无法撤销。"
 	}
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
-		Parent:       a.Window,
-		Type:         mygo.MessageWarning,
-		Title:        "删除",
-		Message:      message,
-		Detail:       detail,
-		Buttons:      []string{"删除", "取消"},
-		CancelButton: 1,
+		Parent:             a.Window,
+		Type:               mygo.MessageWarning,
+		Title:              "删除",
+		Message:            message,
+		Detail:             detail,
+		Buttons:            []string{"删除", "取消"},
+		CancelButton:       1,
+		DestructiveButtons: []int{0},
 	})
 	return err == nil && res.Button == 0
 }

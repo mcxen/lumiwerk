@@ -6,8 +6,10 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -189,6 +191,11 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 			applyUpdateSource(a.Profiles.UpdateSource)
 		}
+		if v := availableUpdate(); v != "" {
+			setRow(c, "新版本可用", func() {
+				ui.Text(c, "v"+strings.TrimPrefix(v, "v")).FontSize(13).TextColor(c.Theme().Text)
+			})
+		}
 	})
 	setGroup(c, "清理缓存", func() {
 		setRow(c, "已用", func() {
@@ -208,4 +215,15 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 			a.showDiagnostics()
 		}
 	})
+}
+
+// availableUpdate is updater.AvailableVersion, or "" where the updater
+// plugin is not in use (tests).
+func availableUpdate() (v string) {
+	defer func() {
+		if recover() != nil {
+			v = ""
+		}
+	}()
+	return updater.AvailableVersion()
 }
