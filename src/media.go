@@ -50,6 +50,9 @@ func probeImage(path string) mediaInfo {
 }
 
 func probeVideo(path string) mediaInfo {
+	if info, ok := probeVideoNative(path); ok {
+		return info
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, toolPath("ffprobe"), "-v", "error", "-select_streams", "v:0",

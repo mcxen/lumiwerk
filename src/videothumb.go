@@ -154,6 +154,12 @@ var errNoEmbeddedCover = errors.New("no embedded cover")
 func embeddedCover(path string) ([]byte, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp4", ".m4v", ".mov", ".3gp":
+	case ".mkv", ".webm":
+		// Matroska attachments (cover.jpg and the like) via go-mkvparse.
+		if data := mkvCover(path); len(data) > 0 {
+			return data, nil
+		}
+		return nil, errNoEmbeddedCover
 	default:
 		return nil, errNoEmbeddedCover
 	}
