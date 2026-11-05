@@ -21,6 +21,7 @@ var settingsPages = visibleSettingsPages([]settingsPage{
 	{"general", "通用", lucideSliders},
 	{"view", "查看", lucideImage},
 	{"actions", "操作", lucideMouse},
+	{"keys", "快捷键", lucideKeyboard},
 	{"advanced", "高级", lucideTerminal},
 })
 
@@ -150,6 +151,8 @@ func (a *appState) settingsBody(c *ui.Context) {
 							a.settingsViewPage(c, pal)
 						case "actions":
 							a.settingsActionsPage(c, pal)
+						case "keys":
+							a.settingsKeysPage(c, pal)
 						default:
 							a.settingsAdvancedPage(c, pal)
 						}
@@ -263,6 +266,8 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"view", "文件夹优先", "folder first sort 排序"},
 		{"view", "递归时全路径排序", "full path sort 递归 排序"},
 		{"view", "媒体单元模式", "media unit 媒体 单元"},
+		{"keys", "快捷键", "shortcut keyboard hotkey 快捷键 按键"},
+		{"view", "自动播放选中视频", "autoplay video 自动 播放"},
 		{"actions", "按 Enter 时", "enter rename open 回车 重命名"},
 		{"actions", "图片复制快捷键", "shortcut copy image 快捷键 复制"},
 		{"actions", "视频复制快捷键", "shortcut copy video 快捷键 复制"},

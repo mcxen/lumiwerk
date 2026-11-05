@@ -47,23 +47,24 @@ func defaultViewPreferences() viewPreferences {
 }
 
 type prefsFile struct {
-	Active            int             `json:"active"`
-	Profiles          []profile       `json:"profiles"`
-	QuickRename       string          `json:"quickRename,omitempty"`
-	ZipPassword       string          `json:"zipPassword,omitempty"`
-	ZipUsePassword    bool            `json:"zipUsePassword,omitempty"`
-	Favorites         []string        `json:"favorites,omitempty"`
-	View              viewPreferences `json:"view"`
-	ViewSet           bool            `json:"viewSet"`
-	ImageDestination  string          `json:"imageDestination,omitempty"`
-	VideoDestination  string          `json:"videoDestination,omitempty"`
-	ImageCopyShortcut string          `json:"imageCopyShortcut,omitempty"`
-	VideoCopyShortcut string          `json:"videoCopyShortcut,omitempty"`
-	EnterOpens        bool            `json:"enterOpens,omitempty"`
-	VideoShiftArrow   bool            `json:"videoShiftArrow"`
-	PlaybackEnd       string          `json:"playbackEnd,omitempty"`
-	Volume            float64         `json:"videoVolume,omitempty"`
-	PreviousVolume    float64         `json:"previousVideoVolume,omitempty"`
+	Active            int                   `json:"active"`
+	Profiles          []profile             `json:"profiles"`
+	QuickRename       string                `json:"quickRename,omitempty"`
+	Shortcuts         map[string]keyBinding `json:"shortcuts,omitempty"`
+	ZipPassword       string                `json:"zipPassword,omitempty"`
+	ZipUsePassword    bool                  `json:"zipUsePassword,omitempty"`
+	Favorites         []string              `json:"favorites,omitempty"`
+	View              viewPreferences       `json:"view"`
+	ViewSet           bool                  `json:"viewSet"`
+	ImageDestination  string                `json:"imageDestination,omitempty"`
+	VideoDestination  string                `json:"videoDestination,omitempty"`
+	ImageCopyShortcut string                `json:"imageCopyShortcut,omitempty"`
+	VideoCopyShortcut string                `json:"videoCopyShortcut,omitempty"`
+	EnterOpens        bool                  `json:"enterOpens,omitempty"`
+	VideoShiftArrow   bool                  `json:"videoShiftArrow"`
+	PlaybackEnd       string                `json:"playbackEnd,omitempty"`
+	Volume            float64               `json:"videoVolume,omitempty"`
+	PreviousVolume    float64               `json:"previousVideoVolume,omitempty"`
 	// RestoreSession holds the inverse of the stored opt-out; an absent
 	// field means restore (the zero false is flipped by RestoreOff below).
 	RestoreSession bool `json:"restoreSession"`

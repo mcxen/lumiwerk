@@ -170,6 +170,9 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 		if setToggle(c, "media-unit", "媒体单元模式", &a.Profiles.View.MediaUnit) {
 			a.setMediaUnit(a.Profiles.View.MediaUnit)
 		}
+		if setToggle(c, "autoplay-selected", "自动播放选中视频", &a.Profiles.View.AutoPlaySelected) {
+			savePrefs(a.Profiles)
+		}
 	})
 }
 
