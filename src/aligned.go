@@ -161,34 +161,37 @@ type appState struct {
 	columnX      float32
 	columnY      float32
 
-	InLargeView    bool
-	Visited        map[string]int64
-	Recent         []string
-	dwellSeq       int
-	historyCleared bool
-	scrollCarry    float32
-	Gallery        bool
-	galleryPeek    bool
-	Hero           heroState
-	LargeIndex     int
-	Zoom           float32
-	Rotation       float32
-	Mirror         bool
-	Video          *videoView
-	videoEdgeDue   time.Time
-	Info           infoState
-	Gesture        gestureState
-	Undo           undoStack
-	Pinned         bool
-	AutoScroll     bool
-	AutoPlay       bool
-	autoTick       time.Time
-	AutoConfig     string
-	AutoValue      string
-	PanX, PanY     float32
-	RightDown      bool
-	LargeDrag      dragState
-	HUD            string
+	InLargeView bool
+	// largeSidebarFold is the sidebar Split's size while the large view
+	// folds the pane away; see browserLayout.
+	largeSidebarFold float32
+	Visited          map[string]int64
+	Recent           []string
+	dwellSeq         int
+	historyCleared   bool
+	scrollCarry      float32
+	Gallery          bool
+	galleryPeek      bool
+	Hero             heroState
+	LargeIndex       int
+	Zoom             float32
+	Rotation         float32
+	Mirror           bool
+	Video            *videoView
+	videoEdgeDue     time.Time
+	Info             infoState
+	Gesture          gestureState
+	Undo             undoStack
+	Pinned           bool
+	AutoScroll       bool
+	AutoPlay         bool
+	autoTick         time.Time
+	AutoConfig       string
+	AutoValue        string
+	PanX, PanY       float32
+	RightDown        bool
+	LargeDrag        dragState
+	HUD              string
 	// toasts waits for the next frame to show through c.Toast; lastToast
 	// is the newest message, for tests.
 	toasts      []pendingToast

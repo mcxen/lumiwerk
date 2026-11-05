@@ -55,9 +55,23 @@ func (a *appState) browserLayout(c *ui.Context) {
 	if a.SidebarWidth == 0 {
 		a.SidebarWidth = sidebarDefaultWidth
 	}
-	if a.SidebarShown && !a.InLargeView {
-		ui.Split(c, &a.SidebarWidth, func() { a.sidebarView(c) }, func() { a.browserShell(c) }).Fill()
-	} else {
+	if !a.SidebarShown {
 		a.browserShell(c)
+		return
 	}
+	// The large view hides the sidebar by folding its pane to zero inside
+	// the same Split instead of dropping the Split: rebuilding the tree on
+	// Esc made browserShell a new element whose first frame had no layout
+	// width, so the grid laid out narrow for a frame or two, then jumped
+	// back. A throwaway size keeps the user's sidebar width untouched.
+	size := &a.SidebarWidth
+	if a.InLargeView {
+		a.largeSidebarFold = 0
+		size = &a.largeSidebarFold
+	}
+	ui.Split(c, size, func() {
+		if !a.InLargeView {
+			a.sidebarView(c)
+		}
+	}, func() { a.browserShell(c) }).Fill()
 }
