@@ -39,7 +39,7 @@ func main() {
 	// The browsing trail outlives the process: load it before any open so
 	// goBack/goForward and the sidebar already span past sessions.
 	saved := loadHistory()
-	a.History, a.Cursor, a.Visited = saved.History, saved.Cursor, saved.Visited
+	a.History, a.Cursor, a.Visited, a.Recent = saved.History, saved.Cursor, saved.Visited, saved.Recent
 	history := saved
 	if a.History == nil {
 		history.Cursor = -1
@@ -131,10 +131,11 @@ func main() {
 		a.mu.Lock()
 		history.History, history.Cursor = a.History, a.Cursor
 		history.Visited = a.Visited
+		history.Recent = a.Recent
 		history.LastImage = a.lastLargePath()
 		cleared := a.historyCleared
 		a.mu.Unlock()
-		if len(history.History) > 0 || cleared {
+		if len(history.History) > 0 || len(history.Recent) > 0 || cleared {
 			saveHistory(history)
 		}
 	})

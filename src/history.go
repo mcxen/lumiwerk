@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -24,6 +25,66 @@ type historyFile struct {
 	// Visited is each folder's last visit (Unix seconds); older files
 	// have none and show no time until the folder is visited again.
 	Visited map[string]int64 `json:"visited,omitempty"`
+	// Recent is the sidebar's history, newest first, one entry per folder
+	// and only folders the user stayed in for historyDwell.
+	Recent []string `json:"recent,omitempty"`
+}
+
+// historyDwell is how long a folder must stay open before it is recorded.
+const historyDwell = 20 * time.Second
+
+// dedupeRecent keeps the first (newest) entry per normalized path and drops
+// folders that no longer exist.
+func dedupeRecent(paths []string, alive func(string) bool) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = filepath.Clean(p)
+		k := pathKey(p)
+		if p == "" || seen[k] || (alive != nil && !alive(p)) {
+			continue
+		}
+		seen[k] = true
+		out = append(out, p)
+	}
+	if len(out) > maxPersistedHistory {
+		out = out[:maxPersistedHistory]
+	}
+	return out
+}
+
+// recentFromTrail rebuilds the sidebar list for files written before
+// Recent existed: visited folders, newest visit first, duplicates merged.
+func recentFromTrail(trail []string, visited map[string]int64) []string {
+	var out []string
+	for i := len(trail) - 1; i >= 0; i-- {
+		if visited[trail[i]] > 0 {
+			out = append(out, trail[i])
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return visited[out[i]] > visited[out[j]] })
+	return out
+}
+
+// noteDwell records path in the recent list once it has stayed open for
+// historyDwell; navigating away first (a newer seq) cancels it.
+func (a *appState) noteDwell(path string, seq int) {
+	time.AfterFunc(historyDwell, func() {
+		a.update(func() { a.recordVisit(path, seq) })
+	})
+}
+
+func (a *appState) recordVisit(path string, seq int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if seq != a.dwellSeq || pathKey(a.Root) != pathKey(path) {
+		return
+	}
+	if a.Visited == nil {
+		a.Visited = map[string]int64{}
+	}
+	a.Visited[path] = time.Now().Unix()
+	a.Recent = dedupeRecent(append([]string{path}, a.Recent...), nil)
 }
 
 func historyPath() string {
@@ -46,6 +107,10 @@ func loadHistory() historyFile {
 			h = historyFile{}
 		}
 	}
+	if h.Recent == nil {
+		h.Recent = recentFromTrail(h.History, h.Visited)
+	}
+	h.Recent = dedupeRecent(h.Recent, isDir)
 	if h.Cursor < -1 || h.Cursor >= len(h.History) {
 		h.Cursor = len(h.History) - 1
 	}
@@ -138,7 +203,7 @@ func visitLabel(unix int64, now time.Time) string {
 // clearHistory empties the trail and its visit times and saves at once.
 func (a *appState) clearHistory() {
 	a.mu.Lock()
-	a.History, a.Cursor, a.Visited = nil, -1, nil
+	a.History, a.Cursor, a.Visited, a.Recent = nil, -1, nil, nil
 	a.historyCleared = true
 	a.mu.Unlock()
 	saveHistory(historyFile{Cursor: -1})

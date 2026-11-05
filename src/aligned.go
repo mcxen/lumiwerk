@@ -163,6 +163,8 @@ type appState struct {
 
 	InLargeView    bool
 	Visited        map[string]int64
+	Recent         []string
+	dwellSeq       int
 	historyCleared bool
 	scrollCarry    float32
 	Gallery        bool
@@ -453,10 +455,8 @@ func (a *appState) openFolder(path string) {
 	a.InLargeView = false
 	a.LargeIndex = -1
 	a.scanSeq++
-	if a.Visited == nil {
-		a.Visited = map[string]int64{}
-	}
-	a.Visited[path] = time.Now().Unix()
+	a.dwellSeq++
+	a.noteDwell(path, a.dwellSeq)
 	if a.Cursor >= 0 && a.Cursor < len(a.History) && a.History[a.Cursor] == path {
 		// already positioned.
 	} else if a.Cursor < 0 || a.Cursor >= len(a.History) {
@@ -1558,7 +1558,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 		ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, clockIcon).FontSize(14).TextColor(t.TextMuted)
 			ui.Text(c, "历史").FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
-			if len(a.History) > 0 {
+			if len(a.Recent) > 0 {
 				x := ui.Box(c).Padding(2).Radius(3).Tooltip("清除历史记录")
 				x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
 				if x.Clicked() {
@@ -1566,10 +1566,10 @@ func (a *appState) sidebarView(c *ui.Context) {
 				}
 			}
 		})
-		for i, h := range a.History {
+		for _, h := range a.Recent {
 			hist := h
 			row := ui.Row(c).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-			if i == a.Cursor {
+			if pathKey(hist) == pathKey(a.Root) {
 				row.Background(t.SurfacePressed)
 			}
 			row.Children(func() {
