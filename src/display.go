@@ -42,7 +42,9 @@ func (a *appState) refreshView() {
 	a.stopWatcher()
 	a.mu.Lock()
 	a.scanSeq++
+	hidden := a.Profiles.View.Hidden
 	a.mu.Unlock()
+	folderMedia.SetPreferHidden(hidden)
 	a.refresh()
 	a.startWatcher()
 }
