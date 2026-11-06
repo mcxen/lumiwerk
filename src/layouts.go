@@ -468,6 +468,7 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
 			paintMediaThumb(c, item, width, ui.Cover)
+			a.paintThumbBadges(c, item, a.LayoutMode == 2)
 		})
 		if flowLabel > 0 {
 			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)

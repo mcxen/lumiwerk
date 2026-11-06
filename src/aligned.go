@@ -141,11 +141,12 @@ type appState struct {
 	Selected   ui.Selection[string]
 	FilterMode int
 
-	Outline      ui.OutlineState[string]
-	treeOpenRoot string
-	SidebarWidth float32
-	SidebarShown bool
-	Breadcrumb   int
+	Outline         ui.OutlineState[string]
+	treeOpenRoot    string
+	treeRecurseOpen string
+	SidebarWidth    float32
+	SidebarShown    bool
+	Breadcrumb      int
 
 	Query        string
 	Sort         string
@@ -535,37 +536,12 @@ func (a *appState) scanFolder(root string, seq int) {
 		return view.AllTypes || isEnabledFile(path, ext, view)
 	}
 	if flat {
+		maxDepth := 0
+		if recursive {
+			maxDepth = view.RecurseDepth
+		}
 		files = scanTreeParallel(root, func(entry scanEntry) scanEntryResult {
-			path := entry.Path
-			if entry.IsDir {
-				if path != root && !view.Hidden && entry.Hidden {
-					return scanEntryResult{skipDir: true}
-				}
-				// .app bundles are install packages listed as one file.
-				if path != root && isInstallerBundle(entry.Name) {
-					ext := "app"
-					if !includeFile(path, ext) {
-						return scanEntryResult{skipDir: true}
-					}
-					size := int64(0)
-					if entry.Info != nil {
-						size = entry.Size
-					}
-					return scanEntryResult{keep: true, skipDir: true, item: mediaItem{Path: path, Name: entry.Name, Ext: ext, Size: size, ModTime: entry.ModTime.Unix(), InfoLoaded: true}}
-				}
-				if recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
-					return scanEntryResult{keep: true, item: mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, InfoLoaded: true}}
-				}
-				return scanEntryResult{}
-			}
-			ext := strings.TrimPrefix(filepath.Ext(path), ".")
-			if !includeFile(path, ext) {
-				return scanEntryResult{}
-			}
-			if entry.Info == nil {
-				return scanEntryResult{}
-			}
-			return scanEntryResult{keep: true, item: mediaItem{Path: path, Name: entry.Name, Ext: strings.ToLower(ext), Size: entry.Size, ModTime: entry.ModTime.Unix(), IsVideo: isVideoFile(ext)}}
+			return acceptScanEntry(root, entry, view, recursive, maxDepth)
 		})
 	} else {
 		entries, err := scanDir(root)
@@ -1701,6 +1677,13 @@ func (a *appState) sidebarView(c *ui.Context) {
 				}
 			}
 			a.treeOpenRoot = a.Root
+			a.treeRecurseOpen = ""
+		}
+		// Open the current folder once so the amber scope line on its
+		// children is visible without an extra click.
+		if a.Recursive && a.treeRecurseOpen != a.Root {
+			a.Outline.Open.Add(filepath.Clean(a.Root))
+			a.treeRecurseOpen = a.Root
 		}
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
@@ -1764,6 +1747,9 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 	if selected {
 		row.Background(t.SurfacePressed)
 	}
+	if a.folderInRecurseScope(path) {
+		row.BorderWidth(0, 0, 0, 2).BorderColor(t.Warning.Alpha(0.55))
+	}
 	row.Children(func() {
 		ui.Icon(c, dirIcon).FontSize(14)
 		ui.Text(c, pathName(path)).FontSize(12).SingleLine()
@@ -1792,6 +1778,7 @@ func (a *appState) mainView(c *ui.Context) {
 		if !a.galleryActive() {
 			a.tabsBar(c)
 			a.toolbarView(c)
+			a.recurseBar(c)
 			ui.Divider(c)
 		}
 		if a.galleryActive() {
@@ -1858,6 +1845,11 @@ func (a *appState) toolbarView(c *ui.Context) {
 		}
 
 		ui.Box(c).Width(8) // 间距
+
+		if !a.InLargeView {
+			a.recurseControls(c)
+			ui.Box(c).Width(8)
+		}
 
 		// 右侧：浏览控件组
 		if !a.InLargeView {
@@ -2050,6 +2042,7 @@ func (a *appState) gridView(c *ui.Context) {
 					})
 				}
 				paintMediaThumb(c, item, 0, ui.Contain)
+				a.paintThumbBadges(c, item, false)
 			})
 			if flowLabel > 0 {
 				if a.renamingInline(i) {

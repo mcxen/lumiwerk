@@ -24,14 +24,17 @@ type profile struct {
 }
 
 type viewPreferences struct {
-	Hidden           bool    `json:"hidden"`
-	AllTypes         bool    `json:"allTypes"`
-	Images           bool    `json:"images"`
-	RAW              bool    `json:"raw"`
-	Videos           bool    `json:"videos"`
-	Archives         bool    `json:"archives"`
-	Installers       bool    `json:"installers"`
-	RecursiveFolders bool    `json:"recursiveFolders"`
+	Hidden           bool `json:"hidden"`
+	AllTypes         bool `json:"allTypes"`
+	Images           bool `json:"images"`
+	RAW              bool `json:"raw"`
+	Videos           bool `json:"videos"`
+	Archives         bool `json:"archives"`
+	Installers       bool `json:"installers"`
+	RecursiveFolders bool `json:"recursiveFolders"`
+	// RecurseDepth limits 递归浏览: 0 is every level, 1 is the child
+	// folders only, 2 includes one level below those.
+	RecurseDepth     int     `json:"recurseDepth,omitempty"`
 	MediaUnit        bool    `json:"mediaUnit"`
 	AutoPlaySelected bool    `json:"autoPlaySelected"`
 	InternalPlayer   bool    `json:"internalPlayer"`
@@ -172,6 +175,9 @@ func normalizePrefs(p *prefsFile) {
 	}
 	if p.View.Theme == "" {
 		p.View.Theme = "system"
+	}
+	if p.View.RecurseDepth < 0 || p.View.RecurseDepth > 2 {
+		p.View.RecurseDepth = 0
 	}
 	if p.ImageCopyShortcut == "" {
 		p.ImageCopyShortcut = "N"

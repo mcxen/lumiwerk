@@ -80,8 +80,23 @@ func (a *appState) toggleViewOption(option string) {
 
 func (a *appState) setRecursive(enabled bool) {
 	a.Recursive = enabled
+	a.treeRecurseOpen = ""
 	a.Profiles.View.MediaUnit = false
 	a.MediaUnitRoot = ""
+	savePrefs(a.Profiles)
+	a.refreshView()
+}
+
+// setRecurseDepth stores how many folder levels 递归浏览 includes.
+// 0 is every level, 1 is child folders, 2 is one level below those.
+func (a *appState) setRecurseDepth(depth int) {
+	if depth < 0 || depth > 2 {
+		depth = 0
+	}
+	if a.Profiles.View.RecurseDepth == depth {
+		return
+	}
+	a.Profiles.View.RecurseDepth = depth
 	savePrefs(a.Profiles)
 	a.refreshView()
 }
