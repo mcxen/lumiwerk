@@ -51,20 +51,8 @@ func (a *appState) nextMediaFolder(delta int) {
 }
 
 func hasMedia(path string) bool {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := filepath.Ext(e.Name())
-		if isMediaFile(ext) {
-			return true
-		}
-	}
-	return false
+	// Recursive presence with cache; used by gesture sibling navigation.
+	return folderMedia.HasSync(path, mediaKindAny, false)
 }
 
 const zoomSettle = 400 * time.Millisecond

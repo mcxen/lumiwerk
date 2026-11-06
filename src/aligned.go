@@ -503,6 +503,9 @@ func (a *appState) refresh() {
 	if root == "" {
 		return
 	}
+	// Drop stale presence answers under this root so a watcher-driven
+	// refresh can rediscover media that was added after a prior "no".
+	folderMedia.Invalidate(root)
 	safeGo("scanFolder", func() { a.scanFolder(root, seq) })
 }
 
@@ -886,11 +889,23 @@ func (a *appState) applyFilterLocked() {
 	anchor := a.takeSelectionAnchorLocked()
 	a.Visible = a.Visible[:0]
 	q := strings.ToLower(strings.TrimSpace(a.Query))
+	mediaOnly := a.FilterMode == 1 || a.FilterMode == 2
+	kind := filterMediaKind(a.FilterMode)
+	showHidden := a.Profiles.View.Hidden
 	for i := range a.Items {
 		if q != "" && !pinyinContains(a.Items[i].Name, q) {
 			continue
 		}
-		if !a.Items[i].IsDir {
+		if a.Items[i].IsDir {
+			// 仅媒体 (图片/视频): hide folders with no matching media beneath.
+			// Unknown stays visible until a background scan resolves it.
+			if mediaOnly {
+				switch a.folderPresence(a.Items[i].Path, kind, showHidden) {
+				case presenceNo:
+					continue
+				}
+			}
+		} else {
 			ext := a.Items[i].Ext
 			if (a.FilterMode == 1 && (!isImageFile(ext) && !isRawFile(ext))) || (a.FilterMode == 2 && !isVideoFile(ext)) {
 				continue
@@ -900,6 +915,26 @@ func (a *appState) applyFilterLocked() {
 	}
 	a.noteLayoutChanged()
 	a.reconcileSelectionLocked(anchor)
+}
+
+// folderPresence returns a cached answer for path, or queues a scan and
+// reports unknown (caller should keep the folder visible).
+func (a *appState) folderPresence(path string, kind mediaKind, showHidden bool) presenceResult {
+	if res, ok := folderMedia.Lookup(path, kind, showHidden); ok {
+		return res
+	}
+	folderMedia.Request(path, kind, showHidden, func() {
+		a.update(func() {
+			a.applyFilter()
+			// Force the sidebar outline to re-list so empty folders drop out.
+			if a.treeCache != nil {
+				parent := filepath.Dir(path)
+				delete(a.treeCache, parent)
+				delete(a.treeCache, path)
+			}
+		})
+	})
+	return presenceUnknown
 }
 
 func (a *appState) startWatcher() {
@@ -1020,14 +1055,34 @@ func (a *appState) treeChildren(path string) []string {
 				a.update(func() { a.treeCache[path] = treeEntry{dirs: dirs, at: time.Now()} })
 			})
 		}
-		return e.dirs
+		return a.filterTreeDirs(e.dirs)
 	}
 	if a.treeCache == nil || len(a.treeCache) > 4096 {
 		a.treeCache = map[string]treeEntry{}
 	}
 	dirs := listSubdirs(path)
 	a.treeCache[path] = treeEntry{dirs: dirs, at: now}
-	return dirs
+	return a.filterTreeDirs(dirs)
+}
+
+// filterTreeDirs applies 仅媒体 folder hiding to the sidebar outline.
+// Unknown folders stay until a background scan proves they have no media.
+func (a *appState) filterTreeDirs(dirs []string) []string {
+	if a.FilterMode != 1 && a.FilterMode != 2 {
+		return dirs
+	}
+	kind := filterMediaKind(a.FilterMode)
+	showHidden := a.Profiles.View.Hidden
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		switch a.folderPresence(d, kind, showHidden) {
+		case presenceNo:
+			continue
+		default:
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 const treeTTL = 3 * time.Second
