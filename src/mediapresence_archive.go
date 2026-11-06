@@ -18,7 +18,7 @@ import (
 // falls back to the on-demand early-exit scan when nothing is archived.
 
 const (
-	archiveVersion     = 2
+	archiveVersion     = 3
 	archiveDiskCap     = 100_000
 	prewarmThrottleN   = 48
 	prewarmThrottleGap = 2 * time.Millisecond
@@ -31,11 +31,13 @@ type archiveKey struct {
 }
 
 type archiveDir struct {
-	Path   string `json:"p"`
-	Hidden bool   `json:"h,omitempty"`
-	Mtime  int64  `json:"m"`
-	Image  bool   `json:"i,omitempty"`
-	Video  bool   `json:"v,omitempty"`
+	Path      string `json:"p"`
+	Hidden    bool   `json:"h,omitempty"`
+	Mtime     int64  `json:"m"`
+	Image     bool   `json:"i,omitempty"`
+	Video     bool   `json:"v,omitempty"`
+	Archive   bool   `json:"a,omitempty"`
+	Installer bool   `json:"n,omitempty"`
 }
 
 type presenceArchiveFile struct {
@@ -179,6 +181,8 @@ func (c *presenceCache) storeArchiveLocked(rec archiveDir) {
 	}
 	put(mediaKindImage, rec.Image)
 	put(mediaKindVideo, rec.Video)
+	put(mediaKindArchive, rec.Archive)
+	put(mediaKindInstaller, rec.Installer)
 	put(mediaKindAny, rec.Image || rec.Video)
 	c.dirty = true
 }
@@ -199,13 +203,13 @@ func (c *presenceCache) indexSubtree(root string, showHidden bool, stop func() b
 	c.indexDir(root, showHidden, map[string]bool{}, ctr, stop)
 }
 
-func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]bool, ctr *indexCounter, stop func() bool) (img, vid bool) {
+func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]bool, ctr *indexCounter, stop func() bool) (img, vid, arc, inst bool) {
 	path = filepath.Clean(path)
 	if stop != nil && stop() {
-		return false, false
+		return
 	}
 	if seen[path] {
-		return false, false
+		return
 	}
 	seen[path] = true
 
@@ -213,7 +217,7 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 	if ctr.n%prewarmThrottleN == 0 {
 		time.Sleep(prewarmThrottleGap)
 		if stop != nil && stop() {
-			return false, false
+			return
 		}
 	}
 
@@ -221,7 +225,7 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 	c.mu.Lock()
 	if rec, ok := c.lookupArchiveLocked(path, showHidden, mtime); ok {
 		c.mu.Unlock()
-		return rec.Image, rec.Video
+		return rec.Image, rec.Video, rec.Archive, rec.Installer
 	}
 	c.mu.Unlock()
 
@@ -230,13 +234,13 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 		c.mu.Lock()
 		c.storeArchiveLocked(archiveDir{Path: path, Hidden: showHidden, Mtime: mtime})
 		c.mu.Unlock()
-		return false, false
+		return
 	}
 
 	var subs []string
 	for _, entry := range entries {
 		if stop != nil && stop() {
-			return false, false
+			return
 		}
 		name := entry.Name()
 		if !showHidden && strings.HasPrefix(name, ".") {
@@ -250,33 +254,49 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 			}
 		}
 		if entry.IsDir() {
+			if isInstallerBundle(name) {
+				if matchesPresenceName(name, mediaKindInstaller) {
+					inst = true
+				}
+				if matchesPresenceName(name, mediaKindArchive) {
+					arc = true
+				}
+				continue
+			}
 			if fi, infoErr := entry.Info(); infoErr == nil && !showHidden && entryHidden(name, fi) {
 				continue
 			}
 			subs = append(subs, child)
 			continue
 		}
-		ext := strings.TrimPrefix(filepath.Ext(name), ".")
-		if matchesMediaKind(ext, mediaKindImage) {
+		if matchesPresenceName(name, mediaKindImage) {
 			img = true
 		}
-		if matchesMediaKind(ext, mediaKindVideo) {
+		if matchesPresenceName(name, mediaKindVideo) {
 			vid = true
+		}
+		if matchesPresenceName(name, mediaKindArchive) {
+			arc = true
+		}
+		if matchesPresenceName(name, mediaKindInstaller) {
+			inst = true
 		}
 	}
 	for _, sub := range subs {
-		ci, cv := c.indexDir(sub, showHidden, seen, ctr, stop)
+		ci, cv, ca, cn := c.indexDir(sub, showHidden, seen, ctr, stop)
 		img = img || ci
 		vid = vid || cv
+		arc = arc || ca
+		inst = inst || cn
 	}
 
 	c.mu.Lock()
 	c.storeArchiveLocked(archiveDir{
 		Path: path, Hidden: showHidden, Mtime: dirMtime(path),
-		Image: img, Video: vid,
+		Image: img, Video: vid, Archive: arc, Installer: inst,
 	})
 	c.mu.Unlock()
-	return img, vid
+	return img, vid, arc, inst
 }
 
 func (c *presenceCache) bubbleAncestors(start string, showHidden bool, stop func() bool) {
@@ -304,6 +324,7 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 	if err != nil {
 		return false, false, false
 	}
+	var arc, inst bool
 	for _, entry := range entries {
 		if stop != nil && stop() {
 			return img, vid, false
@@ -318,6 +339,12 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 			continue
 		}
 		if entry.IsDir() {
+			if isInstallerBundle(name) {
+				if matchesPresenceName(name, mediaKindInstaller) {
+					inst = true
+				}
+				continue
+			}
 			if fi, infoErr := entry.Info(); infoErr == nil && !showHidden && entryHidden(name, fi) {
 				continue
 			}
@@ -328,29 +355,41 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 			if ok {
 				img = img || rec.Image
 				vid = vid || rec.Video
+				arc = arc || rec.Archive
+				inst = inst || rec.Installer
 				continue
 			}
 			ir, ic := scanFolderHasMedia(child, mediaKindImage, showHidden)
 			vr, vc := scanFolderHasMedia(child, mediaKindVideo, showHidden)
+			ar, ac := scanFolderHasMedia(child, mediaKindArchive, showHidden)
+			nr, nc := scanFolderHasMedia(child, mediaKindInstaller, showHidden)
 			ci, cv := ic && ir == presenceYes, vc && vr == presenceYes
-			if ic || vc {
+			ca, cn := ac && ar == presenceYes, nc && nr == presenceYes
+			if ic || vc || ac || nc {
 				c.mu.Lock()
 				c.storeArchiveLocked(archiveDir{
 					Path: child, Hidden: showHidden, Mtime: cm,
-					Image: ci, Video: cv,
+					Image: ci, Video: cv, Archive: ca, Installer: cn,
 				})
 				c.mu.Unlock()
 			}
 			img = img || ci
 			vid = vid || cv
+			arc = arc || ca
+			inst = inst || cn
 			continue
 		}
-		ext := strings.TrimPrefix(filepath.Ext(name), ".")
-		if matchesMediaKind(ext, mediaKindImage) {
+		if matchesPresenceName(name, mediaKindImage) {
 			img = true
 		}
-		if matchesMediaKind(ext, mediaKindVideo) {
+		if matchesPresenceName(name, mediaKindVideo) {
 			vid = true
+		}
+		if matchesPresenceName(name, mediaKindArchive) {
+			arc = true
+		}
+		if matchesPresenceName(name, mediaKindInstaller) {
+			inst = true
 		}
 	}
 
@@ -359,11 +398,11 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 	prev, had := c.lookupArchiveLocked(path, showHidden, mtime)
 	c.storeArchiveLocked(archiveDir{
 		Path: path, Hidden: showHidden, Mtime: mtime,
-		Image: img, Video: vid,
+		Image: img, Video: vid, Archive: arc, Installer: inst,
 	})
 	if !had {
 		return img, vid, true
 	}
-	changed = prev.Image != img || prev.Video != vid
+	changed = prev.Image != img || prev.Video != vid || prev.Archive != arc || prev.Installer != inst
 	return img, vid, changed
 }

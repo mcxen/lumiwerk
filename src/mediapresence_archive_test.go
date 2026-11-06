@@ -204,3 +204,50 @@ func TestIndexSubtreeSkipsSymlinkDirs(t *testing.T) {
 		t.Fatalf("res=%v ok=%v", res, ok)
 	}
 }
+
+func TestIndexSubtreeArchiveAndInstallerFlags(t *testing.T) {
+	resetPresenceCacheForTest()
+	t.Cleanup(resetPresenceCacheForTest)
+
+	root := t.TempDir()
+	pkgs := filepath.Join(root, "安装包")
+	zips := filepath.Join(root, "压缩")
+	for _, d := range []string{pkgs, zips} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(pkgs, "Tool.dmg"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(zips, "a.7z"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(pkgs, "Demo.app")
+	if err := os.MkdirAll(filepath.Join(app, "Contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	folderMedia.indexSubtree(root, false, nil)
+
+	mtime := dirMtime(pkgs)
+	folderMedia.mu.Lock()
+	rec, ok := folderMedia.lookupArchiveLocked(pkgs, false, mtime)
+	folderMedia.mu.Unlock()
+	if !ok || !rec.Installer || rec.Image {
+		t.Fatalf("pkgs archive: ok=%v rec=%+v", ok, rec)
+	}
+	mtime = dirMtime(zips)
+	folderMedia.mu.Lock()
+	rec, ok = folderMedia.lookupArchiveLocked(zips, false, mtime)
+	folderMedia.mu.Unlock()
+	if !ok || !rec.Archive || rec.Installer {
+		t.Fatalf("zips archive: ok=%v rec=%+v", ok, rec)
+	}
+	if res, ok := folderMedia.Lookup(pkgs, mediaKindInstaller, false); !ok || res != presenceYes {
+		t.Fatalf("installer lookup: res=%v ok=%v", res, ok)
+	}
+	if archiveVersion != 3 {
+		t.Fatalf("archiveVersion=%d want 3", archiveVersion)
+	}
+}

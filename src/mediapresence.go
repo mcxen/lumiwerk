@@ -24,6 +24,8 @@ const (
 	mediaKindAny mediaKind = iota
 	mediaKindImage
 	mediaKindVideo
+	mediaKindArchive
+	mediaKindInstaller
 )
 
 type presenceResult int
@@ -101,8 +103,29 @@ func matchesMediaKind(ext string, kind mediaKind) bool {
 		return isImageFile(ext) || isRawFile(ext)
 	case mediaKindVideo:
 		return isVideoFile(ext)
+	case mediaKindArchive:
+		return isArchiveName("x." + ext)
+	case mediaKindInstaller:
+		return isInstallerName("x." + ext)
 	default:
 		return isMediaFile(ext)
+	}
+}
+
+// matchesPresenceName classifies a directory entry by full name so compound
+// archive suffixes (.tar.gz) and .app bundles are counted correctly.
+func matchesPresenceName(name string, kind mediaKind) bool {
+	switch kind {
+	case mediaKindImage, mediaKindVideo:
+		ext := strings.TrimPrefix(filepath.Ext(name), ".")
+		return matchesMediaKind(ext, kind)
+	case mediaKindArchive:
+		return isArchiveName(name)
+	case mediaKindInstaller:
+		return isInstallerName(name)
+	default:
+		ext := strings.TrimPrefix(filepath.Ext(name), ".")
+		return isMediaFile(ext) || isArchiveName(name) || isInstallerName(name)
 	}
 }
 
@@ -230,6 +253,10 @@ func (c *presenceCache) Lookup(path string, kind mediaKind, showHidden bool) (pr
 			has = rec.Image
 		case mediaKindVideo:
 			has = rec.Video
+		case mediaKindArchive:
+			has = rec.Archive
+		case mediaKindInstaller:
+			has = rec.Installer
 		default:
 			has = rec.Image || rec.Video
 		}
@@ -399,14 +426,19 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 				}
 			}
 			if entry.IsDir() {
+				if isInstallerBundle(name) {
+					if matchesPresenceName(name, kind) {
+						return presenceYes, true
+					}
+					continue
+				}
 				if fi, infoErr := entry.Info(); infoErr == nil && !showHidden && entryHidden(name, fi) {
 					continue
 				}
 				subs = append(subs, path)
 				continue
 			}
-			ext := strings.TrimPrefix(filepath.Ext(name), ".")
-			if matchesMediaKind(ext, kind) {
+			if matchesPresenceName(name, kind) {
 				return presenceYes, true
 			}
 		}

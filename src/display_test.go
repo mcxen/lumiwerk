@@ -97,7 +97,7 @@ func TestPreferencesKeepExplicitFalseValues(t *testing.T) {
 func TestMissingPreferencesUseVisibleMediaDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	prefs := loadPrefs()
-	if !prefs.View.Images || !prefs.View.RAW || !prefs.View.Videos || !prefs.View.Archives || !prefs.View.InternalPlayer {
+	if !prefs.View.Images || !prefs.View.RAW || !prefs.View.Videos || !prefs.View.Archives || !prefs.View.Installers || !prefs.View.InternalPlayer {
 		t.Fatalf("missing preferences did not get defaults: %#v", prefs.View)
 	}
 }

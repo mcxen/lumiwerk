@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -169,5 +170,21 @@ func TestThumbCacheMiBRoundTrip(t *testing.T) {
 		if got := loadPrefs().ThumbCacheMiB; got != want {
 			t.Fatalf("stored %d loaded as %d, want %d", in, got, want)
 		}
+	}
+}
+
+func TestMigrateViewInstallersWhenAbsent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Dir(prefsPath())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"viewSet":true,"view":{"images":true,"raw":true,"videos":true,"archives":true,"theme":"system"}}`)
+	if err := os.WriteFile(prefsPath(), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadPrefs()
+	if !loaded.View.Installers {
+		t.Fatalf("missing installers key should default on: %#v", loaded.View)
 	}
 }

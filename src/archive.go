@@ -25,11 +25,14 @@ var discardPath = func(path string) error {
 
 func isArchiveName(name string) bool {
 	lower := strings.ToLower(name)
-	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tar.xz") {
-		return true
+	for _, suffix := range []string{".tar.gz", ".tar.bz2", ".tar.xz", ".tar.lz4", ".tar.zst", ".tar.lzma"} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
 	}
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".zip", ".cbz", ".tar", ".tgz", ".tbz", ".tbz2", ".txz":
+	case ".zip", ".cbz", ".rar", ".cbr", ".7z", ".tar", ".tgz", ".tbz", ".tbz2", ".txz",
+		".gz", ".bz2", ".xz", ".lz4", ".zst", ".lzma", ".cab", ".iso":
 		return true
 	default:
 		return false

@@ -30,6 +30,7 @@ type viewPreferences struct {
 	RAW              bool    `json:"raw"`
 	Videos           bool    `json:"videos"`
 	Archives         bool    `json:"archives"`
+	Installers       bool    `json:"installers"`
 	RecursiveFolders bool    `json:"recursiveFolders"`
 	MediaUnit        bool    `json:"mediaUnit"`
 	AutoPlaySelected bool    `json:"autoPlaySelected"`
@@ -42,7 +43,7 @@ type viewPreferences struct {
 
 func defaultViewPreferences() viewPreferences {
 	return viewPreferences{
-		Images: true, RAW: true, Videos: true, Archives: true,
+		Images: true, RAW: true, Videos: true, Archives: true, Installers: true,
 		AutoPlaySelected: true, InternalPlayer: true,
 		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
 	}
@@ -121,8 +122,29 @@ func loadPrefs() prefsFile {
 		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
 		p = prefsFile{View: defaultViewPreferences(), ViewSet: true}
 	}
+	migrateViewInstallers(data, &p)
 	normalizePrefs(&p)
 	return p
+}
+
+// migrateViewInstallers turns on Installers when an older prefs.json has no
+// installers key, so custom-type folders of packages keep showing after upgrade.
+func migrateViewInstallers(data []byte, p *prefsFile) {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	viewRaw, ok := raw["view"]
+	if !ok {
+		return
+	}
+	var viewMap map[string]json.RawMessage
+	if json.Unmarshal(viewRaw, &viewMap) != nil {
+		return
+	}
+	if _, ok := viewMap["installers"]; !ok {
+		p.View.Installers = true
+	}
 }
 
 // normalizePrefs fills in the parts every run needs. It runs on every load

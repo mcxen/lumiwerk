@@ -541,6 +541,18 @@ func (a *appState) scanFolder(root string, seq int) {
 				if path != root && !view.Hidden && entry.Hidden {
 					return scanEntryResult{skipDir: true}
 				}
+				// .app bundles are install packages listed as one file.
+				if path != root && isInstallerBundle(entry.Name) {
+					ext := "app"
+					if !includeFile(path, ext) {
+						return scanEntryResult{skipDir: true}
+					}
+					size := int64(0)
+					if entry.Info != nil {
+						size = entry.Size
+					}
+					return scanEntryResult{keep: true, skipDir: true, item: mediaItem{Path: path, Name: entry.Name, Ext: ext, Size: size, ModTime: entry.ModTime.Unix(), InfoLoaded: true}}
+				}
 				if recursive && view.RecursiveFolders && path != root && (!view.Hidden || !entry.Hidden) {
 					return scanEntryResult{keep: true, item: mediaItem{Path: path, Name: entry.Name, ModTime: entry.ModTime.Unix(), IsDir: true, InfoLoaded: true}}
 				}
@@ -566,6 +578,18 @@ func (a *appState) scanFolder(root string, seq int) {
 				continue
 			}
 			if e.IsDir {
+				if isInstallerBundle(e.Name) {
+					ext := "app"
+					if !includeFile(e.Path, ext) {
+						continue
+					}
+					size := int64(0)
+					if e.Info != nil {
+						size = e.Size
+					}
+					files = append(files, mediaItem{Path: e.Path, Name: e.Name, Ext: ext, Size: size, ModTime: e.ModTime.Unix(), InfoLoaded: true})
+					continue
+				}
 				files = append(files, mediaItem{Path: e.Path, Name: e.Name, ModTime: e.ModTime.Unix(), IsDir: true, InfoLoaded: true})
 				continue
 			}

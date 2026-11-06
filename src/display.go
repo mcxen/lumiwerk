@@ -14,8 +14,13 @@ import (
 
 func isEnabledFile(path, ext string, view viewPreferences) bool {
 	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
+	name := path
+	if base := filepath.Base(path); base != "" {
+		name = base
+	}
 	return (view.Images && isImageFile(ext)) || (view.RAW && isRawFile(ext)) ||
-		(view.Videos && isVideoFile(ext)) || (view.Archives && isArchiveName(path))
+		(view.Videos && isVideoFile(ext)) || (view.Archives && isArchiveName(name)) ||
+		(view.Installers && isInstallerName(name))
 }
 
 func isHiddenPath(root, path string) bool {
@@ -64,6 +69,8 @@ func (a *appState) toggleViewOption(option string) {
 		view.Videos = !view.Videos
 	case "archives":
 		view.Archives = !view.Archives
+	case "installers":
+		view.Installers = !view.Installers
 	case "folders":
 		view.RecursiveFolders = !view.RecursiveFolders
 	}
