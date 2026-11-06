@@ -137,15 +137,35 @@ func layoutName(mode int) string {
 func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 	view := &a.Profiles.View
 	setGroup(c, "类型过滤", func() {
-		if setChecks(c, "类型", []setCheck{
-			{"filter-images", "图像", &view.Images},
-			{"filter-raw", "RAW", &view.RAW},
-			{"filter-videos", "视频", &view.Videos},
-			{"filter-archives", "压缩包", &view.Archives},
-			{"filter-all", "全部", &view.AllTypes},
-			{"filter-hidden", "隐藏文件", &view.Hidden},
-			{"filter-folders", "包含文件夹", &view.RecursiveFolders},
-		}) {
+		mode := 0
+		if !view.AllTypes {
+			mode = 1
+		}
+		if setSegmented(c, "type-mode", "类型", &mode, "全部", "自定义") {
+			view.AllTypes = mode == 0
+			if mode == 1 && !anyCustomTypeEnabled(*view) {
+				view.Images, view.RAW, view.Videos = true, true, true
+				view.Archives, view.Installers = true, true
+			}
+			a.setViewFilter()
+		}
+		if mode == 1 {
+			if setChecks(c, "", []setCheck{
+				{"filter-images", "图像", &view.Images},
+				{"filter-raw", "RAW", &view.RAW},
+				{"filter-videos", "视频", &view.Videos},
+				{"filter-archives", "压缩包", &view.Archives},
+				{"filter-installers", "安装包", &view.Installers},
+			}) {
+				a.setViewFilter()
+			}
+		}
+	})
+	setGroup(c, "显示选项", func() {
+		if setToggle(c, "filter-folders", "包含文件夹", &view.RecursiveFolders) {
+			a.setViewFilter()
+		}
+		if setToggle(c, "filter-hidden", "隐藏文件", &view.Hidden) {
 			a.setViewFilter()
 		}
 	})
@@ -158,11 +178,32 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 			a.LayoutMode = a.Settings.Layout
 			a.refresh()
 		}
-		if setSlider(c, "settings-thumb", "默认缩略图", &a.Settings.Thumb, 64, 512, " px") {
+		if setThumbSlider(c, "settings-thumb", "默认缩略图", &a.Settings.Thumb, 64, 512) {
 			a.setThumbSize(a.Settings.Thumb)
 		}
 	})
 	setGroup(c, "排序", func() {
+		base, desc := splitSortKey(a.Sort)
+		if a.Settings.Sort == "" {
+			a.Settings.Sort = a.Sort
+		}
+		bases := []string{"name", "date", "size", "type"}
+		if setSelect(c, "sort-by", "默认排序依据", &base, bases, sortBaseName) {
+			a.Sort = joinSortKey(base, desc)
+			a.Settings.Sort = a.Sort
+			a.persistDefaultSort()
+			a.refresh()
+		}
+		order := "asc"
+		if desc {
+			order = "desc"
+		}
+		if setChoice(c, "sort-order", "升序/降序", &order, []string{"asc", "desc"}, []string{"升序", "降序"}) {
+			a.Sort = joinSortKey(base, order == "desc")
+			a.Settings.Sort = a.Sort
+			a.persistDefaultSort()
+			a.refresh()
+		}
 		if setToggle(c, "folder-first", "文件夹优先", &a.FolderFirst) {
 			a.refresh()
 		}
@@ -178,6 +219,54 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 		}
 	})
+}
+
+// anyCustomTypeEnabled reports whether at least one concrete type filter is on.
+func anyCustomTypeEnabled(view viewPreferences) bool {
+	return view.Images || view.RAW || view.Videos || view.Archives || view.Installers
+}
+
+func sortBaseName(base string) string {
+	switch base {
+	case "date":
+		return "日期"
+	case "size":
+		return "大小"
+	case "type":
+		return "类型"
+	default:
+		return "名称"
+	}
+}
+
+func splitSortKey(sort string) (base string, desc bool) {
+	desc = strings.HasSuffix(sort, "-desc")
+	base = strings.TrimSuffix(sort, "-desc")
+	switch base {
+	case "name", "date", "size", "type":
+	default:
+		base = "name"
+	}
+	return base, desc
+}
+
+func joinSortKey(base string, desc bool) string {
+	switch base {
+	case "date", "size", "type":
+	default:
+		base = "name"
+	}
+	if desc {
+		return base + "-desc"
+	}
+	return base
+}
+
+func (a *appState) persistDefaultSort() {
+	if i := a.Profiles.Active; i >= 0 && i < len(a.Profiles.Profiles) {
+		a.Profiles.Profiles[i].Sort = a.Sort
+	}
+	savePrefs(a.Profiles)
 }
 
 func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
