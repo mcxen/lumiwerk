@@ -508,3 +508,72 @@ func seekPreview(start, dx, width, duration float64) float64 {
 	}
 	return next
 }
+
+// folderNamePadWidth is how many digits the sequence uses for n files.
+// At least three keeps names like 旅行_001.jpg readable in small sets.
+func folderNamePadWidth(n int) int {
+	if n < 1 {
+		n = 1
+	}
+	w := len(fmt.Sprintf("%d", n))
+	if w < 3 {
+		return 3
+	}
+	return w
+}
+
+// folderNameBase is the parent folder used as the rename stem.
+func folderNameBase(path string) string {
+	folder := filepath.Base(filepath.Dir(path))
+	if folder == "" || folder == "." || folder == string(filepath.Separator) {
+		return "Folder"
+	}
+	return folder
+}
+
+// folderNameRenameMappings renames files to <parent>_<seq>.<ext> in the
+// given order, or <parent>.<ext> when there is only one. Extensions stay;
+// conflicts outside the set get a numeric suffix. Folders are not accepted.
+func folderNameRenameMappings(paths []string) []pathPair {
+	if len(paths) == 0 {
+		return nil
+	}
+	originals := map[string]struct{}{}
+	for _, path := range paths {
+		originals[pathKey(path)] = struct{}{}
+	}
+	planned := map[string]struct{}{}
+	width := folderNamePadWidth(len(paths))
+	out := make([]pathPair, 0, len(paths))
+	for i, original := range paths {
+		folder := folderNameBase(original)
+		ext := filepath.Ext(original)
+		var base string
+		if len(paths) == 1 {
+			base = folder
+		} else {
+			base = fmt.Sprintf("%s_%0*d", folder, width, i+1)
+		}
+		final := original
+		for suffix := 1; ; suffix++ {
+			candidateBase := base
+			if suffix > 1 {
+				candidateBase = fmt.Sprintf("%s_%d", base, suffix)
+			}
+			candidate := filepath.Join(filepath.Dir(original), candidateBase+ext)
+			key := pathKey(candidate)
+			_, inSelection := originals[key]
+			existsOutside := false
+			if _, err := os.Stat(candidate); err == nil && !inSelection {
+				existsOutside = true
+			}
+			if _, taken := planned[key]; !existsOutside && !taken {
+				planned[key] = struct{}{}
+				final = candidate
+				break
+			}
+		}
+		out = append(out, pathPair{From: original, To: final})
+	}
+	return out
+}

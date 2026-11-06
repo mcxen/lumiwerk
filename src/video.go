@@ -673,6 +673,7 @@ func (a *appState) shutdownVideo() {
 }
 
 func (a *appState) closeVideo() {
+	a.flushPlayProgress()
 	a.shutdownVideo()
 	a.Video = nil
 	a.playerEndSeen = false
@@ -747,9 +748,60 @@ func (a *appState) noteVideoZoom() {
 	a.videoEdgeDue = time.Now().Add(zoomSettle)
 }
 
+
+// flushPlayProgress writes the current playhead for the open video, then
+// persists when dirty. Safe when nothing is playing.
+func (a *appState) flushPlayProgress() {
+	if a.Video == nil || a.Video.path == "" || a.Video.kernel == nil {
+		return
+	}
+	if !a.Profiles.rememberPlay() {
+		return
+	}
+	snap := a.videoSnapshot()
+	playProgress.Remember(a.Video.path, snap.Position, snap.Duration)
+	playProgress.Flush()
+}
+
+// maybeAutosavePlayProgress records the playhead every few seconds while
+// a video is on screen, so a crash still keeps recent progress.
+func (a *appState) maybeAutosavePlayProgress() {
+	if a.Video == nil || a.Video.path == "" || a.Video.kernel == nil {
+		return
+	}
+	if !a.Profiles.rememberPlay() {
+		return
+	}
+	snap := a.videoSnapshot()
+	if snap.Duration <= 0 {
+		return
+	}
+	playProgress.Remember(a.Video.path, snap.Position, snap.Duration)
+	playProgress.FlushSoon()
+}
+
+// resumePlayAt is the stored offset for path when resume is enabled.
+func (a *appState) resumePlayAt(path string) float64 {
+	if path == "" || !a.Profiles.rememberPlay() {
+		return 0
+	}
+	at, ok := playProgress.Lookup(path)
+	if !ok {
+		return 0
+	}
+	return at
+}
+
 func (a *appState) openPlayback(path string, at float64, playing bool) {
 	if path == "" {
 		return
+	}
+	// Save the previous clip before retargeting the backend.
+	if a.Video != nil && a.Video.path != "" && pathKey(a.Video.path) != pathKey(path) {
+		a.flushPlayProgress()
+	}
+	if at == 0 {
+		at = a.resumePlayAt(path)
 	}
 	a.videoEdgeDue = time.Time{}
 	a.playerMoved = time.Now()
@@ -809,6 +861,7 @@ func (a *appState) parkVideo() {
 	if a.Video == nil || a.Video.kernel == nil {
 		return
 	}
+	a.flushPlayProgress()
 	a.Video.kernel.Park()
 	a.Video.path = ""
 	a.Video.frame = nil
@@ -822,6 +875,7 @@ func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bi
 	if v == nil {
 		return nil
 	}
+	a.maybeAutosavePlayProgress()
 	v.err = snapshot.Err
 	switch snapshot.Phase {
 	case playLoading, playPlaying, playBuffering:

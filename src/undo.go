@@ -188,6 +188,8 @@ func (a *appState) beginOperationWork(op *fileOperation) int {
 		label = "拷贝"
 	case opMove:
 		label = "移动"
+	case opRename:
+		label = "重命名"
 	default:
 		return 0
 	}

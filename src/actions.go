@@ -333,6 +333,16 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	} else if m.Item("重命名…").Disabled(none).Chosen() {
 		a.startRename()
 	}
+	hasFiles := false
+	for _, path := range paths {
+		if path != "" && !isDir(path) {
+			hasFiles = true
+			break
+		}
+	}
+	if m.Item("按文件夹名重命名").Disabled(!hasFiles).Chosen() {
+		a.renameByFolderName()
+	}
 	m.Separator()
 
 	m.Submenu("复制与移动", func(sub *ui.Menu) {
@@ -872,6 +882,91 @@ func (a *appState) quickRenameFolder() {
 	rule := a.Profiles.QuickRename
 	mappings := quickRenameMappings(paths, pathName(a.Root), rule)
 	_ = a.performTracked(fileOperation{op: opRename, mappings: mappings})
+}
+
+// filesForFolderRename returns selected files (or the current file) in
+// Visible order, skipping folders.
+func (a *appState) filesForFolderRename() []string {
+	wanted := map[string]struct{}{}
+	for _, path := range a.operationPaths() {
+		if path == "" || isDir(path) {
+			continue
+		}
+		wanted[pathKey(path)] = struct{}{}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	var out []string
+	for _, index := range a.Visible {
+		item := a.visibleItem(index)
+		if item == nil || item.IsDir {
+			continue
+		}
+		if _, ok := wanted[pathKey(item.Path)]; ok {
+			out = append(out, item.Path)
+		}
+	}
+	if len(out) == 0 {
+		for _, path := range a.operationPaths() {
+			if path != "" && !isDir(path) {
+				out = append(out, path)
+			}
+		}
+	}
+	return out
+}
+
+func (a *appState) confirmFolderRename(n int, exampleFrom, exampleTo string) bool {
+	message := fmt.Sprintf("按文件夹名重命名 %d 个文件？", n)
+	detail := fmt.Sprintf("例如：%s → %s", filepath.Base(exampleFrom), filepath.Base(exampleTo))
+	if n == 1 {
+		message = "按文件夹名重命名此文件？"
+		detail = fmt.Sprintf("%s → %s", filepath.Base(exampleFrom), filepath.Base(exampleTo))
+	}
+	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Parent:       a.Window,
+		Type:         mygo.MessageWarning,
+		Title:        "按文件夹名重命名",
+		Message:      message,
+		Detail:       detail,
+		Buttons:      []string{"重命名", "取消"},
+		CancelButton: 1,
+	})
+	return err == nil && res.Button == 0
+}
+
+// renameByFolderName renames the selected files to <parent>_<seq>.ext
+// (or <parent>.ext for one file), after a short confirm.
+func (a *appState) renameByFolderName() {
+	paths := a.filesForFolderRename()
+	if len(paths) == 0 {
+		a.toast("没有可重命名的文件")
+		return
+	}
+	mappings := folderNameRenameMappings(paths)
+	var changed []pathPair
+	for _, m := range mappings {
+		if pathKey(m.From) != pathKey(m.To) {
+			changed = append(changed, m)
+		}
+	}
+	if len(changed) == 0 {
+		a.toast("名称已是目标形式")
+		return
+	}
+	if a.Window != nil && !a.confirmFolderRename(len(changed), changed[0].From, changed[0].To) {
+		return
+	}
+	a.runOperation(fileOperation{op: opRename, mappings: changed, paths: mappingSources(changed)})
+}
+
+func mappingSources(mappings []pathPair) []string {
+	out := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		out = append(out, m.From)
+	}
+	return out
 }
 
 func (a *appState) isCut(path string) bool {

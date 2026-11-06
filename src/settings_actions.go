@@ -34,6 +34,10 @@ func (a *appState) settingsActionsPage(c *ui.Context, pal *settingsPalette) {
 			[]string{playbackEndStop, playbackEndNext, playbackEndLoop}, []string{"停在末帧", "下一个", "循环"}) {
 			a.applyActionSettings()
 		}
+		if setToggle(c, "remember-play", "记住播放进度", &a.Profiles.RememberPlayProgress) {
+			a.Profiles.RememberPlayOff = !a.Profiles.RememberPlayProgress
+			savePrefs(a.Profiles)
+		}
 	})
 	setGroup(c, "ZIP 加密", func() {
 		setText(c, "zip", "默认密码", &a.Settings.ZipPassword, "未设置", "", true)

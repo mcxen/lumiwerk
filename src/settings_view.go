@@ -280,6 +280,7 @@ func settingsSearchEntries() []settingsSearchEntry {
 		{"actions", "图片复制到", "copy destination 复制 目标"},
 		{"actions", "视频复制到", "copy destination 复制 目标"},
 		{"actions", "播放结束", "playback end loop next 播放 循环"},
+		{"actions", "记住播放进度", "remember play progress resume 播放 进度 续播"},
 		{"actions", "默认密码", "zip password archive 压缩 密码"},
 		{"advanced", "缩略图缓存", "cache limit 缓存 MiB"},
 		{"advanced", "更新源", "update source mirror github tvv"},
