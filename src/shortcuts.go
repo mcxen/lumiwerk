@@ -33,6 +33,7 @@ var shortcutActions = []shortcutAction{
 	{"fitwindow", "合适窗口", keyBinding{0, ui.Key2}},
 	{"center", "窗口居中", keyBinding{0, ui.Key5}},
 	{"rename", "重命名", keyBinding{0, ui.KeyF2}},
+	{"folderrename", "按文件夹名重命名", keyBinding{ui.Cmd | ui.Alt, ui.KeyR}},
 	{"info", "文件简介", keyBinding{ui.Cmd, ui.KeyI}},
 	{"copycfg", "复制到目标", keyBinding{ui.Cmd | ui.Shift, ui.KeyC}},
 	{"diagnostics", "运行诊断", keyBinding{ui.Cmd | ui.Shift, ui.KeyD}},

@@ -85,6 +85,11 @@ type prefsFile struct {
 	// ThumbCacheMiB is the decoded-thumbnail cache budget in MiB. Absent
 	// (0) means the default; normalizePrefs clamps it to 64–1024.
 	ThumbCacheMiB int `json:"thumbCacheMiB,omitempty"`
+	// RememberPlayProgress resumes videos where they left off. The zero
+	// value is flipped by RememberPlayOff below so the default stays on.
+	RememberPlayProgress bool `json:"rememberPlayProgress"`
+	// RememberPlayOff is the persisted opt-out for resume-on-reopen.
+	RememberPlayOff bool `json:"rememberPlayOff,omitempty"`
 }
 
 const (
@@ -163,6 +168,8 @@ func normalizePrefs(p *prefsFile) {
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff
+	// Remembering play progress is on unless the user opted out.
+	p.RememberPlayProgress = !p.RememberPlayOff
 	// Closing the window keeps the app running unless the user opted out.
 	if p.CloseAction != closeQuit {
 		p.CloseAction = closeToTray
@@ -174,6 +181,10 @@ func normalizePrefs(p *prefsFile) {
 // quit opt-out leaves.
 func (p *prefsFile) hidesOnClose() bool {
 	return p.CloseAction != closeQuit
+}
+
+func (p *prefsFile) rememberPlay() bool {
+	return !p.RememberPlayOff
 }
 
 // restoreSession reports whether this run should reopen the last session's

@@ -132,6 +132,7 @@ func main() {
 		// openFolder already persists the trail; flush again on quit so a
 		// dwell that finished after the last navigate is not lost.
 		a.persistBrowsingHistory()
+		a.flushPlayProgress()
 	})
 
 	if err := mygo.App.Run(); err != nil {

@@ -316,6 +316,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
 			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
 			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
+			{Label: "按文件夹名重命名", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(func() { a.renameByFolderName() })
+			}},
 			{Label: "快速重命名当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.quickRenameFolder() })
 			}},
@@ -347,6 +350,9 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "移动到此", Accelerator: "CmdOrCtrl+Alt+V", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doPaste(true) }) }},
 			mygo.Separator(),
 			{Label: "重命名…", Accelerator: a.accel("rename"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.startRename() }) }},
+			{Label: "按文件夹名重命名", Accelerator: a.accel("folderrename"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
+				a.update(func() { a.renameByFolderName() })
+			}},
 			{Label: "移到废纸篓", Accelerator: "Delete", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.doTrash() }) }},
 			{Label: revealLabel, Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.revealInFinder() }) }},
 			{Label: "文件简介", Accelerator: a.accel("info"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.showInfo() }) }},
@@ -489,6 +495,11 @@ func (a *appState) openFolder(path string) {
 	a.noteRecentFolder(path)
 	a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(path)))
 	a.syncTrayTip()
+	// 空间换时间: index hasImage/hasVideo for this tree even in 全部 mode,
+	// so switching to 图片/视频 does not wait on a cold scan.
+	showHidden := a.Profiles.View.Hidden
+	folderMedia.SetPreferHidden(showHidden)
+	folderMedia.Prewarm(path, showHidden)
 	a.refreshView()
 }
 
@@ -971,6 +982,17 @@ func (a *appState) startWatcher() {
 				return
 			}
 			if len(events) > 0 {
+				a.mu.Lock()
+				hidden := a.Profiles.View.Hidden
+				a.mu.Unlock()
+				for _, ev := range events {
+					if ev.Path != "" {
+						folderMedia.NoteChange(ev.Path, hidden)
+					}
+					if ev.OldPath != "" {
+						folderMedia.NoteChange(ev.OldPath, hidden)
+					}
+				}
 				a.update(func() { a.refresh() })
 			}
 		}
@@ -1532,6 +1554,9 @@ func (a *appState) rootView(c *ui.Context) {
 	}
 	if c.Shortcut(0, ui.KeyF2) && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		a.startRename()
+	}
+	if a.keyHit(c, "folderrename") && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
+		a.renameByFolderName()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyF) && !a.InLargeView {
 		a.FocusSearch = true
