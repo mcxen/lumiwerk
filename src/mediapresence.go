@@ -11,13 +11,12 @@ import (
 
 // Folder media presence for 仅媒体 (toolbar 图片/视频) filtering.
 //
-// When FilterMode is 图片 or 视频, the grid and sidebar should hide folders
-// that have no matching media anywhere underneath. A full recursive walk on
-// the UI thread would stall large trees, so presence is resolved in the
-// background with an early exit on the first match, cached by
-// (path, kind, showHidden, dir mtime), and persisted next to the other
-// lumiwerk caches. Until a scan finishes, the folder stays visible
-// (unknown = show); a conclusive "no" hides it on the next filter pass.
+// When FilterMode is 图片 or 视频, the grid and sidebar hide folders with no
+// matching media underneath. Answers come from, in order: (1) a persistent
+// bottom-up archive of hasImage/hasVideo per directory (空间换时间, filled by
+// Prewarm when a folder opens and by NoteChange on watcher events), (2) an
+// in-memory kind cache, (3) an on-demand early-exit scan. Unknown stays
+// visible until resolved. See mediapresence_archive.go for the archive.
 
 type mediaKind int
 
@@ -39,7 +38,7 @@ const (
 	presenceMaxDepth  = 128
 	presenceMaxVisits = 100_000
 	presenceMemCap    = 8192
-	presenceDiskCap   = 4096
+	presenceDiskCap   = archiveDiskCap
 )
 
 type presenceKey struct {
@@ -65,19 +64,23 @@ type presenceDiskRec struct {
 }
 
 type presenceCache struct {
-	mu       sync.Mutex
-	mem      map[presenceKey]presenceMem
-	inflight map[presenceKey]bool
-	disk     map[presenceKey]presenceDiskRec
-	diskOnce sync.Once
-	dirty    bool
-	saveDue  time.Time
+	mu         sync.Mutex
+	mem        map[presenceKey]presenceMem
+	inflight   map[presenceKey]bool
+	disk       map[presenceKey]presenceDiskRec // legacy kind rows; kept for migration
+	archive    map[archiveKey]archiveDir
+	diskOnce   sync.Once
+	dirty      bool
+	saveDue    time.Time
+	lastHidden bool
+	prewarm    prewarmState
 }
 
 var folderMedia = &presenceCache{
 	mem:      map[presenceKey]presenceMem{},
 	inflight: map[presenceKey]bool{},
 	disk:     map[presenceKey]presenceDiskRec{},
+	archive:  map[archiveKey]archiveDir{},
 }
 
 func filterMediaKind(mode int) mediaKind {
@@ -121,8 +124,19 @@ func dirMtime(path string) int64 {
 
 func (c *presenceCache) loadDisk() {
 	c.diskOnce.Do(func() {
+		c.ensureArchiveLocked()
 		data, err := os.ReadFile(presenceCachePath())
 		if err != nil || len(data) == 0 {
+			return
+		}
+		var file presenceArchiveFile
+		if json.Unmarshal(data, &file) == nil && file.Version >= archiveVersion && file.Dirs != nil {
+			for _, r := range file.Dirs {
+				if r.Path == "" {
+					continue
+				}
+				c.archive[archiveKey{path: r.Path, hidden: r.Hidden}] = r
+			}
 			return
 		}
 		var recs []presenceDiskRec
@@ -157,20 +171,20 @@ func (c *presenceCache) flushDisk() {
 		return
 	}
 	c.loadDisk()
-	recs := make([]presenceDiskRec, 0, len(c.disk))
-	for _, r := range c.disk {
-		if r.Complete {
-			recs = append(recs, r)
-		}
+	c.ensureArchiveLocked()
+	dirs := make([]archiveDir, 0, len(c.archive))
+	for _, r := range c.archive {
+		dirs = append(dirs, r)
 	}
-	if len(recs) > presenceDiskCap {
-		recs = recs[len(recs)-presenceDiskCap:]
+	if len(dirs) > presenceDiskCap {
+		dirs = dirs[len(dirs)-presenceDiskCap:]
 	}
+	file := presenceArchiveFile{Version: archiveVersion, Dirs: dirs}
 	c.dirty = false
 	c.saveDue = time.Time{}
 	c.mu.Unlock()
 
-	data, err := json.Marshal(recs)
+	data, err := json.Marshal(file)
 	if err != nil {
 		return
 	}
@@ -208,6 +222,20 @@ func (c *presenceCache) Lookup(path string, kind mediaKind, showHidden bool) (pr
 			c.mem[k] = e
 			return presenceYes, true
 		}
+	}
+	if rec, ok := c.lookupArchiveLocked(path, showHidden, mtime); ok {
+		has := false
+		switch kind {
+		case mediaKindImage:
+			has = rec.Image
+		case mediaKindVideo:
+			has = rec.Video
+		default:
+			has = rec.Image || rec.Video
+		}
+		res := boolResult(has)
+		c.mem[k] = presenceMem{mtime: mtime, result: res, complete: true, at: time.Now()}
+		return res, true
 	}
 	if r, ok := c.disk[k]; ok && r.Mtime == mtime && r.Complete {
 		res := presenceNo
@@ -276,27 +304,24 @@ func (c *presenceCache) evictLocked() {
 	}
 }
 
-// Invalidate drops cached answers for path and every descendant. Watcher
-// refreshes call it so a newly added photo is not stuck behind a stale "no".
+// Invalidate drops in-memory answers under path and schedules a low-priority
+// reindex. The on-disk archive is kept: Lookup ignores rows whose mtime no
+// longer matches. Watcher events should also call NoteChange so flags bubble
+// when a nested edit does not bump every ancestor mtime.
 func (c *presenceCache) Invalidate(path string) {
 	path = filepath.Clean(path)
 	prefix := path + string(filepath.Separator)
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.loadDisk()
 	for k := range c.mem {
 		if k.path == path || strings.HasPrefix(k.path, prefix) {
 			delete(c.mem, k)
 		}
 	}
-	for k := range c.disk {
-		if k.path == path || strings.HasPrefix(k.path, prefix) {
-			delete(c.disk, k)
-			c.dirty = true
-		}
-	}
-	if c.dirty {
-		c.scheduleSaveLocked()
+	hidden := c.lastHidden
+	c.mu.Unlock()
+	if path != "" && path != "." {
+		c.Prewarm(path, hidden)
 	}
 }
 
@@ -399,13 +424,15 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 
 // resetPresenceCacheForTest clears memory and disk maps; tests only.
 func resetPresenceCacheForTest() {
+	folderMedia.prewarm.gen.Add(1)
 	folderMedia.mu.Lock()
 	defer folderMedia.mu.Unlock()
 	folderMedia.mem = map[presenceKey]presenceMem{}
 	folderMedia.inflight = map[presenceKey]bool{}
 	folderMedia.disk = map[presenceKey]presenceDiskRec{}
+	folderMedia.archive = map[archiveKey]archiveDir{}
 	folderMedia.dirty = false
 	folderMedia.saveDue = time.Time{}
-	// Allow reload from a fresh path in tests that override the file.
+	folderMedia.lastHidden = false
 	folderMedia.diskOnce = sync.Once{}
 }
