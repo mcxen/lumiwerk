@@ -173,11 +173,11 @@ func formatClock(secs float64) string {
 func (a *appState) recurseControls(c *ui.Context) {
 	row := ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0)
 	row.Children(func() {
-		sw := ui.Switch(c.Key("recurse-switch"), &a.Recursive).Label("包含子文件夹（递归）")
+		sw := ui.Switch(c.Key("recurse-switch"), &a.Recursive).Label("递归")
 		if sw.Changed() {
 			a.setRecursive(a.Recursive)
 		}
-		ui.Text(c, "包含子文件夹（递归）").FontSize(12).SingleLine()
+		ui.Text(c, "递归").FontSize(12).SingleLine()
 		depth := a.Profiles.View.RecurseDepth
 		seg := ui.Segmented(c.Key("recurse-depth"), &depth, "全部层级", "1 层", "2 层").Label("递归深度").Disabled(!a.Recursive)
 		if seg.Changed() {
@@ -186,16 +186,13 @@ func (a *appState) recurseControls(c *ui.Context) {
 	})
 }
 
-// recurseBar is the line under the toolbar while subfolders are flattened.
-func (a *appState) recurseBar(c *ui.Context) {
+// recurseNotice is the flattened-folder summary for the bottom status bar.
+func (a *appState) recurseNotice() string {
 	if a.galleryActive() || a.InLargeView || !a.Recursive || a.Root == "" {
-		return
+		return ""
 	}
 	folders, images, videos := recurseScopeStats(a.Root, a.Items, a.Visible)
-	t := c.Theme()
-	ui.Box(c).FillWidth().Padding(4, 12).Background(t.Surface).Children(func() {
-		ui.Text(c, recurseSummaryText(folders, images, videos)).FontSize(11).TextColor(t.TextMuted).SingleLine()
-	})
+	return recurseSummaryText(folders, images, videos)
 }
 
 // paintThumbBadges draws the source folder on a waterfall card and the

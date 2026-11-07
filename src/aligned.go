@@ -44,6 +44,9 @@ var (
 	detailIcon    = lucideList
 	waterfallIcon = lucideColumns
 	justifiedIcon = lucideGallery
+	allTypesIcon  = lucideLayers
+	sortIcon      = lucideArrowUpDown
+	thumbSizeIcon = lucideScaling
 )
 
 func init() {
@@ -148,19 +151,20 @@ type appState struct {
 	SidebarShown    bool
 	Breadcrumb      int
 
-	Query        string
-	Sort         string
-	FolderFirst  bool
-	FullPathSort bool
-	sortSalt     int64
-	LayoutMode   int
-	Thumb        float64
-	thumbDue     time.Time
-	browseScroll ui.ScrollState
-	browseBox    browseBox
-	browseAnchor browseAnchor
-	columnX      float32
-	columnY      float32
+	Query         string
+	Sort          string
+	FolderFirst   bool
+	FullPathSort  bool
+	sortSalt      int64
+	LayoutMode    int
+	Thumb         float64
+	thumbSizeOpen bool
+	thumbDue      time.Time
+	browseScroll  ui.ScrollState
+	browseBox     browseBox
+	browseAnchor  browseAnchor
+	columnX       float32
+	columnY       float32
 
 	InLargeView bool
 	// largeSidebarFold is the sidebar Split's size while the large view
@@ -205,10 +209,9 @@ type appState struct {
 	Profiles    prefsFile
 	Batch       batchState
 	Renaming    bool
-	FocusSearch bool
-	LastQuery   string
-	RenamePath  string
-	RenameVal   string
+
+	RenamePath string
+	RenameVal  string
 	// RenameInline edits the name in place (rename_inline.go) rather
 	// than in the dialog; renameFresh counts frames until the field,
 	// focused, selects the name before its extension.
@@ -695,17 +698,6 @@ func ancestorRoots(path string) []string {
 	return roots
 }
 
-func (a *appState) filterLabel() string {
-	switch a.FilterMode {
-	case 1:
-		return "图片"
-	case 2:
-		return "视频"
-	default:
-		return "全部"
-	}
-}
-
 func (a *appState) layoutLabel() string {
 	switch a.LayoutMode {
 	case 1:
@@ -719,37 +711,77 @@ func (a *appState) layoutLabel() string {
 	}
 }
 
-// layoutSwitcher draws Finder's view control: four icon segments that pick
-// the media layout (icon view, list, waterfall and justified mosaic).
-func (a *appState) layoutSwitcher(c *ui.Context) {
+// iconChoice is one glyph in an icon segmented control. The name is the
+// tooltip and the accessible label; the face is only the icon.
+type iconChoice struct {
+	icon  *ui.SVG
+	label string
+}
+
+func iconSegmented(c *ui.Context, selected *int, items []iconChoice) bool {
 	t := c.Theme()
-	layouts := []struct {
-		icon  *ui.SVG
-		label string
-	}{
-		{gridIcon, "网格"},
-		{detailIcon, "详情"},
-		{waterfallIcon, "瀑布"},
-		{justifiedIcon, "紧凑"},
-	}
-	seg := ui.SegmentedBase(c, &a.LayoutMode, len(layouts))
+	seg := ui.SegmentedBase(c, selected, len(items))
 	seg.Track.AlignItems(ui.Stretch).Padding(2).Gap(2).Radius(6).Background(t.Surface).Children(func() {
-		for i, layout := range layouts {
-			active := a.LayoutMode == i
+		for i, item := range items {
+			active := *selected == i
 			s := seg.Segment(i).Justify(ui.Center).AlignItems(ui.Center).Padding(3, 6).Radius(4)
 			if active {
 				s.Background(t.Accent)
 			}
-			s.Tooltip(layout.label).Label(layout.label)
+			s.Tooltip(item.label).Label(item.label)
 			s.Children(func() {
 				color := t.Text
 				if active {
 					color = t.AccentText
 				}
-				ui.Icon(c, layout.icon).FontSize(13).TextColor(color)
+				ui.Icon(c, item.icon).FontSize(13).TextColor(color)
 			})
 		}
 	})
+	return seg.Track.Changed()
+}
+
+// layoutSwitcher draws Finder's view control: four icon segments that pick
+// the media layout (icon view, list, waterfall and justified mosaic).
+func (a *appState) layoutSwitcher(c *ui.Context) {
+	iconSegmented(c.Key("layout"), &a.LayoutMode, []iconChoice{
+		{gridIcon, "网格"},
+		{detailIcon, "详情"},
+		{waterfallIcon, "瀑布"},
+		{justifiedIcon, "紧凑"},
+	})
+}
+
+// filterSwitcher is 全部 / 图片 / 视频 as icons.
+func (a *appState) filterSwitcher(c *ui.Context) {
+	if a.FilterMode < 0 || a.FilterMode > 2 {
+		a.FilterMode = 0
+	}
+	if iconSegmented(c.Key("filter-kind"), &a.FilterMode, []iconChoice{
+		{allTypesIcon, "全部"},
+		{imageIcon, "图片"},
+		{videoIcon, "视频"},
+	}) {
+		a.applyFilter()
+	}
+}
+
+// setThumb moves the thumbnail slider from old to next and keeps the row
+// under the pointer. The slider writes next before reporting the change,
+// so old has to be the value from before that write.
+func (a *appState) setThumb(old, next float64) {
+	if next < 64 {
+		next = 64
+	}
+	if next > 512 {
+		next = 512
+	}
+	a.Thumb = next
+	if next == old {
+		return
+	}
+	a.noteThumbBand(thumbBand(thumbEdge(old)))
+	a.anchorBrowse(old, next, 0, 0, false, a.browseBox)
 }
 
 func (a *appState) sortLabel() string {
@@ -1398,10 +1430,7 @@ func (a *appState) rootView(c *ui.Context) {
 			a.zoomStep(1 / 1.25)
 		}
 	}
-	// F3 = search, F5 = refresh.
-	if c.Shortcut(0, ui.KeyF3) && !a.InLargeView {
-		a.FocusSearch = true
-	}
+	// F5 = refresh.
 	if c.Shortcut(0, ui.KeyF5) {
 		a.refresh()
 	}
@@ -1557,9 +1586,6 @@ func (a *appState) rootView(c *ui.Context) {
 	}
 	if a.keyHit(c, "folderrename") && !a.Renaming && !a.NewFolder && !a.Batch.Open && !a.modalOpen() {
 		a.renameByFolderName()
-	}
-	if c.Shortcut(ui.Cmd, ui.KeyF) && !a.InLargeView {
-		a.FocusSearch = true
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyZ) && !a.InLargeView {
 		a.undo()
@@ -1778,7 +1804,6 @@ func (a *appState) mainView(c *ui.Context) {
 		if !a.galleryActive() {
 			a.tabsBar(c)
 			a.toolbarView(c)
-			a.recurseBar(c)
 			ui.Divider(c)
 		}
 		if a.galleryActive() {
@@ -1808,101 +1833,98 @@ func (a *appState) mainView(c *ui.Context) {
 	})
 }
 
+// toolbarCluster is one inset rounded group on the toolbar. A growing
+// cluster takes the spare width; the others keep their own size.
+func toolbarCluster(c *ui.Context, grow bool, fn func()) {
+	t := c.Theme()
+	row := ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 6).Radius(8).Background(t.Background)
+	if grow {
+		row.Grow(1).Shrink(1).MinWidth(0)
+	} else {
+		row.Shrink(0)
+	}
+	row.Children(fn)
+}
+
 func (a *appState) toolbarView(c *ui.Context) {
 	t := c.Theme()
 	bar := ui.Toolbar(c, func() {
-		// 左侧：导航控件组
-		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+		// 左块：侧栏、前进后退、面包屑。块宽随窗口伸缩，路径先收缩。
+		toolbarCluster(c, true, func() {
 			if lucideIconButton(c, "sidebar", "显示/隐藏侧栏", sidebarIcon).Clicked() {
 				a.SidebarShown = !a.SidebarShown
 			}
-			ui.Box(c).Width(1).Height(18).Background(t.Border)
 			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Disabled(!a.canGoBack()).Clicked() {
 				a.goBack()
 			}
 			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Disabled(!a.canGoForward()).Clicked() {
 				a.goForward()
 			}
-		})
-
-		ui.Box(c).Width(12) // 间距
-
-		// 中间：标题或面包屑
-		if a.InLargeView {
-			item := a.currentItem()
-			title := "无媒体"
-			if item != nil {
-				title = fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible))
+			if a.InLargeView {
+				item := a.currentItem()
+				title := "无媒体"
+				if item != nil {
+					title = fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible))
+				}
+				ui.Text(c, title).FontSize(12).Bold().Grow(1).Shrink(1).MinWidth(0).MaxLines(1)
+				return
 			}
-			ui.Text(c, title).FontSize(12).Bold().Grow(1).MaxLines(1)
-		} else {
 			items := strings.Split(a.breadcrumbPath(), " › ")
 			chosen := len(items) - 1
-			bc := ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).MinWidth(160)
+			bc := ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).Shrink(1).MinWidth(0)
 			if bc.Changed() {
 				a.openBreadcrumb(chosen)
 			}
+		})
+		if a.InLargeView {
+			toolbarCluster(c, false, func() {
+				lucideMenuButton(c, "显示与浏览", a.viewMenu)
+			})
+			return
 		}
-
-		ui.Box(c).Width(8) // 间距
-
-		if !a.InLargeView {
+		// 中块：显示格式。递归开关，以及全部 / 图片 / 视频图标。
+		toolbarCluster(c, false, func() {
 			a.recurseControls(c)
-			ui.Box(c).Width(8)
-		}
-
-		// 右侧：浏览控件组
-		if !a.InLargeView {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				prevQuery := a.LastQuery
-				search := ui.SearchField(c.Key("query"), &a.Query).Width(150).Label("搜索")
-				if a.FocusSearch {
-					search.Focus()
-					a.FocusSearch = false
-				}
-				if a.Query != prevQuery {
-					a.LastQuery = a.Query
-					a.mu.Lock()
-					a.applyFilterLocked()
-					a.mu.Unlock()
-				}
-				ui.MenuButton(c, a.filterLabel(), func(m *ui.Menu) {
-					for i, name := range []string{"全部", "图片", "视频"} {
-						idx := i
-						if m.Item(name).Radio(a.FilterMode == idx).Chosen() {
-							a.FilterMode = idx
-							a.applyFilter()
-						}
+			a.filterSwitcher(c)
+		})
+		// 右块：显示样式都是图标，排序和更多也是。
+		toolbarCluster(c, false, func() {
+			a.layoutSwitcher(c)
+			nc := lucideIconButton(c, "nocaption", "无字模式 (⇧⌘H)", captionIcon)
+			if a.Profiles.View.NoCaption {
+				nc.Background(t.Accent)
+			}
+			if nc.Clicked() {
+				a.toggleCaption()
+			}
+			g := lucideIconButton(c, "gallery", "画廊 (G)", galleryIcon)
+			if a.Gallery {
+				g.Background(t.Accent)
+			}
+			if g.Clicked() {
+				a.toggleGallery()
+			}
+			size := lucideIconButton(c, "thumbsize", "缩略图大小", thumbSizeIcon)
+			if a.thumbSizeOpen {
+				size.Background(t.Accent)
+			}
+			if size.Clicked() {
+				a.thumbSizeOpen = !a.thumbSizeOpen
+			}
+			ui.Popover(c, size, &a.thumbSizeOpen, func() {
+				ui.Row(c).Padding(6, 8).AlignItems(ui.Center).Children(func() {
+					oldThumb := a.Thumb
+					if ui.Slider(c.Key("thumb-size"), &a.Thumb, 64, 512).Width(140).Label("缩略图大小").Changed() {
+						a.setThumb(oldThumb, a.Thumb)
 					}
 				})
-				ui.Box(c).Width(1).Height(18).Background(t.Border)
-				a.layoutSwitcher(c)
-				nc := lucideIconButton(c, "nocaption", "无字模式 (⇧⌘H)", captionIcon)
-				if a.Profiles.View.NoCaption {
-					nc.Background(t.Accent)
-				}
-				if nc.Clicked() {
-					a.toggleCaption()
-				}
-				g := lucideIconButton(c, "gallery", "画廊 (G)", galleryIcon)
-				if a.Gallery {
-					g.Background(t.Accent)
-				}
-				if g.Clicked() {
-					a.toggleGallery()
-				}
-				oldThumb := a.Thumb
-				beforeBand := thumbBand(thumbEdge(a.Thumb))
-				box := a.browseBox
-				if ui.Slider(c, &a.Thumb, 64, 512).Width(80).Changed() {
-					a.noteThumbBand(beforeBand)
-					a.anchorBrowse(oldThumb, a.Thumb, 0, 0, false, box)
-				}
-				ui.MenuButton(c, a.sortLabel(), a.finderSortMenu)
 			})
-		}
-		lucideMenuButton(c, "显示与浏览", a.viewMenu)
-	}).Padding(6, 10).Background(t.Surface)
+			ui.MenuButton(c, "", a.finderSortMenu).Label("排序").Tooltip("排序").Children(func() {
+				ui.Icon(c, sortIcon).FontSize(16)
+			})
+			lucideMenuButton(c, "显示与浏览", a.viewMenu)
+		})
+	}).Padding(6, 8).Gap(8).Background(t.Surface)
 	// Under a hidden macOS title bar the top row drags the window. The
 	// traffic lights sit over the sidebar when it is open, otherwise over
 	// this toolbar — only then pad past them.
@@ -2081,7 +2103,10 @@ func (a *appState) statusBar(c *ui.Context) {
 	bar := ui.Row(c).Padding(4, 12).Background(t.Surface).AlignItems(ui.Center)
 	bar.Children(func() {
 		// 左侧：选中项信息
-		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1)
+		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		if note := a.recurseNotice(); note != "" {
+			ui.Text(c, note).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(0)
+		}
 		a.workIndicator(c)
 
 		// 右侧：性能指标（可选）

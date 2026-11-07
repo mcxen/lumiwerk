@@ -94,15 +94,18 @@ func TestRecurseToolbarSummaryAndWaterfallMarks(t *testing.T) {
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			a.toolbarView(c)
-			a.recurseBar(c)
 			a.waterfallView(c)
+			a.statusBar(c)
 		})
 	}, 1800, 720)
 	te.Frame()
 	te.Frame()
 	texts := te.Texts()
 	for _, want := range []string{
-		"包含子文件夹（递归）",
+		"递归",
+		"全部",
+		"图片",
+		"视频",
 		"全部层级",
 		"1 层",
 		"2 层",
@@ -120,6 +123,20 @@ func TestRecurseToolbarSummaryAndWaterfallMarks(t *testing.T) {
 	te.Frame()
 	if a.Profiles.View.RecurseDepth != 2 {
 		t.Fatalf("depth %d", a.Profiles.View.RecurseDepth)
+	}
+	if err := te.Click("图片"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if a.FilterMode != 1 {
+		t.Fatalf("filter %d", a.FilterMode)
+	}
+	if err := te.Click("排序"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if !hasText(te.Menu(), "文件名") {
+		t.Fatalf("sort menu %v", te.Menu())
 	}
 }
 

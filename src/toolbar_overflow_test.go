@@ -20,7 +20,7 @@ func TestToolbarOverflowLayoutLabels(t *testing.T) {
 	}
 	labels := tt.Menu()
 	t.Log("overflow:", labels)
-	for _, want := range []string{"搜索", "网格", "详情", "瀑布", "紧凑"} {
+	for _, want := range []string{"网格", "详情", "瀑布", "紧凑"} {
 		found := false
 		for _, l := range labels {
 			if l == want {
