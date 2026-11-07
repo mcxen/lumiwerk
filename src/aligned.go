@@ -21,7 +21,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.16"
+	appVersion                  = "0.3.17"
 	sidebarDefaultWidth float32 = 279
 )
 
