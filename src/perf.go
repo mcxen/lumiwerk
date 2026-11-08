@@ -141,6 +141,29 @@ func (a *appState) maybeRequestThumb(el ui.Element, root string, visIndex int) {
 	a.requestThumb(root, a.Visible[visIndex])
 }
 
+// adoptCachedThumb gives a card that is being built its decoded thumbnail
+// when the memory cache already holds it. The card's name is drawn in the
+// same frame, so a cache hit must not wait for a worker goroutine and a
+// Window.Update round trip: that shows the placeholder glyph for a frame
+// while the text is already in place, and scrolling back through cached
+// thumbnails looks as if the picture trails the label.
+func (a *appState) adoptCachedThumb(item *mediaItem) {
+	if item == nil || item.IsDir || item.Decoded || item.Failed || item.Loading {
+		return
+	}
+	edge := thumbBand(thumbEdge(a.Thumb))
+	bitmap := thumbLRU.Get(thumbCacheKey(item.Path, edge))
+	if bitmap == nil {
+		return
+	}
+	a.mu.Lock()
+	item.LoadGen++ // a decode queued for the old state must not overwrite this
+	item.Bitmap = bitmap
+	item.Decoded = true
+	item.ThumbEdge = edge
+	a.mu.Unlock()
+}
+
 func (a *appState) visibleIndexRange() (first, last int) {
 	n := len(a.Visible)
 	box := a.browseBox

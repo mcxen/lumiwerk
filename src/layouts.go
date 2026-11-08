@@ -468,6 +468,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	}
 	thumbCardProbe()
 	a.markSeen(item)
+	a.adoptCachedThumb(item)
 	card := ui.Column(c).Gap(4)
 	if opts.width > 0 {
 		card.Width(opts.width).Shrink(0)
