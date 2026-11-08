@@ -96,7 +96,7 @@ func (a *appState) detailView(c *ui.Context) {
 				switch detailColumns[col].ID {
 				case "name":
 					if item.IsDir {
-						ui.Icon(c, dirIcon).FontSize(15)
+						paintFolderGlyph(c, item.Path, 15)
 					} else {
 						paintTypeGlyph(c, item.Ext, 15)
 					}

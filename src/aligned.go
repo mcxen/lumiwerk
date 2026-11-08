@@ -185,6 +185,8 @@ type appState struct {
 	Rotation         float32
 	Mirror           bool
 	Video            *videoView
+	gifPlayer        *ui.VideoPlayer
+	gifPath          string
 	videoEdgeDue     time.Time
 	Info             infoState
 	Gesture          gestureState
@@ -2166,11 +2168,14 @@ func (a *appState) largeImageView(c *ui.Context) {
 					Left(a.SharpPlace.X).Top(a.SharpPlace.Y).
 					Size(a.SharpPlace.W, a.SharpPlace.H).Fit(ui.FillBox)
 			} else if item.IsVideo {
+				a.closeGIF()
 				a.ensureVideo(item.Path)
 				a.settleVideoEdge(c)
 				if !a.largeHero(c, item, nil, func() { a.videoLayer(c, true) }) {
 					a.videoLayer(c, true)
 				}
+			} else if a.ensureGIF(item) {
+				ui.Video(c, a.gifPlayer).Fit(ui.Contain).Grow(1)
 			} else {
 				pic := item.Large
 				if pic == nil {
@@ -2386,18 +2391,18 @@ func (a *appState) mediaOverlay(c *ui.Context, item *mediaItem) {
 			}
 		})
 	}
-	if stars := ratingFor(item); stars > 0 {
-		panel := ui.Row(c).Attach(ui.AnchorBottomStart, ui.AnchorBottomStart).Margin(14, 14).Padding(4, 8).Radius(6).Background(t.Surface)
-		panel.Children(func() {
-			for i := 0; i < 5; i++ {
-				col := t.TextMuted
-				if i < stars {
-					col = ui.RGB(255, 199, 0)
-				}
-				ui.Icon(c, starIcon).FontSize(16).TextColor(col)
+	stars := ratingFor(item)
+	gold := *t
+	gold.Warning = ui.RGB(255, 199, 0)
+	panel := ui.Row(c).Attach(ui.AnchorBottomStart, ui.AnchorBottomStart).Margin(14, 14).Padding(4, 8).Radius(6).Background(t.Surface)
+	panel.Children(func() {
+		ui.Themed(c, &gold).Children(func() {
+			r := ui.Rating(c.Key("large-rating"), &stars, 5).Label("评级")
+			if r.Changed() {
+				a.setRating([]string{item.Path}, stars)
 			}
 		})
-	}
+	})
 	a.infoOverlay(c, item)
 }
 
@@ -2893,6 +2898,7 @@ func (a *appState) closeLargeImage() {
 	a.LargeIndex = -1
 	a.dropLargeBitmaps("")
 	a.closeVideo()
+	a.closeGIF()
 	if a.Root != "" {
 		a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))
 	}

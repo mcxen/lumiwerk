@@ -123,6 +123,10 @@ func withoutTag(tags []string, name string) []string {
 	return out
 }
 
+// writeRating writes Finder rating tags. Tests replace it so they never
+// touch real tags.
+var writeRating = applyRating
+
 func applyRating(paths []string, rating int) error {
 	for _, path := range paths {
 		tags, err := urlTags(path)

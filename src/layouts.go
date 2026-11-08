@@ -484,7 +484,6 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 // stacked bitmap in every layout; until that exists the card keeps the
 // plain folder icon. Photos keep the layout's own fit.
 func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) {
-	t := c.Theme()
 	if item.IsDir {
 		if item.Bitmap != nil {
 			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
@@ -494,7 +493,7 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 			releaseShownPixels(item)
 			return
 		}
-		ui.Icon(c, dirIcon).FontSize(28).TextColor(t.TextMuted)
+		paintFolderGlyph(c, item.Path, 28)
 		return
 	}
 	if item.Bitmap != nil {

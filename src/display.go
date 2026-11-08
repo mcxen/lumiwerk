@@ -285,14 +285,12 @@ func (a *appState) autoConfigDialog(c *ui.Context) {
 	if a.AutoConfig == "" {
 		return
 	}
-	t := c.Theme()
+	open := true
 	title, label := "自动滚动", "滚动速度（像素/秒）"
 	if a.AutoConfig == "play" {
 		title, label = "自动播放", "播放间隔（秒）"
 	}
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(340).Padding(16).Gap(10).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	m := ui.Modal(c, &open, func() {
 		ui.Text(c, title).Bold().FontSize(14)
 		field := ui.TextInput(c, &a.AutoValue).Label(label).Width(300)
 		if field.Submitted() {
@@ -307,6 +305,9 @@ func (a *appState) autoConfigDialog(c *ui.Context) {
 			}
 		})
 	})
+	if m.Dismissed() {
+		a.AutoConfig, a.AutoValue = "", ""
+	}
 }
 
 func (a *appState) fitWindowToImage(current bool) {

@@ -553,18 +553,15 @@ func (a *appState) zipDialog(c *ui.Context) {
 	if !a.ZipAsk {
 		return
 	}
-	t := c.Theme()
 	title := "加密压缩 ZIP"
 	detail := "请输入 ZIP 密码。"
 	if a.ZipFor == "extract" {
 		title = "解压密码"
 		detail = "这个压缩包需要密码。"
 	}
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(320).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	m := ui.Modal(c, &a.ZipAsk, func() {
 		ui.Text(c, title).Bold().FontSize(14)
-		ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, detail).FontSize(12).TextColor(c.Theme().TextMuted)
 		field := ui.TextInput(c, &a.ZipPass).Width(280).Password()
 		if field.Submitted() {
 			a.commitZipPrompt()
@@ -579,6 +576,9 @@ func (a *appState) zipDialog(c *ui.Context) {
 			}
 		})
 	})
+	if m.Dismissed() {
+		a.ZipPass = ""
+	}
 }
 
 // renameDialog shows a real editable field and commits on Enter.
@@ -586,17 +586,13 @@ func (a *appState) renameDialog(c *ui.Context) {
 	if !a.Renaming || a.RenameInline {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(320).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	ui.Modal(c, &a.Renaming, func() {
 		ui.Text(c, "重命名").Bold().FontSize(14)
 		field := ui.TextInput(c, &a.RenameVal).Width(280)
 		if field.Submitted() {
 			a.commitRename()
 		}
-		row := ui.Row(c).Gap(8).Justify(ui.End)
-		row.Children(func() {
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c.Key("rename-cancel"), "取消").Clicked() {
 				a.Renaming = false
 			}
@@ -698,12 +694,9 @@ func (a *appState) batchDialog(c *ui.Context) {
 	if !a.Batch.Open {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(520).Padding(16).Gap(10).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	m := ui.Modal(c, &a.Batch.Open, func() {
 		ui.Text(c, "批量重命名").Bold().FontSize(16)
-		ui.Text(c, "顺序：替换、格式、前缀、后缀。默认保留扩展名。").FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, "顺序：替换、格式、前缀、后缀。默认保留扩展名。").FontSize(11).TextColor(c.Theme().TextMuted)
 		if ui.TextInput(c, &a.Batch.Rule.Prefix).Label("前缀").Width(480).Changed() {
 			a.updateBatchPreview()
 		}
@@ -719,7 +712,7 @@ func (a *appState) batchDialog(c *ui.Context) {
 		if ui.TextInput(c, &a.Batch.Rule.Pattern).Label("格式").Width(480).Changed() {
 			a.updateBatchPreview()
 		}
-		ui.Text(c, "{name} {folder} {ext} {index} {index:03} {date} {time}").FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, "{name} {folder} {ext} {index} {index:03} {date} {time}").FontSize(11).TextColor(c.Theme().TextMuted)
 		ui.Divider(c)
 		ui.Text(c, "预览").Bold().FontSize(12)
 		for _, src := range a.selectedPaths() {
@@ -728,7 +721,7 @@ func (a *appState) batchDialog(c *ui.Context) {
 				continue
 			}
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, filepath.Base(src)).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
+				ui.Text(c, filepath.Base(src)).FontSize(11).TextColor(c.Theme().TextMuted).MaxLines(1)
 				ui.Text(c, "→").FontSize(11)
 				ui.Text(c, filepath.Base(dst)).FontSize(11).MaxLines(1)
 			})
@@ -742,6 +735,9 @@ func (a *appState) batchDialog(c *ui.Context) {
 			}
 		})
 	})
+	if m.Dismissed() {
+		a.Batch.Preview = nil
+	}
 }
 
 func (a *appState) currentDestination() string {
@@ -995,10 +991,7 @@ func (a *appState) folderDialog(c *ui.Context) {
 	if !a.NewFolder {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(320).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	m := ui.Modal(c, &a.NewFolder, func() {
 		title := "新建文件夹"
 		if len(a.FolderTake) > 0 {
 			title = "用所选项目新建文件夹"
@@ -1018,6 +1011,10 @@ func (a *appState) folderDialog(c *ui.Context) {
 			}
 		})
 	})
+	if m.Dismissed() {
+		a.FolderTake = nil
+		a.FolderName = ""
+	}
 }
 
 func (a *appState) beginTransfer(op fileOperation) {
@@ -1624,12 +1621,9 @@ func (a *appState) cropDialog(c *ui.Context) {
 	if !a.CropAsk {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(340).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	ui.Modal(c, &a.CropAsk, func() {
 		ui.Text(c, "裁剪视频尺寸").Bold().FontSize(14)
-		ui.Text(c, "替换原文件。留空起点则居中，否则按左上角像素裁剪。").FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, "替换原文件。留空起点则居中，否则按左上角像素裁剪。").FontSize(12).TextColor(c.Theme().TextMuted)
 		ui.Row(c).Gap(8).Children(func() {
 			ui.TextInput(c, &a.CropW).Label("宽").Width(120)
 			ui.TextInput(c, &a.CropH).Label("高").Width(120)
@@ -1694,12 +1688,9 @@ func (a *appState) trimDialog(c *ui.Context) {
 	if !a.TrimAsk {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(340).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	ui.Modal(c, &a.TrimAsk, func() {
 		ui.Text(c, "无损裁剪片段").Bold().FontSize(14)
-		ui.Text(c, "拖动范围会跳到对应画面，导出不重新编码，原视频保持不变。").FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, "拖动范围会跳到对应画面，导出不重新编码，原视频保持不变。").FontSize(12).TextColor(c.Theme().TextMuted)
 		a.trimRangeSliders(c)
 		ui.Row(c).Gap(8).Children(func() {
 			ui.TextInput(c, &a.TrimStart).Label("开始").Width(120)
@@ -1835,7 +1826,7 @@ func (a *appState) ratingMenu(m *ui.Menu, paths []string) {
 }
 
 func (a *appState) setRating(paths []string, rating int) {
-	if err := applyRating(paths, rating); err != nil {
+	if err := writeRating(paths, rating); err != nil {
 		a.toast("无法写入评级。")
 		return
 	}
@@ -1881,10 +1872,7 @@ func (a *appState) infoDialog(c *ui.Context) {
 	if !a.InfoAsk {
 		return
 	}
-	t := c.Theme()
-	panel := ui.Column(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Width(420).Padding(16).Gap(8).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
-	panel.Children(func() {
+	ui.Modal(c, &a.InfoAsk, func() {
 		title := "文件信息"
 		if strings.HasPrefix(a.InfoText, "共 ") {
 			title = "统计"

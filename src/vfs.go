@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo"
+
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
@@ -118,16 +120,27 @@ func openWithDefault(path string) error {
 	}
 }
 
+// revealIfReady shows path in the file manager once the app is running.
+// It must not be called from tests against a ready app: that would open
+// a production window.
+func revealIfReady(path string) {
+	if !mygo.App.IsReady() {
+		return
+	}
+	mygo.Shell.ShowItemInFolder(path)
+}
+
+// showItemInFolder reveals path in the platform file manager. Tests replace
+// it so they never start a production window or hit needsApp.
+var showItemInFolder = revealIfReady
+
 // revealInFileBrowser shows one path selected in the platform file manager.
 func revealInFileBrowser(path string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return execWaitOrStart("open", "-R", path)
-	case "windows":
-		return execWaitOrStart("explorer", "/select,", path)
-	default:
-		return execWaitOrStart("xdg-open", filepath.Dir(path))
+	if path == "" {
+		return nil
 	}
+	showItemInFolder(path)
+	return nil
 }
 
 // openTerminalAt opens the platform terminal in a directory.
