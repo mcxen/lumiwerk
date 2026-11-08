@@ -3,7 +3,6 @@ package main
 import (
 	"container/heap"
 	"fmt"
-	"math"
 
 	"github.com/egoist/mygo/ui"
 	"slices"
@@ -87,7 +86,7 @@ var flowLabel float32 = 30
 
 // syncCaption applies 无字模式 to the card geometry, once per change.
 func (a *appState) syncCaption() {
-	want := float32(math.Round(float64(30 * cardScale(float32(a.Thumb)))))
+	want := float32(30) // names keep their size, so the band does too
 	if a.Profiles.View.NoCaption {
 		want = 0
 	}
@@ -505,9 +504,9 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 		})
 		if flowLabel > 0 {
 			if opts.inlineRename && a.renamingInline(i) {
-				a.inlineRenameField(c, 11*s, true)
+				a.inlineRenameField(c, 11, true)
 			} else {
-				name = ui.Text(c, item.Name).FontSize(11 * s).MaxLines(2).TextAlign(ui.Center)
+				name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
 			}
 		}
 	})
@@ -523,7 +522,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	a.maybeRequestThumb(card, root, i)
 }
 
-// cardScale is how much a card's chrome (caption, badges, dots, gaps) grows
+// cardScale is how much a card's chrome (badges, dots, gaps) grows
 // with the thumbnail size: 1 at the default 150, never below 0.9 so a small
 // card stays legible, and up to 1.8 so a big one is not dwarfed by fixed text.
 func cardScale(thumb float32) float32 {
