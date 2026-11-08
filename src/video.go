@@ -45,7 +45,7 @@ func newFFmpegDecoder(path string) *ffmpegDecoder {
 }
 
 func newFFmpegDecoderAt(path string, startAt float64) *ffmpegDecoder {
-	return &ffmpegDecoder{path: path, startAt: startAt, edge: 2560, audioMap: -1, videoMap: -1, quit: make(chan struct{})}
+	return &ffmpegDecoder{path: path, startAt: startAt, edge: playbackEdge(1), audioMap: -1, videoMap: -1, quit: make(chan struct{})}
 }
 
 func (d *ffmpegDecoder) start() error {
@@ -67,10 +67,7 @@ func (d *ffmpegDecoder) startLocked() error {
 	if d.sourceFrame <= 0 {
 		d.sourceFrame = probeFrameDuration(d.path)
 	}
-	d.frameDur = d.sourceFrame
-	if d.frameDur > 0 && d.frameDur < time.Second/30 {
-		d.frameDur = time.Second / 30
-	}
+	d.frameDur = playbackFrameDuration(d.sourceFrame)
 	d.stderr = &strings.Builder{}
 	args := playbackArgsMapped(d.path, d.startAt, d.sourceFrame, d.plain, d.edge, d.audioMap, d.videoMap)
 	cmd := exec.Command(toolPath("ffmpeg"), args...)
@@ -83,7 +80,7 @@ func (d *ffmpegDecoder) startLocked() error {
 		return err
 	}
 	d.cmd = cmd
-	d.stdout = bufio.NewReaderSize(stdout, 1<<20)
+	d.stdout = bufio.NewReaderSize(stdout, 4<<20)
 	d.started = true
 	return nil
 }
@@ -125,27 +122,45 @@ func probeFrameDuration(path string) time.Duration {
 	return fallback
 }
 
-// playbackEdge raises the decode size as the user zooms past fit. Fit stays
-// at 2560; deeper zoom gets a sharper frame instead of stretching that JPEG.
+// playbackEdge raises the decode size as the user zooms past fit. Frames
+// travel as raw RGBA, so the fit size stays at 1920 (≈8 MiB a frame at
+// 30 fps through the pipe) and deep zoom stops at 2560: the old 3840/5120
+// tiers could not be decoded, piped and uploaded in real time, so the
+// picture fell behind the sound.
 func playbackEdge(zoom float32) int {
-	if zoom < 1 {
-		zoom = 1
+	if zoom <= 1.25 {
+		return 1920
 	}
-	switch {
-	case zoom <= 1.25:
-		return 2560
-	case zoom <= 2.5:
-		return 3840
-	default:
-		return 5120
-	}
+	return 2560
 }
 
-// playbackArgs decodes through VideoToolbox into a JPEG stream. Lanczos keeps
-// zoomed playback sharper than a fast bilinear scale of a tiny frame.
+// maxPlaybackFPS caps the fallback's output rate; each frame is a full raw
+// picture through a pipe and an upload.
+const maxPlaybackFPS = 30
+
+// playbackFrameDuration is the constant frame interval the fallback emits for
+// a source whose average interval is source: the source rate, capped at
+// maxPlaybackFPS, or maxPlaybackFPS when the rate is unknown.
+func playbackFrameDuration(source time.Duration) time.Duration {
+	if source <= 0 || source < time.Second/maxPlaybackFPS {
+		return time.Second / maxPlaybackFPS
+	}
+	return source
+}
+
+// playbackArgs decodes (through VideoToolbox unless plain) into a stream of
+// raw RGBA PAM pictures.
+//
+// The fps filter always runs: it turns variable-frame-rate sources (screen
+// recordings, phone clips) into a constant rate, so frame n is exactly at
+// startAt + n·interval, the time the pump stamps on it. Without it the pump's
+// synthesized times drifted from the real ones and the picture slid out of
+// sync with the sound. PAM carries each frame's size in its header, so
+// rotated sources need no probing, and raw pixels cost no JPEG encode in
+// ffmpeg nor decode and colour conversion in the app.
 func playbackArgs(path string, startAt float64, frameDur time.Duration, plain bool, edge int) []string {
 	if edge <= 0 {
-		edge = 2560
+		edge = playbackEdge(1)
 	}
 	args := []string{"-hide_banner", "-loglevel", "error", "-threads", "0"}
 	if !plain {
@@ -154,11 +169,12 @@ func playbackArgs(path string, startAt float64, frameDur time.Duration, plain bo
 	if startAt > 0 {
 		args = append(args, "-ss", fmt.Sprintf("%.3f", startAt))
 	}
-	vf := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease:flags=lanczos", edge, edge)
-	if frameDur > 0 && frameDur < time.Second/30 {
-		vf = "fps=30," + vf
-	}
-	args = append(args, "-i", path, "-an", "-vf", vf, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
+	interval := playbackFrameDuration(frameDur)
+	fps := float64(time.Second) / float64(interval)
+	vf := fmt.Sprintf("fps=%s,scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease:flags=bicubic",
+		strconv.FormatFloat(fps, 'f', 6, 64), edge, edge)
+	args = append(args, "-i", path, "-an", "-sn", "-dn", "-vf", vf,
+		"-pix_fmt", "rgba", "-f", "image2pipe", "-vcodec", "pam", "-")
 	return args
 }
 
@@ -193,12 +209,65 @@ func insertStreamMaps(args []string, path string, audioMap, videoMap int) []stri
 	return args
 }
 
+// decodeFrame reads one RGBA PAM picture into a tight *image.RGBA, which
+// ui.Bitmap.Update shows without a copy or conversion.
 func decodeFrame(r *bufio.Reader) (image.Image, error) {
-	img, err := jpeg.Decode(r)
+	w, h, err := readPAMHeader(r)
 	if err != nil {
 		return nil, err
 	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	if _, err := io.ReadFull(r, img.Pix); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			err = io.EOF
+		}
+		return nil, err
+	}
 	return img, nil
+}
+
+// readPAMHeader parses a "P7" header and accepts only 8-bit RGB_ALPHA.
+func readPAMHeader(r *bufio.Reader) (width, height int, err error) {
+	magic, err := r.ReadString('\n')
+	if err != nil {
+		return 0, 0, err
+	}
+	if strings.TrimSpace(magic) != "P7" {
+		return 0, 0, fmt.Errorf("pam: bad magic %q", strings.TrimSpace(magic))
+	}
+	depth, maxval := 0, 0
+	tuple := ""
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, 0, fmt.Errorf("pam header: %w", err)
+		}
+		key, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		value = strings.TrimSpace(value)
+		switch key {
+		case "ENDHDR":
+			if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
+				return 0, 0, fmt.Errorf("pam: bad size %dx%d", width, height)
+			}
+			if depth != 4 || maxval != 255 || (tuple != "" && tuple != "RGB_ALPHA") {
+				return 0, 0, fmt.Errorf("pam: want 8-bit RGB_ALPHA, got depth=%d maxval=%d tuple=%s", depth, maxval, tuple)
+			}
+			return width, height, nil
+		case "WIDTH":
+			width, _ = strconv.Atoi(value)
+		case "HEIGHT":
+			height, _ = strconv.Atoi(value)
+		case "DEPTH":
+			depth, _ = strconv.Atoi(value)
+		case "MAXVAL":
+			maxval, _ = strconv.Atoi(value)
+		case "TUPLTYPE":
+			tuple = value
+		}
+	}
 }
 
 // grabVideoStill extracts one high-quality frame at the paused timestamp.
@@ -412,11 +481,14 @@ func startFramePump(d *ffmpegDecoder) chan timedFrame {
 }
 
 func (d *ffmpegDecoder) runPump(frames chan<- timedFrame) {
-	at := d.startAt
-	if at < 0 {
-		at = 0
+	start := d.startAt
+	if start < 0 {
+		start = 0
 	}
-	for {
+	// Frame n is at start + n·interval: the fps filter makes the output
+	// constant-rate, and multiplying (not adding) keeps rounding from
+	// accumulating over a long file.
+	for n := 0; ; n++ {
 		select {
 		case <-d.quit:
 			return
@@ -432,14 +504,13 @@ func (d *ffmpegDecoder) runPump(frames chan<- timedFrame) {
 		}
 		dur := frame.Duration.Seconds()
 		if dur <= 0 {
-			dur = 0.033
+			dur = 1.0 / maxPlaybackFPS
 		}
 		select {
-		case frames <- timedFrame{img: frame.Image, at: at}:
+		case frames <- timedFrame{img: frame.Image, at: start + float64(n)*dur}:
 		case <-d.quit:
 			return
 		}
-		at += dur
 	}
 }
 
@@ -884,7 +955,10 @@ func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bi
 	// video's own rate; the timer then only keeps the timeline moving.
 	// Polling at a fixed 30 Hz beat against 24/25/60 fps sources and
 	// showed frames unevenly.
-	poll := 33 * time.Millisecond
+	// The fallback picks the frame for the audio clock when the view asks,
+	// so ask at display rate: a 30 Hz poll beat against 30 fps output and
+	// showed some frames twice and skipped others.
+	poll := 16 * time.Millisecond
 	if snapshot.FramePushed {
 		poll = 250 * time.Millisecond
 	}

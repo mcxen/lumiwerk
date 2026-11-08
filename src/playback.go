@@ -842,24 +842,50 @@ func (b *ffmpegBackend) pollLocked() {
 		b.position = b.clock.at(now)
 	}
 	b.stalled = false
+	// Take frames only while they are due, and stop at the first one
+	// that is still ahead of the clock (or an error): it is held for a
+	// later poll and the rest stay queued. Draining the whole queue kept
+	// only the first future frame and dropped every later one, so a
+	// decoder running ahead of the clock (as it should) lost most of its
+	// frames and the picture fell seconds behind the sound.
 	var batch []timedFrame
-	if b.held != nil {
-		batch = append(batch, *b.held)
-		b.held = nil
-	}
-	for b.frames != nil {
+	next := func() (timedFrame, bool) {
+		if b.held != nil {
+			frame := *b.held
+			b.held = nil
+			return frame, true
+		}
+		if b.frames == nil {
+			return timedFrame{}, false
+		}
 		select {
 		case frame, ok := <-b.frames:
 			if !ok {
 				b.frames = nil
-				continue
+				return timedFrame{}, false
 			}
-			batch = append(batch, frame)
+			return frame, true
 		default:
-			goto picked
+			return timedFrame{}, false
 		}
 	}
-picked:
+	for {
+		frame, ok := next()
+		if !ok {
+			break
+		}
+		batch = append(batch, frame)
+		if frame.err != nil || frame.at > b.position+0.0005 {
+			break
+		}
+	}
+	// A stream error after due frames waits one poll: show the last due
+	// frame first.
+	if n := len(batch); n > 1 && batch[n-1].err != nil {
+		held := batch[n-1]
+		b.held = &held
+		batch = batch[:n-1]
+	}
 	show, ok, ahead, hasAhead := shownFrame(batch, b.position)
 	if hasAhead {
 		held := ahead

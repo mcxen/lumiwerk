@@ -87,9 +87,22 @@ func init() {
 		if exe, err := os.Executable(); err == nil {
 			dirs = append(dirs, filepath.Dir(exe))
 		}
-		return dirs
+		// Only universal macOS builds ship resources/darwin-universal; a
+		// local single-arch build has no bundled libmpv and used to fall
+		// back to FFmpeg playback. Homebrew's libmpv (brew install mpv)
+		// keeps those builds on libmpv.
+		return append(dirs, mpvSystemDirs...)
 	})
 }
+
+// mpvSystemDirs are tried after the app's own copy: Homebrew on Apple
+// silicon and on Intel.
+var mpvSystemDirs = func() []string {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	return []string{"/opt/homebrew/lib", "/usr/local/lib"}
+}()
 
 // mpvRequiredOptions must all apply or the backend is unusable.
 var mpvRequiredOptions = [][2]string{

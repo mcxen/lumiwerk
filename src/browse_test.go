@@ -18,19 +18,21 @@ import (
 )
 
 func TestPlaybackEdgeFollowsZoom(t *testing.T) {
-	if playbackEdge(1) != 2560 || playbackEdge(0.4) != 2560 {
+	if playbackEdge(1) != 1920 || playbackEdge(0.4) != 1920 {
 		t.Fatalf("fit edge = %d", playbackEdge(1))
 	}
-	if playbackEdge(2) != 3840 {
-		t.Fatalf("2x edge = %d", playbackEdge(2))
-	}
-	if playbackEdge(4) != 5120 {
-		t.Fatalf("4x edge = %d", playbackEdge(4))
+	if playbackEdge(2) != 2560 || playbackEdge(4) != 2560 {
+		t.Fatalf("zoomed edge = %d/%d; raw frames above 2560 cannot keep real time", playbackEdge(2), playbackEdge(4))
 	}
 	args := playbackArgs("/tmp/a.mp4", 0, 0, false, playbackEdge(2))
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "min(3840,iw)") || !strings.Contains(joined, "lanczos") || !strings.Contains(joined, "videotoolbox") {
-		t.Fatalf("args = %s", joined)
+	for _, want := range []string{"min(2560,iw)", "videotoolbox", "fps=30.000000,", "-pix_fmt rgba", "-vcodec pam"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("args miss %q: %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "mjpeg") {
+		t.Fatalf("frames must not round-trip through JPEG: %s", joined)
 	}
 }
 
@@ -255,16 +257,16 @@ func TestThumbBandAndNudge(t *testing.T) {
 		t.Fatal("a finer thumbnail should stay when the grid shrinks")
 	}
 	now := time.Unix(1_700_000_000, 0)
-	if shouldRestartVideoEdge(2560, 2, time.Time{}, now) {
+	if shouldRestartVideoEdge(1920, 2, time.Time{}, now) {
 		t.Fatal("video edge should wait for the zoom to settle")
 	}
-	if shouldRestartVideoEdge(2560, 2, now.Add(time.Second), now) {
+	if shouldRestartVideoEdge(1920, 2, now.Add(time.Second), now) {
 		t.Fatal("video edge restarted early")
 	}
-	if !shouldRestartVideoEdge(2560, 2, now, now) {
+	if !shouldRestartVideoEdge(1920, 2, now, now) {
 		t.Fatal("settled zoom should restart the decoder")
 	}
-	if shouldRestartVideoEdge(3840, 2, now, now) {
+	if shouldRestartVideoEdge(2560, 2, now, now) {
 		t.Fatal("matching edge should stay")
 	}
 }
