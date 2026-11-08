@@ -56,7 +56,7 @@ type heroState struct {
 func heroTransition(path string) ui.ElementTransition {
 	// Colors only: in-place layout changes (thumbnail size, reflow) stay
 	// instant; Match still animates the box between two presentations.
-	return ui.ElementTransition{Animation: &heroAnimation, Colors: true, Match: heroMatch{path}}
+	return ui.ElementTransition{Animation: &heroAnimation, Colors: true, Fly: true, Match: heroMatch{path}}
 }
 
 func (a *appState) heroSet(path string, phase int, radius float32) {
