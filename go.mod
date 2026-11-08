@@ -6,7 +6,7 @@ require (
 	github.com/abema/go-mp4 v1.7.4
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.7.4
+	github.com/egoist/mygo v0.8.3
 	github.com/evanoberholster/imagemeta v1.1.0
 	github.com/gen2brain/go-mpv v0.4.0
 	github.com/gen2brain/heic v0.7.2

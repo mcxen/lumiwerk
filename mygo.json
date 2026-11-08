@@ -7,5 +7,13 @@
     "github": "mcxen/lumiwerk",
     "deltas": 3
   },
-  "main": "./src"
+  "main": "./src",
+  "resourcesExclude": [
+    ".env",
+    "*.pem",
+    "*.key",
+    "prefs.json",
+    "history.json",
+    "media-presence.json"
+  ]
 }
