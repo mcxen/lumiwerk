@@ -509,8 +509,8 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 		return
 	}
 	if item.Failed {
-		ui.Icon(c, videoIcon).FontSize(24).TextColor(t.TextMuted)
+		paintTypeGlyph(c, item.Ext, 24)
 		return
 	}
-	ui.Spinner(c)
+	paintTypeGlyph(c, item.Ext, 28)
 }

@@ -95,13 +95,11 @@ func (a *appState) detailView(c *ui.Context) {
 			cell.Children(func() {
 				switch detailColumns[col].ID {
 				case "name":
-					icon := imageIcon
 					if item.IsDir {
-						icon = dirIcon
-					} else if isVideoFile(item.Ext) {
-						icon = videoIcon
+						ui.Icon(c, dirIcon).FontSize(15)
+					} else {
+						paintTypeGlyph(c, item.Ext, 15)
 					}
-					ui.Icon(c, icon).FontSize(15)
 					if a.renamingInline(i) {
 						a.inlineRenameField(c, 12, false)
 					} else {
