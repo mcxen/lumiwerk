@@ -22,7 +22,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.17"
+	appVersion                  = "0.3.18"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -2393,32 +2393,46 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 		a.videoControlsBar(c, item)
 		return
 	}
-	// 半透明背景 + 投影，与 HUD 风格一致
-	bgColor := ui.RGBA(0, 0, 0, 0.7)
-	controls := ui.Row(c).Attach(ui.AnchorBottom, ui.AnchorBottom).Margin(16, 0).Gap(6).Padding(8).Background(bgColor).Radius(8)
-	controls.Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.3))
-	controls.Children(func() {
-		if lucideIconButton(c, "zoom-out", "缩小", lucideMinus).Clicked() {
-			a.zoomStep(1 / 1.25)
-		}
-		if ui.Button(c.Key("fit"), "适应").Tooltip("适应窗口").Clicked() {
-			a.resetZoom()
-		}
-		if lucideIconButton(c, "zoom-in", "放大", lucidePlus).Clicked() {
-			a.zoomStep(1.25)
-		}
-		if ui.Button(c.Key("zoom-100"), "1:1").Tooltip("实际大小").Clicked() {
-			a.zoom100()
-		}
-		if lucideIconButton(c, "rotate", "顺时针旋转", lucideRotateCW).Clicked() {
-			a.Rotation += 90
-		}
-		if lucideIconButton(c, "rotate-ccw", "逆时针旋转", lucideRotateCCW).Clicked() {
-			a.Rotation -= 90
-		}
-		if lucideIconButton(c, "mirror", "镜像", lucideMirror).Clicked() {
-			a.Mirror = !a.Mirror
-		}
+	// 与视频控制栏共用 controlBarShell 和 bar* 组件，见 controlbar.go。
+	bar := controlBarShell(c, "image-bar")
+	bar.Children(func() {
+		controlBarRow(c).Children(func() {
+			if barIconButton(c, "image-previous", "上一张", "上一张（←）", lucideChevronLeft).Clicked() {
+				a.prevImage()
+			}
+			if barIconButton(c, "image-next", "下一张", "下一张（→）", lucideChevronRight).Clicked() {
+				a.nextImage()
+			}
+			barSeparator(c)
+			barText(c, fmt.Sprintf("%d%%", a.zoomPercent(item)), true)
+			barSpacer(c)
+			if barIconButton(c, "zoom-out", "缩小", "缩小", lucideMinus).Clicked() {
+				a.zoomStep(1 / 1.25)
+			}
+			if barIconButton(c, "zoom-in", "放大", "放大", lucidePlus).Clicked() {
+				a.zoomStep(1.25)
+			}
+			if barChip(c, "fit", "适应", "适应窗口", "适应").Clicked() {
+				a.resetZoom()
+			}
+			if barChip(c, "zoom-100", "1:1", "实际大小", "1:1").Clicked() {
+				a.zoom100()
+			}
+			barSeparator(c)
+			if barIconButton(c, "rotate", "顺时针旋转", "顺时针旋转", lucideRotateCW).Clicked() {
+				a.Rotation += 90
+			}
+			if barIconButton(c, "rotate-ccw", "逆时针旋转", "逆时针旋转", lucideRotateCCW).Clicked() {
+				a.Rotation -= 90
+			}
+			if barToggleButton(c, "mirror", "镜像", "镜像", lucideMirror, a.Mirror).Clicked() {
+				a.Mirror = !a.Mirror
+			}
+			barSeparator(c)
+			if barIconButton(c, "image-fullscreen", "全屏", "全屏（F）", lucideExpand).Clicked() {
+				a.toggleFullscreen()
+			}
+		})
 	})
 }
 
