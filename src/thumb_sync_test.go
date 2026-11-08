@@ -83,3 +83,31 @@ func TestGlyphSizeScalesWithCard(t *testing.T) {
 		t.Fatalf("huge card glyph = %v, want cap 160", got)
 	}
 }
+
+// TestCardChromeScalesWithThumb checks the caption band and the card scale
+// follow the thumbnail slider instead of staying at the default's size.
+func TestCardChromeScalesWithThumb(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	defer func() { flowLabel = 30 }()
+	if cardScale(150) != 1 || cardScale(64) != 0.9 || cardScale(512) != 1.8 {
+		t.Fatalf("scale 64/150/512 = %v/%v/%v", cardScale(64), cardScale(150), cardScale(512))
+	}
+	var last float32
+	for _, thumb := range []float64{64, 150, 300, 512} {
+		a := waterfalTestState(10)
+		a.Thumb = thumb
+		a.syncCaption()
+		if flowLabel < last {
+			t.Fatalf("caption band %v shrank at thumb %v (was %v)", flowLabel, thumb, last)
+		}
+		last = flowLabel
+		te := ui.NewTester(a.view, 1280, 820)
+		te.Frame()
+		if !te.HasText("img0.png") {
+			t.Fatalf("thumb %v: names missing: %v", thumb, te.Texts())
+		}
+	}
+	if last <= 30 {
+		t.Fatalf("caption band at thumb 512 = %v, want larger than 30", last)
+	}
+}

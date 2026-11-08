@@ -201,9 +201,10 @@ func (a *appState) paintThumbBadges(c *ui.Context, item *mediaItem, showFolder b
 	if item == nil || item.IsDir {
 		return
 	}
+	s := cardScale(float32(a.Thumb))
 	if showFolder {
 		if label := sourceFolderLabel(a.Root, item.Path); label != "" {
-			thumbChip(c, label, ui.AnchorTopLeft)
+			thumbChip(c, label, ui.AnchorTopLeft, s)
 		}
 	}
 	if item.IsVideo {
@@ -216,14 +217,14 @@ func (a *appState) paintThumbBadges(c *ui.Context, item *mediaItem, showFolder b
 			}
 		}
 		if item.Info.DurationSec > 0 {
-			thumbChip(c, formatClock(item.Info.DurationSec), ui.AnchorBottomRight)
+			thumbChip(c, formatClock(item.Info.DurationSec), ui.AnchorBottomRight, s)
 		}
 	}
 }
 
-func thumbChip(c *ui.Context, text string, corner ui.Anchor) {
-	chip := ui.Box(c).Attach(corner, corner).Margin(4).Padding(1, 5).Radius(3).Background(ui.RGBA(0, 0, 0, 0.55))
+func thumbChip(c *ui.Context, text string, corner ui.Anchor, s float32) {
+	chip := ui.Box(c).Attach(corner, corner).Margin(4*s).Padding(1*s, 5*s).Radius(3 * s).Background(ui.RGBA(0, 0, 0, 0.55))
 	chip.Children(func() {
-		ui.Text(c, text).FontSize(10).TextColor(ui.RGB(255, 255, 255)).SingleLine().MaxWidth(180)
+		ui.Text(c, text).FontSize(10 * s).TextColor(ui.RGB(255, 255, 255)).SingleLine().MaxWidth(180 * s)
 	})
 }

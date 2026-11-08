@@ -3,6 +3,7 @@ package main
 import (
 	"container/heap"
 	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 	"slices"
@@ -86,7 +87,7 @@ var flowLabel float32 = 30
 
 // syncCaption applies 无字模式 to the card geometry, once per change.
 func (a *appState) syncCaption() {
-	want := float32(30)
+	want := float32(math.Round(float64(30 * cardScale(float32(a.Thumb)))))
 	if a.Profiles.View.NoCaption {
 		want = 0
 	}
@@ -469,7 +470,8 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	thumbCardProbe()
 	a.markSeen(item)
 	a.adoptCachedThumb(item)
-	card := ui.Column(c).Gap(4)
+	s := cardScale(float32(a.Thumb))
+	card := ui.Column(c).Gap(4 * s)
 	if opts.width > 0 {
 		card.Width(opts.width).Shrink(0)
 	} else {
@@ -490,10 +492,10 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 		thumb.Children(func() {
 			if opts.tagDots {
 				if dots := tagDots(item.Tags); len(dots) > 0 {
-					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
+					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4*s, 4*s).Gap(2 * s)
 					tags.Children(func() {
 						for _, tag := range dots {
-							ui.Box(c).Width(5).Height(5).Radius(2).Background(tagColor(tag))
+							ui.Box(c).Width(5 * s).Height(5 * s).Radius(2 * s).Background(tagColor(tag))
 						}
 					})
 				}
@@ -503,9 +505,9 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 		})
 		if flowLabel > 0 {
 			if opts.inlineRename && a.renamingInline(i) {
-				a.inlineRenameField(c, 11, true)
+				a.inlineRenameField(c, 11*s, true)
 			} else {
-				name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				name = ui.Text(c, item.Name).FontSize(11 * s).MaxLines(2).TextAlign(ui.Center)
 			}
 		}
 	})
@@ -519,6 +521,13 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	}
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 	a.maybeRequestThumb(card, root, i)
+}
+
+// cardScale is how much a card's chrome (caption, badges, dots, gaps) grows
+// with the thumbnail size: 1 at the default 150, never below 0.9 so a small
+// card stays legible, and up to 1.8 so a big one is not dwarfed by fixed text.
+func cardScale(thumb float32) float32 {
+	return min(max(thumb/defaultThumb, 0.9), 1.8)
 }
 
 // cardGlyphBox is the edge of the square a card's picture fills: the grid's
