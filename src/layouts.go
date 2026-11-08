@@ -498,7 +498,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 					})
 				}
 			}
-			paintMediaThumb(c, item, opts.width, opts.fit)
+			paintMediaThumb(c, item, opts.width, opts.fit, a.cardGlyphBox(opts))
 			a.paintThumbBadges(c, item, opts.waterfallBadges)
 		})
 		if flowLabel > 0 {
@@ -521,10 +521,33 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	a.maybeRequestThumb(card, root, i)
 }
 
+// cardGlyphBox is the edge of the square a card's picture fills: the grid's
+// thumb size, or the smaller side of a justified/waterfall card's picture.
+func (a *appState) cardGlyphBox(opts mediaCardOptions) float32 {
+	if opts.width > 0 && opts.height > 0 {
+		return min(opts.width, opts.height-flowLabel)
+	}
+	return float32(a.Thumb)
+}
+
+// glyphSize scales a placeholder icon with its card, as Finder's icon view
+// does: a folder fills most of a big cell instead of staying a 28pt chip.
+// floor is the size for small cards and for callers that give no box.
+func glyphSize(box, floor float32) float32 {
+	return max(floor, min2(box*0.7, 160))
+}
+
+func min2(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // paintMediaThumb draws one card's picture. Folder covers use the same
 // stacked bitmap in every layout; until that exists the card keeps the
 // plain folder icon. Photos keep the layout's own fit.
-func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) {
+func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit, box float32) {
 	if item.IsDir {
 		if item.Bitmap != nil {
 			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
@@ -534,7 +557,7 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 			releaseShownPixels(item)
 			return
 		}
-		paintFolderGlyph(c, item.Path, 28)
+		paintFolderGlyph(c, item.Path, glyphSize(box, 28))
 		return
 	}
 	if item.Bitmap != nil {
@@ -549,8 +572,8 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 		return
 	}
 	if item.Failed {
-		paintTypeGlyph(c, item.Ext, 24)
+		paintTypeGlyph(c, item.Ext, glyphSize(box, 24))
 		return
 	}
-	paintTypeGlyph(c, item.Ext, 28)
+	paintTypeGlyph(c, item.Ext, glyphSize(box, 28))
 }

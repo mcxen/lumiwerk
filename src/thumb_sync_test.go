@@ -71,3 +71,15 @@ func TestScrolledCardsShowCachedThumbInSameFrame(t *testing.T) {
 		})
 	}
 }
+
+func TestGlyphSizeScalesWithCard(t *testing.T) {
+	if got := glyphSize(40, 28); got != 28 {
+		t.Fatalf("small card glyph = %v, want floor 28", got)
+	}
+	if got := glyphSize(200, 28); got != 140 {
+		t.Fatalf("200pt card glyph = %v, want 140", got)
+	}
+	if got := glyphSize(1000, 28); got != 160 {
+		t.Fatalf("huge card glyph = %v, want cap 160", got)
+	}
+}

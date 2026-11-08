@@ -110,7 +110,7 @@ func (a *appState) galleryStrip(c *ui.Context, size float32) {
 				cell.Opacity(0.7)
 			}
 			cell.Children(func() {
-				paintMediaThumb(c, item, size, ui.Cover)
+				paintMediaThumb(c, item, size, ui.Cover, size)
 				if item.IsVideo {
 					ui.Icon(c, lucidePlay).Absolute().Right(3).Bottom(3).FontSize(12).TextColor(ui.RGB(255, 255, 255))
 				}
