@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/heap"
+	"fmt"
 
 	"github.com/egoist/mygo/ui"
 	"slices"
@@ -443,6 +444,23 @@ func justifiedWidths(aspects []float32, row []int, viewW, rowH, gap float64, las
 }
 
 func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, width float32) {
+	a.mediaCard(c, root, i, mediaCardOptions{width: width, height: height, fit: ui.Cover, waterfallBadges: a.LayoutMode == 2})
+}
+
+// mediaCardOptions holds what differs between the grid card and the
+// justified/waterfall card; everything else is shared by mediaCard.
+type mediaCardOptions struct {
+	width, height   float32 // fixed card size; a zero width grows, a zero height is free
+	fit             ui.Fit  // how the picture fills the thumb box
+	waterfallBadges bool    // paintThumbBadges' waterfall placement
+	tagDots         bool    // color dots for the item's tags
+	inlineRename    bool    // inline rename field and slow-click rename arming
+	tooltip         bool    // name and size tooltip
+}
+
+// mediaCard draws one browse card: thumb, badges and name, with selection
+// chrome, drag source, pointer handling, context menu and thumb requests.
+func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOptions) {
 	t := c.Theme()
 	item := a.visibleItem(i)
 	if item == nil {
@@ -451,31 +469,53 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 	thumbCardProbe()
 	a.markSeen(item)
 	card := ui.Column(c).Gap(4)
-	if width > 0 {
-		card.Width(width).Shrink(0)
+	if opts.width > 0 {
+		card.Width(opts.width).Shrink(0)
 	} else {
 		card.Grow(1)
 	}
-	if height > 0 {
-		card.Height(height)
+	if opts.height > 0 {
+		card.Height(opts.height)
 	}
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
 	selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
+	var name ui.Element
+	wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
 		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
-			paintMediaThumb(c, item, width, ui.Cover)
-			a.paintThumbBadges(c, item, a.LayoutMode == 2)
+			if opts.tagDots {
+				if dots := tagDots(item.Tags); len(dots) > 0 {
+					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
+					tags.Children(func() {
+						for _, tag := range dots {
+							ui.Box(c).Width(5).Height(5).Radius(2).Background(tagColor(tag))
+						}
+					})
+				}
+			}
+			paintMediaThumb(c, item, opts.width, opts.fit)
+			a.paintThumbBadges(c, item, opts.waterfallBadges)
 		})
 		if flowLabel > 0 {
-			ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+			if opts.inlineRename && a.renamingInline(i) {
+				a.inlineRenameField(c, 11, true)
+			} else {
+				name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+			}
 		}
 	})
+	if opts.tooltip {
+		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
+	}
 	a.fileDragSource(card, item.Path)
 	a.cardPointer(card, i)
+	if opts.inlineRename && wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {
+		a.armSlowRename(c, i, wasChosen)
+	}
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 	a.maybeRequestThumb(card, root, i)
 }

@@ -84,7 +84,7 @@ func unitFraction(part, total float64) float32 {
 }
 
 func (a *appState) playheadDuration() float64 {
-	if a.Video != nil && a.Video.kernel != nil {
+	if a.videoKernel() != nil {
 		if d := a.videoSnapshot().Duration; d > 0 {
 			return d
 		}
@@ -97,10 +97,11 @@ func (a *appState) nudgePlayhead(delta float64) {
 }
 
 func (a *appState) nudgeSpeed(delta float64) {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
-	a.Video.kernel.SetSpeed(a.videoSnapshot().Speed + delta)
+	kernel.SetSpeed(a.videoSnapshot().Speed + delta)
 }
 
 func (a *appState) toggleFullscreen() {
@@ -145,7 +146,7 @@ func (a *appState) playerBarShown(c *ui.Context, hover, focus, scrubbing bool) b
 }
 
 func (a *appState) tickPlaybackEnd() {
-	if a.Video == nil || a.Video.kernel == nil || a.Editor.Open {
+	if a.videoKernel() == nil || a.Editor.Open {
 		return
 	}
 	snap := a.videoSnapshot()
@@ -217,14 +218,15 @@ func (a *appState) videoPlayerKeys(c *ui.Context) {
 }
 
 func (a *appState) scrubTimelineTo(x float32, duration float64) {
-	if a.Video == nil || a.Video.kernel == nil || duration <= 0 {
+	kernel := a.videoKernel()
+	if kernel == nil || duration <= 0 {
 		return
 	}
 	at := duration * timelineFraction(x, a.playerTimelineW, timelineInset)
-	if !a.Video.kernel.Scrubbing() {
-		a.Video.kernel.BeginScrub()
+	if !kernel.Scrubbing() {
+		kernel.BeginScrub()
 	}
-	a.Video.kernel.ScrubTo(at)
+	kernel.ScrubTo(at)
 }
 
 // videoControlsBar is the floating transport. The timeline is one full-width
@@ -232,7 +234,7 @@ func (a *appState) scrubTimelineTo(x float32, duration float64) {
 // labels sit on the ends. Hidden only after the fade finishes, so a click
 // on the picture is not swallowed by an invisible bar.
 func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
-	if a.Video == nil || a.Video.kernel == nil {
+	if a.videoKernel() == nil {
 		return
 	}
 	snapshot := a.videoSnapshot()
@@ -303,17 +305,17 @@ func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64)
 			a.scrubTimelineTo(ev.X, duration)
 			return true
 		case ui.InputPointerMove:
-			if a.Video == nil || a.Video.kernel == nil || !a.Video.kernel.Scrubbing() {
+			if kernel := a.videoKernel(); kernel == nil || !kernel.Scrubbing() {
 				return false
 			}
 			a.scrubTimelineTo(ev.X, duration)
 			return true
 		case ui.InputPointerUp:
-			if a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
+			if kernel := a.videoKernel(); kernel != nil && kernel.Scrubbing() {
 				if !ev.Canceled {
 					a.scrubTimelineTo(ev.X, duration)
 				}
-				a.Video.kernel.EndScrub()
+				kernel.EndScrub()
 			}
 			return true
 		default:
@@ -422,8 +424,8 @@ func (a *appState) fillSpeedMenu(m *ui.Menu, speed float64) {
 			label = "正常速度"
 		}
 		if m.Item(label).Radio(samePlaybackSpeed(speed, rate)).Chosen() {
-			if a.Video != nil && a.Video.kernel != nil {
-				a.Video.kernel.SetSpeed(rate)
+			if kernel := a.videoKernel(); kernel != nil {
+				kernel.SetSpeed(rate)
 			}
 		}
 	}
@@ -431,7 +433,8 @@ func (a *appState) fillSpeedMenu(m *ui.Menu, speed float64) {
 
 func (a *appState) fillTrackMenu(m *ui.Menu, snapshot playbackSnapshot) {
 	a.playerMenu = true
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
 	if len(snapshot.Video) > 1 {
@@ -442,7 +445,7 @@ func (a *appState) fillTrackMenu(m *ui.Menu, snapshot playbackSnapshot) {
 				label = fmt.Sprintf("画质 %d", track.ID+1)
 			}
 			if m.Item(label).Radio(track.Selected).Chosen() {
-				a.Video.kernel.SelectVideo(track.ID)
+				kernel.SelectVideo(track.ID)
 			}
 		}
 	}
@@ -456,7 +459,7 @@ func (a *appState) fillTrackMenu(m *ui.Menu, snapshot playbackSnapshot) {
 			label = fmt.Sprintf("音轨 %d", track.ID+1)
 		}
 		if m.Item(label).Radio(track.Selected).Chosen() {
-			a.Video.kernel.SelectAudio(track.ID)
+			kernel.SelectAudio(track.ID)
 		}
 	}
 }

@@ -758,16 +758,81 @@ func (a *appState) setCopyDestination() {
 	})
 }
 
-func (a *appState) copyToConfigured() {
-	dest := a.currentDestination()
-	if dest == "" || !isDir(dest) {
+func (a *appState) copyToConfigured() { a.copyToDestination(a.configuredCopyRequest()) }
+
+// configuredCopyRequest silently copies the selection into the active
+// profile's destination.
+func (a *appState) configuredCopyRequest() copyRequest {
+	return copyRequest{dest: a.currentDestination()}
+}
+
+// copyLargeRule says which items a copy takes while the large view is open.
+type copyLargeRule int
+
+const (
+	// copyLargeSelection ignores the large view and copies the selection.
+	copyLargeSelection copyLargeRule = iota
+	// copyLargeCurrentOrSelection copies the shown item, or the selection
+	// when no item is shown.
+	copyLargeCurrentOrSelection
+	// copyLargeCurrentOnly copies the shown item, or nothing.
+	copyLargeCurrentOnly
+)
+
+// copyRequest describes one "copy to a configured folder" command.
+type copyRequest struct {
+	dest        string
+	missingDest string // toast when dest is unset or not a folder; "" stays silent
+	noItems     string // toast when nothing qualifies; "" stays silent
+	large       copyLargeRule
+	// keep filters candidates; item is the shown item in the large view and
+	// nil for selected paths. A nil keep accepts everything.
+	keep func(path string, item *mediaItem) bool
+}
+
+// copyToDestination validates the destination, collects the paths the
+// request's rules pick, and starts one copy transfer.
+func (a *appState) copyToDestination(req copyRequest) {
+	if req.dest == "" || !isDir(req.dest) {
+		if req.missingDest != "" {
+			a.toast(req.missingDest)
+		}
 		return
 	}
-	paths := a.selectedPaths()
+	paths := a.copyCandidates(req)
 	if len(paths) == 0 {
+		if req.noItems != "" {
+			a.toast(req.noItems)
+		}
 		return
 	}
-	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
+	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: req.dest})
+}
+
+func (a *appState) copyCandidates(req copyRequest) []string {
+	if a.InLargeView && req.large != copyLargeSelection {
+		item := a.currentItem()
+		if item != nil {
+			if req.keep == nil || req.keep(item.Path, item) {
+				return []string{item.Path}
+			}
+			return nil
+		}
+		if req.large == copyLargeCurrentOnly {
+			return nil
+		}
+	}
+	selected := a.selectedPaths()
+	if req.keep == nil {
+		return selected
+	}
+	var paths []string
+	for _, path := range selected {
+		if req.keep(path, nil) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 func (a *appState) canPaste() bool {

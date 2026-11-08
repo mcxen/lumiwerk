@@ -2033,7 +2033,6 @@ func (a *appState) emptyFolderView(c *ui.Context) {
 }
 
 func (a *appState) gridView(c *ui.Context) {
-	t := c.Theme()
 	root := a.Root
 	state := a.mediaListState()
 	cell := int(a.Thumb + gridCellPad)
@@ -2043,50 +2042,7 @@ func (a *appState) gridView(c *ui.Context) {
 		a.Grid.ScrollIntoView(a.Chosen)
 	}
 	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell)+flowLabel, func(i int) {
-		item := a.visibleItem(i)
-		if item == nil {
-			return
-		}
-		thumbCardProbe()
-		a.markSeen(item)
-		card := ui.Column(c).Grow(1).Gap(4)
-		if a.isCut(item.Path) {
-			card.Opacity(0.4)
-		}
-		selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
-		var name ui.Element
-		wasChosen := a.Chosen == i && a.Selected.Len() <= 1
-		card.Children(func() {
-			thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
-			a.thumbHero(thumb, item.Path)
-			thumb.Children(func() {
-				if dots := tagDots(item.Tags); len(dots) > 0 {
-					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
-					tags.Children(func() {
-						for _, tag := range dots {
-							ui.Box(c).Width(5).Height(5).Radius(2).Background(tagColor(tag))
-						}
-					})
-				}
-				paintMediaThumb(c, item, 0, ui.Contain)
-				a.paintThumbBadges(c, item, false)
-			})
-			if flowLabel > 0 {
-				if a.renamingInline(i) {
-					a.inlineRenameField(c, 11, true)
-				} else {
-					name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
-				}
-			}
-		})
-		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
-		a.fileDragSource(card, item.Path)
-		a.cardPointer(card, i)
-		if wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {
-			a.armSlowRename(c, i, wasChosen)
-		}
-		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-		a.maybeRequestThumb(card, root, i)
+		a.mediaCard(c, root, i, mediaCardOptions{fit: ui.Contain, tagDots: true, inlineRename: true, tooltip: true})
 	})
 	grid.Grow(1).TrackScroll(&a.browseScroll)
 	if bounds := grid.LayoutBounds(); bounds.W > 1 {
@@ -2211,9 +2167,9 @@ func (a *appState) largeImageView(c *ui.Context) {
 }
 
 func (a *appState) cancelLargeDrag(item *mediaItem) {
-	if a.LargeDrag.active && a.LargeDrag.button == 1 && item != nil && item.IsVideo && a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
-		a.Video.kernel.ScrubTo(a.SeekFrom)
-		a.Video.kernel.EndScrub()
+	if kernel := a.videoKernel(); a.LargeDrag.active && a.LargeDrag.button == 1 && item != nil && item.IsVideo && kernel != nil && kernel.Scrubbing() {
+		kernel.ScrubTo(a.SeekFrom)
+		kernel.EndScrub()
 	}
 	a.LargeDrag.active = false
 	a.RightDown = false
@@ -2270,12 +2226,12 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		if !a.LargeDrag.moved {
 			return true
 		}
-		if a.LargeDrag.button == 1 && item.IsVideo && a.Video != nil && a.Video.kernel != nil {
-			if !a.Video.kernel.Scrubbing() {
-				a.Video.kernel.BeginScrub()
+		if kernel := a.videoKernel(); a.LargeDrag.button == 1 && item.IsVideo && kernel != nil {
+			if !kernel.Scrubbing() {
+				kernel.BeginScrub()
 			}
 			preview := seekPreview(a.SeekFrom, float64(ev.X-a.LargeDrag.startX), float64(a.largeWidth()), a.playheadDuration())
-			a.Video.kernel.ScrubTo(preview)
+			kernel.ScrubTo(preview)
 			a.HUD = "跳转到 " + formatPlaybackTime(preview)
 			a.HUDUntil = time.Now().Add(800 * time.Millisecond)
 			return true
@@ -2305,10 +2261,10 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		}
 		if button == 1 {
 			a.RightDown = false
-			if item.IsVideo && moved && a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
+			if kernel := a.videoKernel(); item.IsVideo && moved && kernel != nil && kernel.Scrubbing() {
 				preview := seekPreview(a.SeekFrom, float64(ev.X-startX), float64(a.largeWidth()), a.playheadDuration())
-				a.Video.kernel.ScrubTo(preview)
-				a.Video.kernel.EndScrub()
+				kernel.ScrubTo(preview)
+				kernel.EndScrub()
 				return true
 			}
 		}
@@ -2487,8 +2443,8 @@ func (a *appState) setVideoVolume(volume float64) {
 	if a.VideoVolume > 0 {
 		a.PrevVolume = a.VideoVolume
 	}
-	if a.Video != nil && a.Video.kernel != nil {
-		a.Video.kernel.SetVolume(a.VideoVolume)
+	if kernel := a.videoKernel(); kernel != nil {
+		kernel.SetVolume(a.VideoVolume)
 	}
 	a.Profiles.Volume = a.VideoVolume
 	a.Profiles.PreviousVolume = a.PrevVolume
@@ -2603,47 +2559,35 @@ func shortcutKey(name string) (ui.Key, bool) {
 	return 0, false
 }
 
-func (a *appState) copyToImageFolder() {
-	dest := strings.TrimSpace(a.Profiles.ImageDestination)
-	if dest == "" || !isDir(dest) {
-		a.toast("请先在设置中配置图片文件夹")
-		return
+func (a *appState) copyToImageFolder() { a.copyToDestination(a.imageCopyRequest()) }
+
+func (a *appState) copyToVideoFolder() { a.copyToDestination(a.videoCopyRequest()) }
+
+// imageCopyRequest copies the shown item in the large view, otherwise the
+// selection, into the configured image folder.
+func (a *appState) imageCopyRequest() copyRequest {
+	return copyRequest{
+		dest:        strings.TrimSpace(a.Profiles.ImageDestination),
+		missingDest: "请先在设置中配置图片文件夹",
+		large:       copyLargeCurrentOrSelection,
 	}
-	paths := a.selectedPaths()
-	if a.InLargeView {
-		if item := a.currentItem(); item != nil {
-			paths = []string{item.Path}
-		}
-	}
-	if len(paths) == 0 {
-		return
-	}
-	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
 }
 
-func (a *appState) copyToVideoFolder() {
-	dest := strings.TrimSpace(a.Profiles.VideoDestination)
-	if dest == "" || !isDir(dest) {
-		a.toast("请先在设置中配置视频文件夹")
-		return
-	}
-	var paths []string
-	if a.InLargeView {
-		if item := a.currentItem(); item != nil && item.IsVideo {
-			paths = []string{item.Path}
-		}
-	} else {
-		for _, path := range a.selectedPaths() {
-			if isVideoFile(strings.TrimPrefix(filepath.Ext(path), ".")) {
-				paths = append(paths, path)
+// videoCopyRequest copies only videos: the shown video in the large view,
+// otherwise the selected video files.
+func (a *appState) videoCopyRequest() copyRequest {
+	return copyRequest{
+		dest:        strings.TrimSpace(a.Profiles.VideoDestination),
+		missingDest: "请先在设置中配置视频文件夹",
+		noItems:     "请先选择至少一个视频",
+		large:       copyLargeCurrentOnly,
+		keep: func(path string, item *mediaItem) bool {
+			if item != nil {
+				return item.IsVideo
 			}
-		}
+			return isVideoFile(strings.TrimPrefix(filepath.Ext(path), "."))
+		},
 	}
-	if len(paths) == 0 {
-		a.toast("请先选择至少一个视频")
-		return
-	}
-	a.beginTransfer(fileOperation{op: opCopy, paths: paths, dest: dest})
 }
 
 // ensureMediaInfo loads EXIF dimensions for ratio math.
@@ -2702,8 +2646,8 @@ func (a *appState) restartVideo(seconds float64, playing bool) {
 	if a.Video == nil || a.Video.path == "" {
 		return
 	}
-	if a.videoPlaying() != playing && a.Video.kernel != nil {
-		a.Video.kernel.SetPlaying(playing)
+	if kernel := a.videoKernel(); a.videoPlaying() != playing && kernel != nil {
+		kernel.SetPlaying(playing)
 	}
 	a.seekVideo(seconds)
 }
@@ -2711,18 +2655,16 @@ func (a *appState) restartVideo(seconds float64, playing bool) {
 // settleVideoEdge waits until a zoom gesture stops before restarting the
 // decoder. The current frame stays on screen, scaled by the view transform.
 func (a *appState) settleVideoEdge(c *ui.Context) {
-	if a.Video == nil || a.Video.kernel == nil || !a.videoPlaying() {
+	kernel := a.videoKernel()
+	if kernel == nil || !a.videoPlaying() {
 		a.videoEdgeDue = time.Time{}
 		return
 	}
-	backend, ok := a.Video.kernel.backend.(*ffmpegBackend)
+	decodedEdge, ok := kernel.RenderEdge()
 	if !ok {
 		a.videoEdgeDue = time.Time{}
 		return
 	}
-	backend.mu.Lock()
-	decodedEdge := backend.edge
-	backend.mu.Unlock()
 	if !shouldRestartVideoEdge(decodedEdge, a.Zoom, a.videoEdgeDue, time.Now()) {
 		if decodedEdge == playbackEdge(a.Zoom) {
 			a.videoEdgeDue = time.Time{}

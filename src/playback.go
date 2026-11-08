@@ -101,6 +101,21 @@ type trackSource interface {
 type bufferReporter interface{ Buffered() float64 }
 type stallReporter interface{ Stalled() bool }
 
+// edgeRenderer is a backend that decodes at a bounded picture edge (pixels)
+// and restarts its decoder when the edge changes.
+type edgeRenderer interface {
+	RenderEdge() int
+	SetRenderEdge(edge int)
+}
+
+// pathRetargeter is a backend that keeps its own copy of the media path and
+// must follow a rename of the open file without reopening it.
+type pathRetargeter interface{ Retarget(path string) }
+
+// backendNotifier is a backend that reports state changes (frames, end of
+// stream) through a callback.
+type backendNotifier interface{ SetNotify(fn func()) }
+
 // playbackSnapshot is the only state the native view needs to draw a frame.
 type playbackSnapshot struct {
 	Backend   string
@@ -592,11 +607,21 @@ func (s *playbackSession) retarget(path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.path = path
-	if backend, ok := s.backend.(*ffmpegBackend); ok {
-		backend.mu.Lock()
-		backend.path = path
-		backend.mu.Unlock()
+	if backend, ok := s.backend.(pathRetargeter); ok {
+		backend.Retarget(path)
 	}
+}
+
+// RenderEdge reports the picture edge the backend decodes at. ok is false
+// when the backend does not bound its decode size.
+func (s *playbackSession) RenderEdge() (edge int, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	backend, ok := s.backend.(edgeRenderer)
+	if !ok {
+		return 0, false
+	}
+	return backend.RenderEdge(), true
 }
 
 // ffmpegBackend shares one FFmpeg process and one PCM stream. Its media clock
@@ -1026,6 +1051,20 @@ func (b *ffmpegBackend) SetSpeed(speed float64) {
 	if b.playing {
 		b.restartAudioLocked()
 	}
+}
+
+func (b *ffmpegBackend) RenderEdge() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.edge
+}
+
+// Retarget follows a rename of the open file; the running decoder keeps its
+// open handle.
+func (b *ffmpegBackend) Retarget(path string) {
+	b.mu.Lock()
+	b.path = path
+	b.mu.Unlock()
 }
 
 func (b *ffmpegBackend) SetRenderEdge(edge int) {

@@ -666,9 +666,18 @@ func (d *soundtrack) Close() error {
 	return nil
 }
 
+// videoKernel returns the open video's playback session, or nil when no
+// video or kernel exists.
+func (a *appState) videoKernel() *playbackSession {
+	if a.Video == nil {
+		return nil
+	}
+	return a.Video.kernel
+}
+
 func (a *appState) shutdownVideo() {
-	if a.Video != nil && a.Video.kernel != nil {
-		a.Video.kernel.Close()
+	if kernel := a.videoKernel(); kernel != nil {
+		kernel.Close()
 	}
 }
 
@@ -680,14 +689,15 @@ func (a *appState) closeVideo() {
 }
 
 func (a *appState) videoSnapshot() playbackSnapshot {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return playbackSnapshot{}
 	}
-	return a.Video.kernel.Snapshot()
+	return kernel.Snapshot()
 }
 
 func (a *appState) videoPlaying() bool {
-	return a.Video != nil && a.Video.kernel != nil && a.videoSnapshot().Playing
+	return a.videoKernel() != nil && a.videoSnapshot().Playing
 }
 
 func (a *appState) playhead() float64 {
@@ -695,30 +705,33 @@ func (a *appState) playhead() float64 {
 }
 
 func (a *appState) holdVideo(sharp bool) {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
-	a.Video.kernel.SetPlaying(false)
+	kernel.SetPlaying(false)
 	if sharp {
 		a.requestSharpFrame()
 	}
 }
 
 func (a *appState) playVideo() {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
 	a.Video.Still = nil
 	a.Video.err = nil
-	a.Video.kernel.SetPlaying(true)
+	kernel.SetPlaying(true)
 }
 
 func (a *appState) stepVideo(direction int) {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
 	a.Video.Still = nil
-	if err := a.Video.kernel.Step(direction); err != nil {
+	if err := kernel.Step(direction); err != nil {
 		a.toast("逐帧播放不可用")
 	}
 }
@@ -731,16 +744,14 @@ func shouldRestartVideoEdge(decodedEdge int, zoom float32, due, now time.Time) b
 }
 
 func (a *appState) noteVideoZoom() {
-	if a.Video == nil || a.Video.kernel == nil || !a.videoPlaying() {
+	kernel := a.videoKernel()
+	if kernel == nil || !a.videoPlaying() {
 		return
 	}
-	backend, ok := a.Video.kernel.backend.(*ffmpegBackend)
+	decodedEdge, ok := kernel.RenderEdge()
 	if !ok {
 		return
 	}
-	backend.mu.Lock()
-	decodedEdge := backend.edge
-	backend.mu.Unlock()
 	if decodedEdge == playbackEdge(a.Zoom) {
 		a.videoEdgeDue = time.Time{}
 		return
@@ -849,11 +860,12 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 // parkVideo pauses and unloads the current file but keeps the playback
 // backend alive for the next video. Used when the large view shows an image.
 func (a *appState) parkVideo() {
-	if a.Video == nil || a.Video.kernel == nil {
+	kernel := a.videoKernel()
+	if kernel == nil {
 		return
 	}
 	a.flushPlayProgress()
-	a.Video.kernel.Park()
+	kernel.Park()
 	a.Video.path = ""
 	a.Video.frame = nil
 	a.Video.Still = nil
@@ -911,9 +923,11 @@ func (a *appState) wirePlaybackBackend(kernel *playbackSession) {
 		return
 	}
 	redraw := func() { a.update(func() {}) }
-	if edgeBackend, ok := kernel.backend.(*ffmpegBackend); ok {
+	if edgeBackend, ok := kernel.backend.(edgeRenderer); ok {
 		edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
-		edgeBackend.SetNotify(redraw)
+	}
+	if notifier, ok := kernel.backend.(backendNotifier); ok {
+		notifier.SetNotify(redraw)
 	}
 	if pusher, ok := kernel.backend.(framePusher); ok {
 		pusher.SetFrameNotify(redraw)
@@ -949,25 +963,14 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 			if transformed {
 				img.Transform(a.transform())
 			}
-			ui.Row(c).Attach(ui.AnchorCenter, ui.AnchorBottom).Gap(8).
-				Padding(8, 12).Radius(8).Background(ui.RGBA(0, 0, 0, 0.55)).AlignItems(ui.Center).
-				Children(func() {
-					ui.Spinner(c)
-					label := "正在加载"
-					if snapshot.Phase == playBuffering {
-						label = "正在缓冲"
-					}
-					ui.Text(c, label).FontSize(12).TextColor(ui.RGB(255, 255, 255))
-				})
+			playbackBadge(c, playbackWaitLabel(snapshot), playbackBadgeStyle{
+				at: ui.AnchorCenter, self: ui.AnchorBottom, alpha: 0.55, size: 12, color: ui.RGB(255, 255, 255),
+			})
 			return
 		}
 		ui.Column(c).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Spinner(c)
-			label := "正在加载"
-			if snapshot.Phase == playBuffering {
-				label = "正在缓冲"
-			}
-			ui.Text(c, label).FontSize(13).TextColor(c.Theme().TextMuted)
+			ui.Text(c, playbackWaitLabel(snapshot)).FontSize(13).TextColor(c.Theme().TextMuted)
 		})
 		return
 	}
@@ -977,12 +980,37 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 			image.Transform(a.transform())
 		}
 		if label := playbackStatusLabel(snapshot); label != "" {
-			badge := ui.Row(c).Attach(ui.AnchorCenter, ui.AnchorCenter).Gap(8).
-				Padding(8, 12).Radius(8).Background(ui.RGBA(0, 0, 0, 0.62)).AlignItems(ui.Center)
-			badge.Children(func() {
-				ui.Spinner(c)
-				ui.Text(c, label).FontSize(13).TextColor(ui.RGB(245, 245, 247))
+			playbackBadge(c, label, playbackBadgeStyle{
+				at: ui.AnchorCenter, self: ui.AnchorCenter, alpha: 0.62, size: 13, color: ui.RGB(245, 245, 247),
 			})
 		}
+	})
+}
+
+// playbackWaitLabel is the caption while no frame is shown yet.
+func playbackWaitLabel(snapshot playbackSnapshot) string {
+	if snapshot.Phase == playBuffering {
+		return "正在缓冲"
+	}
+	return "正在加载"
+}
+
+// playbackBadgeStyle places and colors a playbackBadge; the call sites keep
+// slightly different contrast on the thumbnail and on a live frame.
+type playbackBadgeStyle struct {
+	at, self ui.Anchor // Attach anchors
+	alpha    float32   // black background opacity
+	size     float32   // label font size
+	color    ui.Color  // label color
+}
+
+// playbackBadge is the dark translucent pill with a spinner and a label
+// shown over the video stage while it loads or buffers.
+func playbackBadge(c *ui.Context, label string, style playbackBadgeStyle) {
+	badge := ui.Row(c).Attach(style.at, style.self).Gap(8).
+		Padding(8, 12).Radius(8).Background(ui.RGBA(0, 0, 0, style.alpha)).AlignItems(ui.Center)
+	badge.Children(func() {
+		ui.Spinner(c)
+		ui.Text(c, label).FontSize(style.size).TextColor(style.color)
 	})
 }

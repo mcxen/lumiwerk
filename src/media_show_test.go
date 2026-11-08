@@ -111,6 +111,9 @@ func TestVisiblePhotoDecodesOntoTheCard(t *testing.T) {
 			t.Fatal("thumbnail decode failed")
 		}
 		if decoded {
+			// The decode may land after the frame above was drawn: draw
+			// once more so the image is the one with the bitmap.
+			te.Frame()
 			if got := redSamples(te.Image()); got < 40 {
 				t.Fatalf("decoded thumbnail did not paint, red=%d", got)
 			}
