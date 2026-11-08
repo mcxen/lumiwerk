@@ -32,6 +32,12 @@ func (a *appState) settingsKeysPage(c *ui.Context, pal *settingsPalette) {
 			for _, s := range shortcutActions {
 				s := s
 				setRow(c, s.label, func() {
+					if keyCapture.id == s.id && keyCapture.conflict != "" {
+						ui.Text(c, "与「"+keyCapture.conflict+"」冲突").FontSize(12).TextColor(pal.warn)
+					}
+					if a.binding(s.id) != s.def && ui.Button(c.Key("reset-"+s.id), "恢复").Clicked() {
+						a.setBinding(s.id, s.def)
+					}
 					text := bindingLabel(a.binding(s.id))
 					if keyCapture.id == s.id {
 						text = "按下新快捷键…"
@@ -39,16 +45,10 @@ func (a *appState) settingsKeysPage(c *ui.Context, pal *settingsPalette) {
 					if ui.Button(c.Key("key-"+s.id), text).MinWidth(120).Clicked() {
 						keyCapture.id, keyCapture.conflict = s.id, ""
 					}
-					if a.binding(s.id) != s.def && ui.Button(c.Key("reset-"+s.id), "恢复").Clicked() {
-						a.setBinding(s.id, s.def)
-					}
-					if keyCapture.id == s.id && keyCapture.conflict != "" {
-						ui.Text(c, "与「"+keyCapture.conflict+"」冲突").FontSize(12).TextColor(pal.warn)
-					}
 				})
 			}
 		})
-		ui.Row(c).Padding(12, 0, 0, setLabelW+12).Children(func() {
+		ui.Row(c).Children(func() {
 			if ui.Button(c.Key("keys-reset-all"), "全部恢复默认").Disabled(len(a.Profiles.Shortcuts) == 0).Clicked() {
 				a.Profiles.Shortcuts = nil
 				keyCapture.id = ""

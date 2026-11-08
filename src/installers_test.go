@@ -43,18 +43,3 @@ func TestEnabledFileIncludesInstallers(t *testing.T) {
 		t.Fatal("expanded archives should pass the archive filter")
 	}
 }
-
-func TestSplitJoinSortKey(t *testing.T) {
-	base, desc := splitSortKey("size-desc")
-	if base != "size" || !desc || joinSortKey(base, desc) != "size-desc" {
-		t.Fatalf("size-desc => %s %v", base, desc)
-	}
-	base, desc = splitSortKey("name")
-	if base != "name" || desc || joinSortKey(base, desc) != "name" {
-		t.Fatalf("name => %s %v", base, desc)
-	}
-	base, desc = splitSortKey("random")
-	if base != "name" {
-		t.Fatalf("unknown base should fall back to name, got %s", base)
-	}
-}

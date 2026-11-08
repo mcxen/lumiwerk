@@ -227,16 +227,6 @@ func xmlEscape(b *strings.Builder, s string) {
 	}
 }
 
-func nonEmpty(list []string) []string {
-	out := make([]string, 0, len(list))
-	for _, s := range list {
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 const finderTagXattr = "com.apple.metadata:_kMDItemUserTags"
 
 func hexEncode(data []byte) string {

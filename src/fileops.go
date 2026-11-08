@@ -127,6 +127,9 @@ func applyRenameMappings(mappings []pathPair) error {
 			return fmt.Errorf("重命名失败：%s", err.Error())
 		}
 	}
+	for _, item := range pending {
+		tagStoreMoved(item.src, item.dst)
+	}
 	return nil
 }
 
@@ -323,6 +326,7 @@ func mergeTree(src, dst string, move bool) error {
 
 func movePath(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
+		tagStoreMoved(src, dst)
 		return nil
 	} else if !isCrossDevice(err) {
 		return err
@@ -330,7 +334,11 @@ func movePath(src, dst string) error {
 	if err := copyTree(src, dst); err != nil {
 		return err
 	}
-	return os.RemoveAll(src)
+	if err := os.RemoveAll(src); err != nil {
+		return err
+	}
+	tagStoreMoved(src, dst)
+	return nil
 }
 
 func remapPath(path string, mappings []pathPair) string {

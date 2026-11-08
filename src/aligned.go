@@ -2354,7 +2354,7 @@ func (a *appState) mediaOverlay(c *ui.Context, item *mediaItem) {
 	stars := ratingFor(item)
 	gold := *t
 	gold.Warning = ui.RGB(255, 199, 0)
-	panel := ui.Row(c).Attach(ui.AnchorBottomStart, ui.AnchorBottomStart).Margin(14, 14).Padding(4, 8).Radius(6).Background(t.Surface)
+	panel := ui.Row(c).Absolute().Left(14).Bottom(mediaBarClearance).Padding(4, 8).Radius(6).Background(t.Surface)
 	panel.Children(func() {
 		ui.Themed(c, &gold).Children(func() {
 			r := ui.Rating(c.Key("large-rating"), &stars, 5).Label("评级")

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumiwerk 控制栏规范</title>
+<style>
+/* ===== Design tokens（取自 player.go 现有值，图片栏复用同一套）===== */
+:root{
+  --bar-bg: rgba(16,16,18,.82);
+  --bar-radius: 12px;
+  --bar-pad: 8px 12px 10px;
+  --bar-gap: 6px;
+  --bar-shadow: 0 -6px 18px rgba(0,0,0,.45);
+  --bar-blur: saturate(160%) blur(20px);
+  --fg: rgb(245,245,247);
+  --fg-dim: rgb(180,180,185);
+  --accent: rgb(10,132,255);
+  --track: rgba(255,255,255,.18);
+  --buffer: rgba(255,255,255,.40);
+  --hover: rgba(255,255,255,.12);
+  --press: rgba(255,255,255,.20);
+  --btn: 32px;          /* 图标按钮边长 */
+  --btn-radius: 6px;
+  --icon: 18px;
+  --chip-pad: 4px 8px;
+  --chip-radius: 5px;
+  --font: 12px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#1c1c1e;color:var(--fg);font:13px/1.4 -apple-system,"PingFang SC",sans-serif;padding:24px 16px 48px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-dim);margin:0 0 20px}
+.grid{display:grid;gap:24px;max-width:1000px;margin:0 auto}
+h2{font-size:13px;color:var(--fg-dim);font-weight:500;margin:0 0 8px;letter-spacing:.04em}
+.stage{position:relative;aspect-ratio:16/8.5;border-radius:10px;overflow:hidden;
+  background:radial-gradient(circle at 50% 38%,#e9b55a 0,#6a4a8a 18%,#2a2a52 45%,#10101e 100%)}
+.stage::after{content:"";position:absolute;inset:0;background:
+  repeating-linear-gradient(90deg,transparent 0 60px,rgba(255,255,255,.03) 60px 61px)}
+.stage img-fake{position:absolute}
+
+/* ===== 共享组件：Bar / IconButton / Chip / Divider / Slider ===== */
+.bar{position:absolute;left:8px;right:8px;bottom:8px;z-index:2;display:flex;flex-direction:column;gap:var(--bar-gap);
+  padding:var(--bar-pad);border-radius:var(--bar-radius);background:var(--bar-bg);
+  box-shadow:var(--bar-shadow);backdrop-filter:var(--bar-blur);-webkit-backdrop-filter:var(--bar-blur);
+  transition:opacity .18s}
+.row{display:flex;align-items:center;gap:var(--bar-gap)}
+.grow{flex:1}
+.ibtn{width:var(--btn);height:var(--btn);border:0;border-radius:var(--btn-radius);background:transparent;color:var(--fg);
+  display:grid;place-items:center;cursor:pointer;padding:0}
+.ibtn svg{width:var(--icon);height:var(--icon);stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ibtn:hover{background:var(--hover)}
+.ibtn:active{background:var(--press)}
+.ibtn:disabled{opacity:.35;cursor:default;background:none}
+.ibtn.on{color:var(--accent)}
+.ibtn.primary{background:rgba(255,255,255,.14)}
+.ibtn.primary:hover{background:rgba(255,255,255,.22)}
+.chip{border:0;background:transparent;color:var(--fg);font:var(--font)/1 inherit;font-variant-numeric:tabular-nums;
+  padding:var(--chip-pad);border-radius:var(--chip-radius);cursor:pointer;height:24px;min-width:36px}
+.chip:hover{background:var(--hover)}
+.chip.dim{color:var(--fg-dim);cursor:default}
+.chip.dim:hover{background:none}
+.sep{width:1px;height:16px;background:rgba(255,255,255,.16);margin:0 4px}
+.time{font-size:var(--font);font-variant-numeric:tabular-nums;color:var(--fg)}
+.time.dim{color:var(--fg-dim)}
+
+.slider{position:relative;height:22px;cursor:pointer;touch-action:none}
+.slider .track{position:absolute;left:6px;right:6px;top:9px;height:4px;border-radius:2px;background:var(--track)}
+.slider .buf{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--buffer)}
+.slider .fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--accent)}
+.slider .knob{position:absolute;top:-4px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:#fff;transition:transform .12s}
+.slider:hover .knob,.slider.drag .knob{transform:scale(1.2)}
+.slider.timeline{height:36px}
+.slider.timeline .track{top:16px}
+.slider .bubble{position:absolute;top:-2px;transform:translateX(-50%);padding:2px 6px;border-radius:4px;font-size:11px;
+  background:rgba(0,0,0,.82);pointer-events:none;opacity:0}
+.slider:hover .bubble{opacity:1}
+.vol{width:76px}
+
+/* 图片栏专有：缩放百分比/缩略图条 */
+.thumbs{display:flex;gap:6px;justify-content:center;padding:2px 0}
+.thumb{width:44px;height:30px;border-radius:5px;border:2px solid transparent;opacity:.7;cursor:pointer}
+.thumb.sel{border-color:var(--accent);opacity:1}
+.name{font-size:var(--font);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+
+/* 规范表 */
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.08)}
+th{color:var(--fg-dim);font-weight:500}
+code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px;border:1px solid rgba(255,255,255,.2)}
+</style>
+</head>
+<body>
+<div class="grid">
+<div>
+  <h1>Lumiwerk 控制栏 · 统一规范 Demo</h1>
+  <p class="sub">视频与图片共用同一个 <code>Bar</code> 容器、<code>IconButton</code>、<code>Chip</code>、<code>Slider</code>；差异只在内容槽位。可直接交互（空格 / ← → / M）。</p>
+</div>
+
+<section>
+  <h2>VIDEO · 视频控制栏</h2>
+  <div class="stage" id="vstage">
+    <div class="bar" id="vbar">
+      <div class="slider timeline" id="timeline">
+        <div class="track"><div class="buf" id="tbuf"></div><div class="fill" id="tfill"></div><div class="knob" id="tknob"></div></div>
+        <div class="bubble" id="tbubble">0:00</div>
+      </div>
+      <div class="row">
+        <button class="ibtn primary" id="play" title="播放 / 暂停（空格）"></button>
+        <button class="ibtn" data-i="skipBack" title="上一个媒体"></button>
+        <button class="ibtn" data-i="skipFwd" title="下一个媒体"></button>
+        <button class="ibtn" id="mute" title="静音（M）"></button>
+        <div class="slider vol" id="vol"><div class="track"><div class="fill" id="vfill"></div><div class="knob" id="vknob"></div></div></div>
+        <span class="time" id="clock">0:00 <span class="dim" style="color:var(--fg-dim)">/ 3:24</span></span>
+        <div class="grow"></div>
+        <button class="chip" id="speed" title="播放速度">1×</button>
+        <button class="chip" title="音轨">音轨</button>
+        <span class="sep"></span>
+        <button class="ibtn" data-i="expand" title="全屏（F）"></button>
+        <button class="ibtn" data-i="more" title="更多"></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>IMAGE · 图片控制栏</h2>
+  <div class="stage" id="istage">
+    <div class="bar">
+      <div class="row">
+        <button class="ibtn primary" data-i="slideshow" title="幻灯片播放（空格）"></button>
+        <button class="ibtn" data-i="chevL" title="上一张（←）"></button>
+        <button class="ibtn" data-i="chevR" title="下一张（→）"></button>
+        <span class="name">qxpicture-mwm-landscape-1784973357023.png</span>
+        <span class="time dim">1 / 11</span>
+        <div class="grow"></div>
+        <button class="ibtn" data-i="zoomOut" title="缩小（−）"></button>
+        <div class="slider vol" id="zoom"><div class="track"><div class="fill" id="zfill" style="width:35%"></div><div class="knob" id="zknob" style="left:35%"></div></div></div>
+        <button class="ibtn" data-i="zoomIn" title="放大（+）"></button>
+        <button class="chip" id="zoomv" title="切换适应 / 100%">适应</button>
+        <span class="sep"></span>
+        <button class="ibtn" data-i="rotate" title="旋转（R）"></button>
+        <button class="ibtn" data-i="info" title="信息（I）"></button>
+        <button class="ibtn" data-i="expand" title="全屏（F）"></button>
+        <button class="ibtn" data-i="more" title="更多"></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>共享规范</h2>
+  <table>
+    <tr><th>元素</th><th>规范</th><th>视频</th><th>图片</th></tr>
+    <tr><td>Bar 容器</td><td>悬浮底部 8px 边距 · 圆角 12 · <span class="sw" style="background:rgba(16,16,18,.82)"></span>rgba(16,16,18,.82) + 毛玻璃 · 内边距 8/12/10 · 间距 6</td><td>时间轴 + 工具行</td><td>仅工具行（可选缩略图条）</td></tr>
+    <tr><td>IconButton</td><td>32×32 · 图标 18 · 描边 1.8 · 圆角 6 · hover 12% 白 / press 20% 白 · 激活 <span class="sw" style="background:#0A84FF"></span>#0A84FF</td><td>播放·切换·音量·全屏·更多</td><td>播放·切换·缩放·旋转·信息·全屏·更多</td></tr>
+    <tr><td>Primary</td><td>主操作按钮：14% 白底，每栏只有 1 个，位于最左</td><td>播放/暂停</td><td>幻灯片播放</td></tr>
+    <tr><td>Chip</td><td>文字按钮 · 12px · 高 24 · 圆角 5 · 等宽数字</td><td>倍速、音轨</td><td>适应 / 100%</td></tr>
+    <tr><td>Slider</td><td>轨道 4px · 蓝色进度 · 12px 白色滑块 · hover 放大 1.2 · 音量 76px 宽</td><td>时间轴、音量</td><td>缩放</td></tr>
+    <tr><td>分组顺序</td><td>[主操作][导航] [状态/名称] ⟵ 弹性 ⟶ [参数 Chip] | [全屏][更多]</td><td>✓</td><td>✓</td></tr>
+    <tr><td>显示/隐藏</td><td>悬停或键盘焦点时显示，淡出 180ms，隐藏后不拦截点击</td><td>播放中 2.5s 无操作淡出</td><td>鼠标静止 2.5s 淡出</td></tr>
+  </table>
+</section>
+</div>
+
+<script>
+const I={
+ play:'<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>',
+ pause:'<svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="3"/></svg>',
+ skipBack:'<svg viewBox="0 0 24 24"><path d="M19 5v14L9 12z" fill="currentColor"/><path d="M5 5v14"/></svg>',
+ skipFwd:'<svg viewBox="0 0 24 24"><path d="M5 5v14l10-7z" fill="currentColor"/><path d="M19 5v14"/></svg>',
+ vol:'<svg viewBox="0 0 24 24"><path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor"/><path d="M16.5 9a4 4 0 010 6M19 6.5a8 8 0 010 11"/></svg>',
+ mute:'<svg viewBox="0 0 24 24"><path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor"/><path d="M17 9.5l4 5M21 9.5l-4 5"/></svg>',
+ expand:'<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+ more:'<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></svg>',
+ chevL:'<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+ chevR:'<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>',
+ slideshow:'<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M10 8.5v5l4-2.5z" fill="currentColor"/><path d="M8 20h8"/></svg>',
+ zoomIn:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4M11 8.5v5M8.5 11h5"/></svg>',
+ zoomOut:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4M8.5 11h5"/></svg>',
+ rotate:'<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.5-5.8M20 4v4.5h-4.5"/></svg>',
+ info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.1"/></svg>'
+};
+document.querySelectorAll('[data-i]').forEach(b=>b.innerHTML=I[b.dataset.i]);
+
+// ---- slider helper（视频 / 音量 / 缩放 共用同一实现）----
+function slider(el,{get,set,onTip}){
+  const track=el.querySelector('.track');
+  const frac=e=>{const r=track.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))};
+  let drag=false;
+  el.addEventListener('pointerdown',e=>{drag=true;el.classList.add('drag');el.setPointerCapture(e.pointerId);set(frac(e))});
+  el.addEventListener('pointermove',e=>{if(drag)set(frac(e));if(onTip)onTip(frac(e))});
+  el.addEventListener('pointerup',()=>{drag=false;el.classList.remove('drag')});
+}
+const $=id=>document.getElementById(id);
+const fmt=s=>{s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+
+// ---- video state ----
+const DUR=204;let pos=38,playing=false,vol=.7,muted=false,speed=1;
+const speeds=[.5,.75,1,1.25,1.5,2];
+function renderV(){
+  $('play').innerHTML=playing?I.pause:I.play;
+  $('mute').innerHTML=(muted||vol===0)?I.mute:I.vol;
+  const p=pos/DUR*100;
+  $('tfill').style.width=p+'%';$('tknob').style.left=p+'%';$('tbuf').style.width=Math.min(100,p+18)+'%';
+  const v=(muted?0:vol)*100;$('vfill').style.width=v+'%';$('vknob').style.left=v+'%';
+  $('clock').innerHTML=fmt(pos)+' <span style="color:var(--fg-dim)">/ '+fmt(DUR)+'</span>';
+  $('speed').textContent=speed+'×';
+}
+slider($('timeline'),{set:f=>{pos=f*DUR;renderV()},onTip:f=>{const b=$('tbubble');b.textContent=fmt(f*DUR);b.style.left=(6+f*($('timeline').clientWidth-12))+'px'}});
+slider($('vol'),{set:f=>{vol=f;muted=false;renderV()}});
+$('play').onclick=()=>{playing=!playing;renderV()};
+$('mute').onclick=()=>{muted=!muted;renderV()};
+$('speed').onclick=()=>{speed=speeds[(speeds.indexOf(speed)+1)%speeds.length];renderV()};
+setInterval(()=>{if(playing){pos=(pos+speed*.25)%DUR;renderV()}},250);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();playing=!playing}
+  else if(e.key==='ArrowRight')pos=Math.min(DUR,pos+5);
+  else if(e.key==='ArrowLeft')pos=Math.max(0,pos-5);
+  else if(e.key.toLowerCase()==='m')muted=!muted;else return;
+  renderV();
+});
+renderV();
+
+// ---- image zoom ----
+let z=.35,fit=true;
+function renderZ(){$('zfill').style.width=z*100+'%';$('zknob').style.left=z*100+'%';
+  $('zoomv').textContent=fit?'适应':Math.round(25+z*375)+'%'}
+slider($('zoom'),{set:f=>{z=f;fit=false;renderZ()}});
+$('zoomv').onclick=()=>{fit=!fit;if(fit)z=.35;else z=(100-25)/375;renderZ()};
+renderZ();
+
+// ---- 自动淡出（两栏同规则）----
+[['vstage','vbar'],['istage',null]].forEach(([s])=>{
+  const st=$(s),bar=st.querySelector('.bar');let t;
+  // demo：只有指针在画面内且静止才淡出；移出后保持显示，方便查看
+  const show=()=>{bar.style.opacity=1;clearTimeout(t);t=setTimeout(()=>{if(!bar.matches(':hover'))bar.style.opacity=0},2500)};
+  st.addEventListener('pointermove',show);
+  st.addEventListener('pointerleave',()=>{clearTimeout(t);bar.style.opacity=1});
+});
+</script>
+</body>
+</html>

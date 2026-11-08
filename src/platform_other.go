@@ -4,7 +4,6 @@ package main
 
 import (
 	"errors"
-	"os/exec"
 )
 
 // shareService is a no-op outside macOS: the share menu reports no services,
@@ -20,18 +19,3 @@ func sharingServices(paths []string) ([]shareService, error) {
 func releaseShareServices(list []shareService) {}
 
 func (s shareService) perform(paths []string) {}
-
-// openerApps: without LaunchServices there is no per-file app list, so the
-// "open with" menu only offers the default handler through openWithDefault.
-func openerApps(path string) []openerApp { return nil }
-
-func openWithApp(app string, paths []string) error {
-	return errors.New("此平台暂不支持指定应用打开")
-}
-
-type openerApp struct {
-	Name string
-	Path string
-}
-
-var _ = exec.Command

@@ -497,7 +497,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 					})
 				}
 			}
-			paintMediaThumb(c, item, opts.width, opts.fit)
+			paintMediaThumbSized(c, item, opts.width, opts.fit, a.cardGlyphSize(opts.width))
 			a.paintThumbBadges(c, item, opts.waterfallBadges)
 		})
 		if flowLabel > 0 {
@@ -524,6 +524,36 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 // stacked bitmap in every layout; until that exists the card keeps the
 // plain folder icon. Photos keep the layout's own fit.
 func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) {
+	paintMediaThumbSized(c, item, width, fit, minCardGlyph)
+}
+
+// Card glyphs (the system icon of a folder without a cover or of a file
+// not yet decoded) scale with the thumbnail: a fixed 28-DIP icon was a
+// speck in the middle of a large card.
+const (
+	minCardGlyph   float32 = 28
+	maxCardGlyph   float32 = 160
+	cardGlyphShare float32 = 0.5 // of the card's shorter thumbnail side
+)
+
+// mediaGlyphSize is the icon size for a thumbnail side of side DIPs.
+func mediaGlyphSize(side float32) float32 {
+	return min(max(side*cardGlyphShare, minCardGlyph), maxCardGlyph)
+}
+
+// cardGlyphSize sizes the glyph for a card of the current thumbnail size,
+// narrowed to the card's own width where the layout fixes one.
+func (a *appState) cardGlyphSize(width float32) float32 {
+	side := float32(a.Thumb)
+	if width > 0 && width < side {
+		side = width
+	}
+	return mediaGlyphSize(side)
+}
+
+// paintMediaThumbSized is paintMediaThumb with the glyph size for cards
+// that show no picture yet.
+func paintMediaThumbSized(c *ui.Context, item *mediaItem, width float32, fit ui.Fit, glyph float32) {
 	if item.IsDir {
 		if item.Bitmap != nil {
 			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
@@ -533,7 +563,7 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 			releaseShownPixels(item)
 			return
 		}
-		paintFolderGlyph(c, item.Path, 28)
+		paintFolderGlyph(c, item.Path, glyph)
 		return
 	}
 	if item.Bitmap != nil {
@@ -548,8 +578,9 @@ func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) 
 		return
 	}
 	if item.Failed {
-		paintTypeGlyph(c, item.Ext, 24)
+		// A little smaller: the file is known not to decode.
+		paintTypeGlyph(c, item.Ext, glyph*6/7)
 		return
 	}
-	paintTypeGlyph(c, item.Ext, 28)
+	paintTypeGlyph(c, item.Ext, glyph)
 }

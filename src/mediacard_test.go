@@ -95,3 +95,76 @@ func TestOnlyGridCardArmsSlowRename(t *testing.T) {
 		})
 	}
 }
+
+func TestMediaGlyphSizeFollowsTheThumbnail(t *testing.T) {
+	for _, tc := range []struct{ side, want float32 }{
+		{0, minCardGlyph}, {40, minCardGlyph}, {96, 48}, {200, 100}, {400, maxCardGlyph},
+	} {
+		if got := mediaGlyphSize(tc.side); got != tc.want {
+			t.Errorf("mediaGlyphSize(%v) = %v, want %v", tc.side, got, tc.want)
+		}
+	}
+	a := &appState{Thumb: 300}
+	if got := a.cardGlyphSize(0); got != 150 {
+		t.Errorf("grid card glyph = %v, want 150", got)
+	}
+	if got := a.cardGlyphSize(120); got != 60 {
+		t.Errorf("a narrow flow card must size the glyph by its width: %v", got)
+	}
+}
+
+// A file with no picture (a .dmg, a .html…) draws its type icon; on a large
+// grid card it must grow with the card instead of staying a 28-DIP speck.
+func TestOtherTypeGlyphGrowsWithLargeGridCards(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	inkHeight := func(thumb float64) int {
+		a := &appState{Chosen: -1, LargeIndex: -1, Cursor: -1, Thumb: thumb, Root: "/probe"}
+		a.Items = []mediaItem{{Path: "/probe/x.dmg", Name: "x.dmg", Ext: "dmg", InfoLoaded: true}}
+		a.Visible = []int{0}
+		side := float32(thumb)
+		te := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Size(side, side+flowLabel).Children(func() {
+				a.mediaCard(c, a.Root, 0, mediaCardOptions{fit: ui.Contain, tagDots: true, inlineRename: true, tooltip: true})
+			})
+		}, int(side), int(side+flowLabel))
+		te.Frame()
+		te.Frame()
+		img := te.Image()
+		name, ok := te.Find("x.dmg")
+		if !ok {
+			t.Fatalf("card name missing: %v", te.Texts())
+		}
+		bg := img.At(1, 1)
+		br, bgG, bb, _ := bg.RGBA()
+		top, bottom := -1, -1
+		b := img.Bounds()
+		for y := b.Min.Y; y < int(name.Y)-2; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				r, g, bl, _ := img.At(x, y).RGBA()
+				d := absDiff(r, br) + absDiff(g, bgG) + absDiff(bl, bb)
+				if d > 3*0x2800 {
+					if top < 0 {
+						top = y
+					}
+					bottom = y
+					break
+				}
+			}
+		}
+		if top < 0 {
+			t.Fatalf("thumb %v: no glyph drawn", thumb)
+		}
+		return bottom - top + 1
+	}
+	small, large := inkHeight(96), inkHeight(320)
+	if large < small*2 {
+		t.Fatalf("glyph ink height small=%d large=%d; the icon must scale with the card", small, large)
+	}
+}
+
+func absDiff(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}

@@ -25,31 +25,17 @@ func fileHidden(info os.FileInfo) bool {
 	return false
 }
 
-// platformTrash tries gio, then falls back to a manual XDG trash that
-// restores nothing.
+// platformTrash follows the XDG trash spec: it writes the original path to
+// a .trashinfo record so file managers can restore it. gio is preferred when
+// present. The returned path lets undo move the file back.
 func platformTrash(path string) (string, error) {
-	if out, err := exec.Command("gio", "trash", path).CombinedOutput(); err == nil {
-		return "", nil
-	} else if _, lookErr := exec.LookPath("gio"); lookErr == nil {
-		return "", fmt.Errorf("%v: %s", err, out)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", errTrashUnsupported
-	}
-	if err := os.Rename(path, home+"/.local/share/Trash/files/"+baseName(path)); err != nil {
-		return "", err
-	}
-	return "", nil
-}
-
-func baseName(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[i+1:]
+	if _, lookErr := exec.LookPath("gio"); lookErr == nil {
+		if out, err := exec.Command("gio", "trash", path).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("%v: %s", err, out)
 		}
+		return "", nil
 	}
-	return path
+	return xdgTrash(path, xdgDataHome())
 }
 
 // mediaThumbJPEG decodes through Go; videos go through ffmpeg when installed.
@@ -68,16 +54,14 @@ func platformVideoThumb(path string, edge int) ([]byte, error) {
 	return nil, errors.New("no platform thumbnailer")
 }
 
-// platformTags: Linux has no file tags this app can read and write yet.
+// platformTags reads tags from the app's own tag store; this platform has
+// no file-attached tag metadata the app can write.
 func platformTags(path string) ([]string, error) {
-	return nil, nil
+	return fileTagStore.get(path), nil
 }
 
 func platformSetTags(path string, tags []string) error {
-	if len(tags) == 0 {
-		return nil
-	}
-	return errors.New("此平台暂不支持文件标签")
+	return fileTagStore.set(path, tags)
 }
 
 func imageResampleJPEG(path string, edge int, quality string) ([]byte, error) {

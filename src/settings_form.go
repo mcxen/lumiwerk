@@ -1,46 +1,94 @@
-// Shared settings form components. Every page is a list of setGroup
-// sections whose rows share one label column and one control column,
-// so spacing and alignment match across pages.
+// Shared settings form components. A page is a column of setGroup cards;
+// each card is a stack of rows with the label (and an optional hint) on the
+// left and the control on the right, separated by hairlines. Every control
+// below is built on setRow, so spacing and alignment match across pages.
 package main
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 
 	"github.com/egoist/mygo/ui"
 )
 
 const (
-	setLabelW = 112
-	setRowH   = 32
-	setCheckW = 128
+	setRowH     = 44
+	setRowPadX  = 16
+	setCardR    = 12
+	setCtrlW    = 168
+	setTextW    = 220
+	setSliderW  = 160
+	setCheckW   = 120
+	setSegH     = 28
+	setSegPadX  = 12
+	setTitleGap = 8
 )
 
-// setGroup is a titled section: a bold 13px title, then its rows.
+// setRowIndex counts rows in the open group so every row after the first
+// gets a divider above it. The UI runs on one goroutine.
+var setRowIndex int
+
+// setGroup is a titled card: a small muted title above a rounded surface that
+// holds the rows.
 func setGroup(c *ui.Context, title string, rows func()) {
-	ui.Column(c).FillWidth().Gap(6).Children(func() {
+	pal := settingsPaletteFor(c)
+	ui.Column(c).FillWidth().Gap(setTitleGap).Children(func() {
 		if title != "" {
-			ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(c.Theme().Text).Padding(0, 0, 2, 0)
+			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(pal.textMuted).Padding(0, 0, 0, 4)
 		}
-		rows()
+		setRowIndex = 0
+		raised(ui.Column(c).FillWidth().Radius(setCardR).Background(pal.card), pal).Clip().Children(rows)
 	})
 }
 
-// setRow is one label/control line; every component below is built on it.
-// Labels use primary text so they stay the sweep-reading entry; values can
-// sit quieter in the control column.
-func setRow(c *ui.Context, label string, control func()) {
-	ui.Row(c).FillWidth().MinHeight(setRowH).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, label).Width(setLabelW).FontSize(13).FontWeight(500).TextColor(c.Theme().Text).SingleLine().Shrink(0)
-		ui.Row(c).Grow(1).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(control)
+// setDivider is the hairline between two rows of a card.
+func setDivider(c *ui.Context) {
+	pal := settingsPaletteFor(c)
+	if setRowIndex > 0 {
+		ui.Box(c).FillWidth().Height(1).Margin(0, setRowPadX).Background(pal.divider)
+	}
+	setRowIndex++
+}
+
+// setRowHint is one row. hint is a quiet second line under the label.
+func setRowHint(c *ui.Context, label, hint string, control func()) {
+	pal := settingsPaletteFor(c)
+	setDivider(c)
+	ui.Row(c).FillWidth().MinHeight(setRowH).Padding(6, setRowPadX).Gap(16).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+			if label != "" {
+				ui.Text(c, label).FontSize(13).TextColor(pal.text)
+			}
+			if hint != "" {
+				ui.Text(c, hint).FontSize(11.5).TextColor(pal.textMuted)
+			}
+		})
+		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(control)
 	})
+}
+
+func setRow(c *ui.Context, label string, control func()) {
+	setRowHint(c, label, "", control)
+}
+
+// setNote is a full-width quiet line at the bottom of a card.
+func setNote(c *ui.Context, text string, warn bool) {
+	pal := settingsPaletteFor(c)
+	color := pal.textMuted
+	if warn {
+		color = pal.warn
+	}
+	setDivider(c)
+	ui.Text(c, text).FontSize(12).TextColor(color).Padding(8, setRowPadX)
 }
 
 // setToggle is a switch row; it reports a change this frame.
 func setToggle(c *ui.Context, key, label string, on *bool) bool {
+	return setToggleHint(c, key, label, "", on)
+}
+
+func setToggleHint(c *ui.Context, key, label, hint string, on *bool) bool {
 	before := *on
-	setRow(c, label, func() {
+	setRowHint(c, label, hint, func() {
 		settingsToggle(c, key, on, settingsPaletteFor(c)).Label(label)
 	})
 	return *on != before
@@ -50,47 +98,82 @@ func setToggle(c *ui.Context, key, label string, on *bool) bool {
 func setSelect[T comparable](c *ui.Context, key, label string, value *T, options []T, name func(T) string) bool {
 	before := *value
 	setRow(c, label, func() {
-		settingsPopup(c, key, value, options, name, 180, settingsPaletteFor(c))
+		settingsPopup(c, key, value, options, name, setCtrlW, settingsPaletteFor(c))
 	})
 	return *value != before
 }
 
-// setChoice is a single-choice row of radio buttons for two or three options.
-func setChoice[T comparable](c *ui.Context, key, label string, value *T, options []T, names []string) bool {
-	before := *value
-	setRow(c, label, func() {
-		for i, option := range options {
-			ui.Radio(c.Key(fmt.Sprintf("%s-%d", key, i)), value, option, names[i])
+// settingsSegment is a pill-shaped single-choice control. The chosen segment
+// is filled with the accent; every segment is reachable by its label.
+func settingsSegment(c *ui.Context, key string, selected *int, labels []string) bool {
+	pal := settingsPaletteFor(c)
+	seg := ui.SegmentedBase(c.Key(key), selected, len(labels))
+	seg.Track.AlignItems(ui.Stretch).Padding(2).Gap(2).Radius(setSegH/2 + 2).Background(pal.chip).Children(func() {
+		for i, text := range labels {
+			on := *selected == i
+			s := seg.Segment(i).Height(setSegH-4).Justify(ui.Center).AlignItems(ui.Center).
+				Padding(0, setSegPadX).Radius(setSegH/2 - 2).Label(text)
+			if on {
+				s.Background(pal.accent)
+			}
+			s.Children(func() {
+				color := pal.text
+				if on {
+					color = c.Theme().AccentText
+				}
+				ui.Text(c, text).FontSize(12.5).TextColor(color).SingleLine()
+			})
 		}
 	})
-	return *value != before
+	return seg.Track.Changed()
 }
 
-// setSegmented is a two-or-more segment control on one row.
+// setSegmented is a row of two or more segments over an index.
 func setSegmented(c *ui.Context, key, label string, selected *int, labels ...string) bool {
 	before := *selected
-	setRow(c, label, func() {
-		ui.Segmented(c.Key(key), selected, labels...).Label(label)
-	})
+	setRow(c, label, func() { settingsSegment(c, key, selected, labels) })
 	return *selected != before
 }
 
-// setCheck is one entry of a setChecks group.
+// setChoice is a single-choice row over any comparable value.
+func setChoice[T comparable](c *ui.Context, key, label string, value *T, options []T, names []string) bool {
+	return setChoiceHint(c, key, label, "", value, options, names)
+}
+
+func setChoiceHint[T comparable](c *ui.Context, key, label, hint string, value *T, options []T, names []string) bool {
+	idx := 0
+	for i, option := range options {
+		if option == *value {
+			idx = i
+		}
+	}
+	before := idx
+	setRowHint(c, label, hint, func() { settingsSegment(c, key, &idx, names) })
+	if idx != before && idx >= 0 && idx < len(options) {
+		*value = options[idx]
+		return true
+	}
+	return false
+}
+
+// setCheck is one entry of a setChecks block.
 type setCheck struct {
 	key, label string
 	value      *bool
 }
 
-// setChecks is a multi-select block: a label above an even checkbox grid.
+// setChecks is a row holding an even grid of check boxes.
 func setChecks(c *ui.Context, label string, checks []setCheck) bool {
 	changed := false
-	ui.Column(c).FillWidth().Gap(4).Children(func() {
+	pal := settingsPaletteFor(c)
+	setDivider(c)
+	ui.Column(c).FillWidth().Padding(8, setRowPadX, 10).Gap(2).Children(func() {
 		if label != "" {
-			ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(c.Theme().Text).Padding(0, 0, 2, 0)
+			ui.Text(c, label).FontSize(13).TextColor(pal.text).Padding(0, 0, 4, 0)
 		}
 		ui.Row(c).FillWidth().Wrap().Gap(4).Children(func() {
 			for _, check := range checks {
-				ui.Row(c).MinHeight(setRowH).Width(setCheckW).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).MinHeight(32).Width(setCheckW).AlignItems(ui.Center).Children(func() {
 					if settingsCheckbox(c, check.key, check.value, check.label).Changed() {
 						changed = true
 					}
@@ -137,8 +220,12 @@ func settingsCheckbox(c *ui.Context, key string, checked *bool, label string) ui
 
 // setButton is a row holding one button; it reports a click.
 func setButton(c *ui.Context, key, label, text string) bool {
+	return setButtonHint(c, key, label, "", text)
+}
+
+func setButtonHint(c *ui.Context, key, label, hint, text string) bool {
 	clicked := false
-	setRow(c, label, func() {
+	setRowHint(c, label, hint, func() {
 		clicked = ui.Button(c.Key(key), text).Clicked()
 	})
 	return clicked
@@ -147,9 +234,13 @@ func setButton(c *ui.Context, key, label, text string) bool {
 // setText is a text field row with an optional trailing button; it reports
 // a click on that button.
 func setText(c *ui.Context, key, label string, value *string, placeholder, button string, password bool) bool {
+	return setTextHint(c, key, label, "", value, placeholder, button, password)
+}
+
+func setTextHint(c *ui.Context, key, label, hint string, value *string, placeholder, button string, password bool) bool {
 	clicked := false
-	setRow(c, label, func() {
-		in := ui.TextInput(c.Key(key), value).Grow(1).MinWidth(160).MaxWidth(320).Placeholder(placeholder)
+	setRowHint(c, label, hint, func() {
+		in := ui.TextInput(c.Key(key), value).Width(setTextW).Placeholder(placeholder).Label(label)
 		if password {
 			in.Password()
 		} else if *value != "" {
@@ -166,46 +257,9 @@ func setText(c *ui.Context, key, label string, value *string, placeholder, butto
 func setSlider(c *ui.Context, key, label string, value *float64, lo, hi float64, unit string) bool {
 	before := *value
 	setRow(c, label, func() {
-		ui.Slider(c.Key(key), value, lo, hi).Width(200).Label(label)
+		ui.Slider(c.Key(key), value, lo, hi).Width(setSliderW).Label(label)
 		ui.Text(c, fmt.Sprintf("%d%s", int(*value), unit)).FontSize(12).
-			TextColor(c.Theme().TextMuted).Width(56)
+			TextColor(settingsPaletteFor(c).textMuted).Width(64)
 	})
-	return *value != before
-}
-
-// setThumbSlider is the default-thumbnail control: slider with tick marks,
-// an editable px field, and a live preview square sized to the value.
-func setThumbSlider(c *ui.Context, key, label string, value *float64, lo, hi float64) bool {
-	before := *value
-	pal := settingsPaletteFor(c)
-	setRow(c, label, func() {
-		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Slider(c.Key(key), value, lo, hi).Width(220).Label(label)
-				ui.NumberInput(c.Key(key+"-num"), value, lo, hi, 1).Width(64).Label(label + " 数值")
-				ui.Text(c, "px").FontSize(12).TextColor(pal.textMuted)
-			})
-			ui.Row(c).Width(220).Justify(ui.SpaceBetween).Children(func() {
-				for _, tick := range []int{128, 256, 384, 512} {
-					ui.Text(c, strconv.Itoa(tick)).FontSize(10).TextColor(pal.textMuted)
-				}
-			})
-			ui.Row(c).Gap(10).AlignItems(ui.End).Children(func() {
-				side := float32(math.Max(24, math.Min(*value/4, 80)))
-				preview := ui.Box(c.Key(key+"-preview")).Size(side, side).Radius(6).
-					Background(pal.chip).Border(1, pal.border).
-					Shadow(0, 1, 2, 0, pal.cardShadow)
-				_ = preview
-				ui.Text(c, fmt.Sprintf("%d × %d", int(*value), int(*value))).
-					FontSize(11).TextColor(pal.textMuted).Padding(0, 0, 4, 0)
-			})
-		})
-	})
-	if *value < lo {
-		*value = lo
-	}
-	if *value > hi {
-		*value = hi
-	}
 	return *value != before
 }

@@ -14,7 +14,7 @@ func TestUpdateBadge(t *testing.T) {
 	t.Cleanup(func() { updateProbe = probe })
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192}
 	a.Profiles = loadPrefs()
-	a.Settings.Thumb, a.Settings.CacheCap = 192, 256
+	a.Settings.CacheCap = 256
 	a.setPage("advanced")
 	for _, v := range []string{"", "9.9.9"} {
 		updateProbe = func() string { return v }

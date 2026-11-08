@@ -80,17 +80,14 @@ func platformVideoThumb(path string, edge int) ([]byte, error) {
 	return nil, errors.New("no platform thumbnailer")
 }
 
-// platformTags: Windows has no file tags this app can read and write yet,
-// so tags read as empty and writing keeps them empty.
+// platformTags reads tags from the app's own tag store; this platform has
+// no file-attached tag metadata the app can write.
 func platformTags(path string) ([]string, error) {
-	return nil, nil
+	return fileTagStore.get(path), nil
 }
 
 func platformSetTags(path string, tags []string) error {
-	if len(tags) == 0 {
-		return nil
-	}
-	return errors.New("此平台暂不支持文件标签")
+	return fileTagStore.set(path, tags)
 }
 
 // imageResampleJPEG decodes and downsamples in one pass through Go.

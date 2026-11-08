@@ -8,22 +8,18 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 )
 
 type settingsState struct {
 	Open           bool
 	Window         *mygo.Window
 	Pane           int
-	Thumb          float64
-	Sort           string
 	Dest           string
 	VideoDest      string
 	ImageShortcut  string
 	VideoShortcut  string
 	EnterOpens     bool
 	PlaybackEnd    string
-	ShowArchives   bool
 	CacheCap       float64
 	QuickRule      string
 	ZipPassword    string
@@ -31,28 +27,22 @@ type settingsState struct {
 	// StartFolder is the folder the next launch opens, kept apart from the
 	// live Root so choosing one does not move the browser.
 	StartFolder string
-	// Layout is the default layout chosen on the view pane.
-	Layout int
 	// UpdateSource is the updater download source (update_mirror.go).
 	UpdateSource string
 }
 
 func (a *appState) openSettings() {
 	a.Settings = settingsState{
-		Thumb:          a.Thumb,
-		Sort:           a.Sort,
 		Dest:           firstNonEmpty(a.Profiles.ImageDestination, a.currentDestination()),
 		VideoDest:      a.Profiles.VideoDestination,
 		ImageShortcut:  a.Profiles.ImageCopyShortcut,
 		VideoShortcut:  a.Profiles.VideoCopyShortcut,
 		EnterOpens:     a.Profiles.EnterOpens,
 		PlaybackEnd:    normalizePlaybackEnd(a.Profiles.PlaybackEnd),
-		ShowArchives:   a.Profiles.View.Archives,
 		CacheCap:       cacheCapMiB(thumbLRU.Limit()),
 		QuickRule:      a.Profiles.QuickRename,
 		ZipPassword:    a.Profiles.ZipPassword,
 		ZipUsePassword: a.Profiles.ZipUsePassword,
-		Layout:         a.LayoutMode,
 		UpdateSource:   a.Profiles.UpdateSource,
 	}
 	if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
@@ -107,16 +97,6 @@ var shortcutChoices = []string{
 	"F1", "F4", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
 }
 
-func (a *appState) shortcutMenu(m *ui.Menu, selected *string) {
-	for _, key := range shortcutChoices {
-		key := key
-		if m.Item(key).Radio(*selected == key).Chosen() {
-			*selected = key
-			a.applyActionSettings()
-		}
-	}
-}
-
 func shortcutConflict(image, video string) string {
 	var warnings []string
 	if image != "" && image == video {
@@ -150,17 +130,10 @@ func (a *appState) applyActionSettings() {
 	a.Profiles.VideoDestination = strings.TrimSpace(a.Settings.VideoDest)
 	a.Profiles.ZipPassword = a.Settings.ZipPassword
 	a.Profiles.ZipUsePassword = a.Settings.ZipUsePassword
-	a.Profiles.View.Archives = a.Settings.ShowArchives
-	a.Profiles.ViewSet = true
 	if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
 		a.Profiles.Profiles[a.Profiles.Active].Destination = a.Profiles.ImageDestination
 	}
-	archives := a.Settings.ShowArchives
 	savePrefs(a.Profiles)
-	if a.Profiles.View.Archives != archives {
-		a.Profiles.View.Archives = archives
-		a.refresh()
-	}
 }
 
 func (a *appState) pickActionDestination(kind string) {

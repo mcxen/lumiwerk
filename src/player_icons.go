@@ -48,13 +48,6 @@ var (
 	lucideScaling      = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M14 15H9v-5"/><path d="M16 3h5v5"/><path d="m21 3-7 7"/></svg>`))
 )
 
-func playerIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG) ui.Element {
-	return ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).Size(32, 30).
-		Padding(4).Radius(5).TextColor(ui.RGB(245, 245, 247)).Children(func() {
-		ui.Icon(c, icon).Size(18, 18)
-	})
-}
-
 func lucideIconButton(c *ui.Context, key, label string, icon *ui.SVG) ui.Element {
 	return ui.Button(c.Key(key), "").Label(label).Tooltip(label).Children(func() {
 		ui.Icon(c, icon).FontSize(16)

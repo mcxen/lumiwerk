@@ -18,7 +18,7 @@ func TestSettingsShots(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192}
 	a.Profiles = loadPrefs()
-	a.Settings.Thumb, a.Settings.CacheCap = 192, 256
+	a.Settings.CacheCap = 256
 	for i, p := range settingsPages {
 		a.Settings.Pane = i
 		te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 900, 680)

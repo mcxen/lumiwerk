@@ -250,10 +250,7 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 	if buffered < pos {
 		buffered = pos
 	}
-	bar := ui.Column(c.Key("player-bar")).Attach(ui.AnchorBottom, ui.AnchorBottom).
-		FillWidth().Margin(8, 8).Padding(8, 12, 10).Gap(6).Radius(12).
-		Background(ui.RGBA(16, 16, 18, 0.82))
-	bar.Shadow(0, -6, 18, 0, ui.RGBA(0, 0, 0, 0.45))
+	bar := controlBarShell(c, "player-bar")
 	bar.Children(func() {
 		a.playerMenu = false
 		a.videoTimeline(c, pos, buffered, duration)
@@ -350,18 +347,18 @@ func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64)
 }
 
 func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playbackSnapshot, pos, duration float64) {
-	row := ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center)
+	row := controlBarRow(c)
 	row.Children(func() {
-		if playerIconButton(c, "video-play", playbackButtonLabel(snapshot.Playing), "播放 / 暂停（空格）", playbackButtonIcon(snapshot.Playing)).Clicked() {
+		if barPrimaryButton(c, "video-play", playbackButtonLabel(snapshot.Playing), "播放 / 暂停（空格）", playbackButtonIcon(snapshot.Playing)).Clicked() {
 			a.toggleVideoPlayback()
 		}
-		if playerIconButton(c, "video-previous", "上一个媒体", "上一个媒体", lucideSkipBack).Clicked() {
+		if barIconButton(c, "video-previous", "上一个媒体", "上一个媒体", lucideSkipBack).Clicked() {
 			a.prevImage()
 		}
-		if playerIconButton(c, "video-next", "下一个媒体", "下一个媒体", lucideSkipForward).Clicked() {
+		if barIconButton(c, "video-next", "下一个媒体", "下一个媒体", lucideSkipForward).Clicked() {
 			a.nextImage()
 		}
-		if playerIconButton(c, "video-volume", "静音", "静音 / 恢复音量（M）", volumeButtonIcon(a.VideoVolume)).Clicked() {
+		if barIconButton(c, "video-volume", "静音", "静音 / 恢复音量（M）", volumeButtonIcon(a.VideoVolume)).Clicked() {
 			a.toggleVideoVolume()
 		}
 		volume := a.VideoVolume
@@ -383,34 +380,26 @@ func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playb
 				}
 			}
 		}
-		ui.Box(c).Grow(1)
+		barSpacer(c)
 		clock := formatPlaybackTime(pos) + " / " + formatPlaybackTime(duration)
 		if status := playbackStatusLabel(snapshot); status != "" {
 			clock = status + "  " + clock
 		}
-		ui.Text(c, clock).FontSize(12).TextColor(ui.RGB(245, 245, 247)).SingleLine()
-		ui.ButtonBase(c.Key("video-speed")).Label("倍速").Tooltip("播放速度").
-			Padding(4, 8).Radius(5).TextColor(ui.RGB(245, 245, 247)).
-			Children(func() {
-				ui.Text(c, formatPlaybackSpeed(snapshot.Speed)).FontSize(12).TextColor(ui.RGB(245, 245, 247))
-			}).
+		barText(c, clock, false)
+		barChip(c, "video-speed", "倍速", "播放速度", formatPlaybackSpeed(snapshot.Speed)).
 			PopoverMenuButton(func(m *ui.Menu) { a.fillSpeedMenu(m, snapshot.Speed) })
 		if len(snapshot.Audio) > 0 || len(snapshot.Video) > 1 {
 			title := "音轨"
 			if len(snapshot.Video) > 1 {
 				title = "画质"
 			}
-			ui.ButtonBase(c.Key("video-tracks")).Label(title).Tooltip(title).
-				Padding(4, 8).Radius(5).TextColor(ui.RGB(245, 245, 247)).
-				Children(func() {
-					ui.Text(c, title).FontSize(12).TextColor(ui.RGB(245, 245, 247))
-				}).
+			barChip(c, "video-tracks", title, title, title).
 				PopoverMenuButton(func(m *ui.Menu) { a.fillTrackMenu(m, snapshot) })
 		}
-		if playerIconButton(c, "video-fullscreen", "全屏", "全屏（F）", lucideExpand).Clicked() {
+		if barIconButton(c, "video-fullscreen", "全屏", "全屏（F）", lucideExpand).Clicked() {
 			a.toggleFullscreen()
 		}
-		more := playerIconButton(c, "video-more", "更多播放操作", "更多播放操作", lucideMore)
+		more := barIconButton(c, "video-more", "更多播放操作", "更多播放操作", lucideMore)
 		more.PopoverMenuButton(func(m *ui.Menu) { a.videoMoreMenu(m, item, snapshot) })
 	})
 }

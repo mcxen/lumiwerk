@@ -1,22 +1,17 @@
-// Settings pages, each a column of settingsSection groups. Controls write
-// straight through to appState and the preferences, so a change takes
-// effect at once instead of waiting for a button.
+// Settings pages, each a column of setGroup cards. Controls write straight
+// through to appState and the preferences, so a change takes effect at once
+// instead of waiting for a button.
 package main
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
 func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
-	setGroup(c, "配置", func() {
-		setRow(c, "配置槽", func() { a.profileSlots(c, pal) })
-	})
 	setGroup(c, "外观", func() {
 		if setChoice(c, "theme", "主题", &a.Profiles.View.Theme,
 			[]string{"system", "light", "dark"}, []string{"跟随系统", "浅色", "深色"}) {
@@ -24,12 +19,12 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 		}
 	})
 	setGroup(c, "启动", func() {
-		if setText(c, "start-folder", "启动目录", &a.Settings.StartFolder, "上次浏览的目录", "选择…", false) {
-			safeGo("dialog.pickStartFolder", a.pickStartFolder)
-		}
-		if setToggle(c, "restore-session", "恢复上次会话", &a.Profiles.RestoreSession) {
+		if setToggleHint(c, "restore-session", "恢复上次会话", "重新打开上次的文件夹和标签页", &a.Profiles.RestoreSession) {
 			a.Profiles.RestoreOff = !a.Profiles.RestoreSession
 			savePrefs(a.Profiles)
+		}
+		if setTextHint(c, "start-folder", "启动目录", "不恢复会话时打开这里", &a.Settings.StartFolder, "上次浏览的目录", "选择…", false) {
+			safeGo("dialog.pickStartFolder", a.pickStartFolder)
 		}
 	})
 	setGroup(c, "窗口", func() {
@@ -43,49 +38,6 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 	})
 }
 
-// profileSlots draws the nine configuration slots: the active one is filled
-// with the accent, and it carries an asterisk while the live view has
-// drifted from what it stored.
-func (a *appState) profileSlots(c *ui.Context, pal *settingsPalette) {
-	t := c.Theme()
-	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		for i := range a.Profiles.Profiles {
-			i := i
-			active := a.Profiles.Active == i
-			label := strconv.Itoa(i + 1)
-			if active && a.profileDirty(i) {
-				label += "*"
-			}
-			slot := ui.Row(c.Key("profile-slot-"+strconv.Itoa(i))).Size(28, 28).Radius(6).
-				Justify(ui.Center).AlignItems(ui.Center).
-				Label(fmt.Sprintf("配置 %d", i+1)).Tooltip(fmt.Sprintf("配置 %d", i+1))
-			bg := ui.Transparent
-			switch {
-			case active:
-				bg = pal.accent
-			case slot.Hovered():
-				bg = pal.surfaceHover
-			}
-			slot.Background(slot.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
-			if slot.Clicked() {
-				a.applyProfile(i)
-				c.Toast(fmt.Sprintf("已切换到配置 %d", i+1))
-			}
-			slot.Children(func() {
-				color := pal.text
-				if active {
-					color = t.AccentText
-				}
-				ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(color)
-			})
-		}
-		if ui.Button(c.Key("profile-save"), "保存").Clicked() {
-			a.saveProfile(a.Profiles.Active)
-			c.Toast(fmt.Sprintf("已保存到配置 %d", a.Profiles.Active+1))
-		}
-	})
-}
-
 // setViewFilter stores the type filter the user just changed, saves it and
 // rescans so the browser shows the new set at once.
 func (a *appState) setViewFilter() {
@@ -93,50 +45,17 @@ func (a *appState) setViewFilter() {
 	a.refreshView()
 }
 
-// setThumbSize moves the live browser to a new default thumbnail size,
-// keeping the current pictures on screen and settling the sharper band
-// after the drag stops.
-func (a *appState) setThumbSize(size float64) {
-	if size < 64 {
-		size = 64
-	}
-	if size > 512 {
-		size = 512
-	}
-	if size == a.Thumb {
-		return
-	}
-	old := a.Thumb
-	before := thumbBand(thumbEdge(a.Thumb))
-	a.Thumb = size
-	a.noteThumbBand(before)
-	a.anchorBrowse(old, a.Thumb, 0, 0, false, a.browseBox)
+// anyCustomTypeEnabled reports whether at least one concrete type filter is on.
+func anyCustomTypeEnabled(view viewPreferences) bool {
+	return view.Images || view.RAW || view.Videos || view.Archives || view.Installers
 }
 
-// layoutOptions are the four layouts a new window can open in, in the
-// spec's order: justified, waterfall, grid, detail.
-var layoutOptions = []struct {
-	mode  int
-	label string
-}{
-	{3, "两端对齐"},
-	{2, "瀑布流"},
-	{0, "等大网格"},
-	{1, "详情列表"},
-}
-
-func layoutName(mode int) string {
-	for _, option := range layoutOptions {
-		if option.mode == mode {
-			return option.label
-		}
-	}
-	return layoutOptions[0].label
-}
-
-func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
+// settingsBrowsePage holds what is not on the toolbar or the View menu:
+// which file types appear, and how Enter, selection and playback behave.
+// Layout, thumbnail size, sorting and hidden files are changed live there.
+func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 	view := &a.Profiles.View
-	setGroup(c, "类型过滤", func() {
+	setGroup(c, "显示的文件类型", func() {
 		mode := 0
 		if !view.AllTypes {
 			mode = 1
@@ -161,120 +80,40 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 			}
 		}
 	})
-	setGroup(c, "显示选项", func() {
-		if setToggle(c, "filter-folders", "包含文件夹", &view.RecursiveFolders) {
-			a.setViewFilter()
-		}
-		if setToggle(c, "filter-hidden", "隐藏文件", &view.Hidden) {
-			a.setViewFilter()
-		}
-	})
-	setGroup(c, "布局", func() {
-		modes := make([]int, 0, len(layoutOptions))
-		for _, option := range layoutOptions {
-			modes = append(modes, option.mode)
-		}
-		if setSelect(c, "layout-popup", "默认布局", &a.Settings.Layout, modes, layoutName) {
-			a.LayoutMode = a.Settings.Layout
-			a.refresh()
-		}
-		if setThumbSlider(c, "settings-thumb", "默认缩略图", &a.Settings.Thumb, 64, 512) {
-			a.setThumbSize(a.Settings.Thumb)
-		}
-	})
-	setGroup(c, "排序", func() {
-		base, desc := splitSortKey(a.Sort)
-		if a.Settings.Sort == "" {
-			a.Settings.Sort = a.Sort
-		}
-		bases := []string{"name", "date", "size", "type"}
-		if setSelect(c, "sort-by", "默认排序依据", &base, bases, sortBaseName) {
-			a.Sort = joinSortKey(base, desc)
-			a.Settings.Sort = a.Sort
-			a.persistDefaultSort()
-			a.refresh()
-		}
-		order := "asc"
-		if desc {
-			order = "desc"
-		}
-		if setChoice(c, "sort-order", "升序/降序", &order, []string{"asc", "desc"}, []string{"升序", "降序"}) {
-			a.Sort = joinSortKey(base, order == "desc")
-			a.Settings.Sort = a.Sort
-			a.persistDefaultSort()
-			a.refresh()
-		}
-		if setToggle(c, "folder-first", "文件夹优先", &a.FolderFirst) {
-			a.refresh()
-		}
-		if setToggle(c, "full-path-sort", "全路径排序", &a.FullPathSort) {
-			a.refresh()
-		}
-	})
 	setGroup(c, "浏览", func() {
-		if setToggle(c, "media-unit", "媒体单元", &a.Profiles.View.MediaUnit) {
-			a.setMediaUnit(a.Profiles.View.MediaUnit)
+		if setChoiceHint(c, "enter", "按 Enter 时", "对选中的文件", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开/关闭"}) {
+			a.applyActionSettings()
 		}
-		if setToggle(c, "autoplay-selected", "选中即播", &a.Profiles.View.AutoPlaySelected) {
+		if setToggleHint(c, "autoplay-selected", "选中即播", "在浏览器里选中视频就开始预览", &a.Profiles.View.AutoPlaySelected) {
+			savePrefs(a.Profiles)
+		}
+	})
+	setGroup(c, "视频播放", func() {
+		if setChoice(c, "vidend", "播放结束后", &a.Settings.PlaybackEnd,
+			[]string{playbackEndStop, playbackEndNext, playbackEndLoop}, []string{"停住", "下一个", "循环"}) {
+			a.applyActionSettings()
+		}
+		if setToggleHint(c, "remember-play", "记住播放进度", "下次从上次看到的位置继续", &a.Profiles.RememberPlayProgress) {
+			a.Profiles.RememberPlayOff = !a.Profiles.RememberPlayProgress
 			savePrefs(a.Profiles)
 		}
 	})
 }
 
-// anyCustomTypeEnabled reports whether at least one concrete type filter is on.
-func anyCustomTypeEnabled(view viewPreferences) bool {
-	return view.Images || view.RAW || view.Videos || view.Archives || view.Installers
-}
-
-func sortBaseName(base string) string {
-	switch base {
-	case "date":
-		return "日期"
-	case "size":
-		return "大小"
-	case "type":
-		return "类型"
-	default:
-		return "名称"
-	}
-}
-
-func splitSortKey(sort string) (base string, desc bool) {
-	desc = strings.HasSuffix(sort, "-desc")
-	base = strings.TrimSuffix(sort, "-desc")
-	switch base {
-	case "name", "date", "size", "type":
-	default:
-		base = "name"
-	}
-	return base, desc
-}
-
-func joinSortKey(base string, desc bool) string {
-	switch base {
-	case "date", "size", "type":
-	default:
-		base = "name"
-	}
-	if desc {
-		return base + "-desc"
-	}
-	return base
-}
-
-func (a *appState) persistDefaultSort() {
-	if i := a.Profiles.Active; i >= 0 && i < len(a.Profiles.Profiles) {
-		a.Profiles.Profiles[i].Sort = a.Sort
-	}
-	savePrefs(a.Profiles)
-}
-
 func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
-	setGroup(c, "性能", func() {
+	setGroup(c, "缓存", func() {
 		if setSlider(c, "cache", "缩略图缓存", &a.Settings.CacheCap, 64, 1024, " MiB") {
 			a.Profiles.ThumbCacheMiB = normalizeThumbCacheMiB(int(a.Settings.CacheCap))
 			thumbLRU.SetLimit(a.Profiles.ThumbCacheMiB << 20)
 			savePrefs(a.Profiles)
+		}
+		usage := fmt.Sprintf("内存 %.0f / %.0f MiB · 磁盘 %.0f MiB",
+			float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024))
+		if setButtonHint(c, "settings-clear-caches", "清理缓存", usage, "清理") {
+			thumbLRU.Clear()
+			diskThumbs.Clear()
+			sweepTempLeftovers()
+			logInfof("settings: caches cleared by the user")
 		}
 	})
 	setGroup(c, "更新", func() {
@@ -289,21 +128,8 @@ func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
 			})
 		}
 	})
-	setGroup(c, "清理缓存", func() {
-		setRow(c, "已用", func() {
-			ui.Text(c, fmt.Sprintf("内存 %.0f / %.0f MiB · 磁盘 %.0f MiB",
-				float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024))).
-				FontSize(13).TextColor(c.Theme().Text)
-		})
-		if setButton(c, "settings-clear-caches", "缓存", "清理") {
-			thumbLRU.Clear()
-			diskThumbs.Clear()
-			sweepTempLeftovers()
-			logInfof("settings: caches cleared by the user")
-		}
-	})
 	setGroup(c, "诊断", func() {
-		if setButton(c, "settings-open-diagnostics", "诊断", "打开") {
+		if setButtonHint(c, "settings-open-diagnostics", "诊断", "查看最近的警告、错误和运行状态（⇧⌘D）", "打开") {
 			a.showDiagnostics()
 		}
 	})

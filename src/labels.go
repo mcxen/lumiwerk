@@ -14,8 +14,9 @@ import (
 // MyGo's controls and menus (search field, Quit, updater) follow it too.
 const appLanguage = "zh-Hans"
 
-// tagsSupported reports whether the platform stores file tags (Finder tags).
-var tagsSupported = runtime.GOOS == "darwin"
+// tagsSupported reports whether file tags work: Finder tags on macOS, the
+// app's own tag store (tagstore.go) elsewhere.
+var tagsSupported = true
 
 // rootName names the filesystem root in breadcrumbs and the sidebar.
 var rootName = rootNameFor(runtime.GOOS)

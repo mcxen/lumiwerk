@@ -75,11 +75,17 @@ panics once MyGo has initialized the widget's state.
 
 ## Settings Composition
 
-`settingsSection` provides the shared label/content layout used by action and
-advanced settings. Use `c.Key` for stable control identities. Add a new pane to
-the single switch in `settingsBody`; do not copy the tab strip or window
-lifecycle. Reopen an existing settings/diagnostics window with `Focus` instead
-of creating duplicates.
+The settings window is a slim nav plus pages made of `setGroup` cards (see
+`settings_form.go`). A row is `setRow`/`setRowHint` with the label on the left
+and the control on the right; use the typed helpers (`setToggle`, `setChoice`,
+`setSelect`, `setText`, `setSlider`, `setButton`, `setChecks`) so spacing and
+hairlines match. Use `c.Key` for stable control identities. Add a page to
+`settingsPages` and the single switch in `settingsBody`.
+
+Settings only holds preferences that exist nowhere else. Layout, thumbnail
+size, sorting, hidden files and recursion are changed live from the toolbar
+and the View menu, so they are not repeated here. Configuration slots are
+Alt+1…9 (apply) and Cmd+Alt+1…9 (save).
 
 ## Logging and Diagnostics
 
@@ -128,3 +134,9 @@ temporary file, preserves the previous generation as `prefs.json.bak`, then
 renames the new file atomically. Any test that directly or indirectly reaches
 these functions must set a temporary `HOME`. This includes tests invoking
 methods such as `commitAutoConfig`, not only tests calling `savePrefs` directly.
+
+## Platform support notes
+
+- File tags and ★ ratings: macOS writes the Finder tag xattr on the file. Windows and Linux use the path-keyed store in `src/tagstore.go` (`<config dir>/lumiwerk/filetags.json`); in-app moves and renames migrate entries, changes made outside the app are not followed.
+- Trash: macOS uses Finder, Windows the Recycle Bin, Linux `gio trash` or the XDG trash (`src/xdgtrash.go`, with `.trashinfo`).
+- "Open with": macOS LaunchServices, Windows the Explorer `OpenWithList` registry key. Not available on Linux. The share menu is macOS only.
