@@ -119,7 +119,9 @@ func (a *appState) detailView(c *ui.Context) {
 			if wasChosen && name != (ui.Element{}) && pointerOver(cell, name) && cell.Clicked() && !cell.DoubleClicked() {
 				a.armSlowRename(c, i, wasChosen)
 			}
-			a.fileDragSource(cell, item.Path)
+			if item.IsDir {
+				a.folderDropTarget(c, cell, item.Path)
+			}
 			cell.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
 			if a.isCut(item.Path) {
 				cell.Opacity(0.4)
@@ -134,6 +136,8 @@ func (a *appState) detailView(c *ui.Context) {
 		}
 	}
 	a.keepColumns(c, list.Columns)
+	first, last := list.Visible()
+	a.prefetchAround(a.Root, first, last, len(a.Visible), thumbPrefetchExtra)
 }
 
 // keepColumns saves the widths and order the user gave the columns, once

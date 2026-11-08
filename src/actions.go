@@ -1175,8 +1175,15 @@ func (a *appState) folderDropTarget(c *ui.Context, el ui.Element, dest string) {
 		Formats:    []transfer.Format{transfer.FileList, transfer.URIList},
 		Operations: transfer.Copy | transfer.Move,
 	}
+	if paths, over := ui.DragOver[[]string](el); over && len(paths) > 0 {
+		el.Border(2, c.Theme().Accent)
+	}
 	if _, over := ui.DataDragOver(el, opts); over {
 		el.Border(2, c.Theme().Accent)
+	}
+	if paths, ok := ui.Drop[[]string](el); ok {
+		a.receiveFolderDrop(paths, dest, true)
+		return
 	}
 	if drop, ok := ui.DropData(el, opts); ok {
 		files, err := drop.Data.Files()

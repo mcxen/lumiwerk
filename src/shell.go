@@ -25,7 +25,23 @@ func (a *appState) mediaListState() mediaListState {
 	a.Grid.Label = a.itemLabel
 	a.ListState.Key = a.itemKey
 	a.ListState.Label = a.itemLabel
+	a.ListState.DragRows = a.listDragRows
 	return mediaListState{Grid: &a.Grid, List: &a.ListState}
+}
+
+func (a *appState) listDragRows(rows []int) any {
+	if len(rows) == 0 {
+		return nil
+	}
+	item := a.visibleItem(rows[0])
+	if item == nil {
+		return nil
+	}
+	paths := a.dragPaths(item.Path)
+	if len(paths) == 0 {
+		return nil
+	}
+	return paths
 }
 
 func (a *appState) itemLabel(i int) string {
