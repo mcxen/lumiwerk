@@ -9,11 +9,17 @@ import (
 
 func TestEnabledFileTypesAreIndependent(t *testing.T) {
 	view := defaultViewPreferences()
-	for _, name := range []string{"photo.jpg", "camera.dng", "movie.mp4", "bundle.zip"} {
+	for _, name := range []string{"photo.jpg", "movie.mp4"} {
 		if !isEnabledFile(name, filepath.Ext(name), view) {
 			t.Fatalf("default filters excluded %s", name)
 		}
 	}
+	for _, name := range []string{"camera.dng", "bundle.zip", "Setup.dmg", "notes.txt"} {
+		if isEnabledFile(name, filepath.Ext(name), view) {
+			t.Fatalf("default filters included %s", name)
+		}
+	}
+	view.RAW, view.Archives = true, true
 	view.Images = false
 	if isEnabledFile("photo.jpg", "jpg", view) || !isEnabledFile("camera.dng", "dng", view) {
 		t.Fatal("disabling ordinary images also changed RAW visibility")
@@ -97,8 +103,11 @@ func TestPreferencesKeepExplicitFalseValues(t *testing.T) {
 func TestMissingPreferencesUseVisibleMediaDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	prefs := loadPrefs()
-	if !prefs.View.Images || !prefs.View.RAW || !prefs.View.Videos || !prefs.View.Archives || !prefs.View.Installers || !prefs.View.InternalPlayer {
-		t.Fatalf("missing preferences did not get defaults: %#v", prefs.View)
+	if !prefs.View.Images || !prefs.View.Videos || !prefs.View.InternalPlayer {
+		t.Fatalf("missing preferences did not show images and videos: %#v", prefs.View)
+	}
+	if prefs.View.RAW || prefs.View.Archives || prefs.View.Installers || prefs.View.AllTypes {
+		t.Fatalf("missing preferences showed other types: %#v", prefs.View)
 	}
 }
 
@@ -129,6 +138,44 @@ func TestMediaCountExcludesFoldersAndOtherFiles(t *testing.T) {
 	}
 }
 
+func TestOldTypeDefaultMigratesToImagesAndVideos(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	old := prefsFile{ViewSet: true, View: viewPreferences{
+		Images: true, RAW: true, Videos: true, Archives: true, Installers: true,
+		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
+	}}
+	savePrefs(old)
+	loaded := loadPrefs()
+	if !loaded.View.Images || !loaded.View.Videos || loaded.View.RAW || loaded.View.Archives || loaded.View.Installers {
+		t.Fatalf("old default did not narrow: %#v", loaded.View)
+	}
+	if loaded.TypeFilterRev != typeFilterRevMedia {
+		t.Fatalf("rev %d", loaded.TypeFilterRev)
+	}
+	loaded.View.Archives = true
+	savePrefs(loaded)
+	if again := loadPrefs(); !again.View.Archives || again.View.RAW || again.View.Installers {
+		t.Fatalf("explicit archive choice was reset: %#v", again.View)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	custom := old
+	custom.View.Images = false
+	savePrefs(custom)
+	kept := loadPrefs()
+	if kept.View.Images || !kept.View.RAW || !kept.View.Archives {
+		t.Fatalf("custom types were rewritten: %#v", kept.View)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	all := old
+	all.View.AllTypes = true
+	savePrefs(all)
+	if showAll := loadPrefs(); !showAll.View.AllTypes || !showAll.View.RAW {
+		t.Fatalf("全部 was narrowed: %#v", showAll.View)
+	}
+}
+
 func TestScanVisibilityFixture(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "folder"), 0o755); err != nil {
@@ -140,9 +187,10 @@ func TestScanVisibilityFixture(t *testing.T) {
 		}
 	}
 	view := defaultViewPreferences()
+	view.RAW, view.Archives = true, true
 	for _, name := range []string{"photo.jpg", "camera.dng", "movie.mp4", "bundle.zip"} {
 		if !isEnabledFile(name, filepath.Ext(name), view) || isHiddenPath(root, filepath.Join(root, name)) {
-			t.Fatalf("default scan excluded %s", name)
+			t.Fatalf("enabled scan excluded %s", name)
 		}
 	}
 	if !isHiddenPath(root, filepath.Join(root, ".hidden.jpg")) {

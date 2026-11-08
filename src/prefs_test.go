@@ -184,7 +184,7 @@ func TestMigrateViewInstallersWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := loadPrefs()
-	if !loaded.View.Installers {
-		t.Fatalf("missing installers key should default on: %#v", loaded.View)
+	if !loaded.View.Images || !loaded.View.Videos || loaded.View.RAW || loaded.View.Archives || loaded.View.Installers {
+		t.Fatalf("old all-type view should narrow to images and videos: %#v", loaded.View)
 	}
 }

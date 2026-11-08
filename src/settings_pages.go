@@ -144,8 +144,8 @@ func (a *appState) settingsViewPage(c *ui.Context, pal *settingsPalette) {
 		if setSegmented(c, "type-mode", "类型", &mode, "全部", "自定义") {
 			view.AllTypes = mode == 0
 			if mode == 1 && !anyCustomTypeEnabled(*view) {
-				view.Images, view.RAW, view.Videos = true, true, true
-				view.Archives, view.Installers = true, true
+				view.Images, view.Videos = true, true
+				view.RAW, view.Archives, view.Installers = false, false, false
 			}
 			a.setViewFilter()
 		}

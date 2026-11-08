@@ -46,7 +46,7 @@ type viewPreferences struct {
 
 func defaultViewPreferences() viewPreferences {
 	return viewPreferences{
-		Images: true, RAW: true, Videos: true, Archives: true, Installers: true,
+		Images: true, Videos: true,
 		AutoPlaySelected: true, InternalPlayer: true,
 		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
 	}
@@ -94,7 +94,13 @@ type prefsFile struct {
 	RememberPlayProgress bool `json:"rememberPlayProgress"`
 	// RememberPlayOff is the persisted opt-out for resume-on-reopen.
 	RememberPlayOff bool `json:"rememberPlayOff,omitempty"`
+	// TypeFilterRev marks which type-filter default has been applied.
+	// 0 is the old default (every known type on). 1 shows images and
+	// videos only until the other types are turned on in settings.
+	TypeFilterRev int `json:"typeFilterRev,omitempty"`
 }
+
+const typeFilterRevMedia = 1
 
 const (
 	// closeToTray hides the main window into the system tray.
@@ -118,16 +124,40 @@ func loadPrefs() prefsFile {
 		if !os.IsNotExist(err) {
 			logWarnf("could not read preferences %s: %v", prefsPath(), err)
 		}
+		p.TypeFilterRev = typeFilterRevMedia
 		normalizePrefs(&p)
 		return p
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
-		p = prefsFile{View: defaultViewPreferences(), ViewSet: true}
+		p = prefsFile{View: defaultViewPreferences(), ViewSet: true, TypeFilterRev: typeFilterRevMedia}
+		normalizePrefs(&p)
+		return p
 	}
 	migrateViewInstallers(data, &p)
+	if migrateTypeFilterDefault(&p) {
+		normalizePrefs(&p)
+		savePrefs(p)
+		return p
+	}
 	normalizePrefs(&p)
 	return p
+}
+
+// migrateTypeFilterDefault moves a saved copy of the old "every type on"
+// default to images and videos only. A view the user already customized,
+// including 全部, is left alone. It reports whether the file should be
+// rewritten so a later launch does not apply the change again.
+func migrateTypeFilterDefault(p *prefsFile) bool {
+	if p.TypeFilterRev >= typeFilterRevMedia {
+		return false
+	}
+	v := &p.View
+	if !v.AllTypes && v.Images && v.RAW && v.Videos && v.Archives && v.Installers {
+		v.RAW, v.Archives, v.Installers = false, false, false
+	}
+	p.TypeFilterRev = typeFilterRevMedia
+	return true
 }
 
 // migrateViewInstallers turns on Installers when an older prefs.json has no
