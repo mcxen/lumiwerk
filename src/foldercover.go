@@ -70,6 +70,9 @@ type coverLayer struct {
 // requestThumb starts a file thumbnail or a folder stack. The view calls
 // it only for an item that is not already decoded, failed or loading.
 func (a *appState) requestThumb(root string, index int) {
+	if a.windowHidden {
+		return
+	}
 	if index < 0 || index >= len(a.Items) {
 		return
 	}

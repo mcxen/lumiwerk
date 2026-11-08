@@ -201,16 +201,17 @@ type appState struct {
 	HUD              string
 	// toasts waits for the next frame to show through c.Toast; lastToast
 	// is the newest message, for tests.
-	toasts      []pendingToast
-	toastMu     sync.Mutex
-	lastToast   string
-	HUDUntil    time.Time
-	Settings    settingsState
-	Diagnostics diagnosticsState
-	Tabs        tabState
-	Profiles    prefsFile
-	Batch       batchState
-	Renaming    bool
+	toasts       []pendingToast
+	toastMu      sync.Mutex
+	lastToast    string
+	HUDUntil     time.Time
+	windowHidden bool
+	Settings     settingsState
+	Diagnostics  diagnosticsState
+	Tabs         tabState
+	Profiles     prefsFile
+	Batch        batchState
+	Renaming     bool
 
 	RenamePath string
 	RenameVal  string
@@ -1327,7 +1328,8 @@ func (a *appState) rootView(c *ui.Context) {
 	a.tickAutomation(c)
 	a.beginFrame()
 	defer a.finishFrame()
-	if !a.InLargeView {
+	a.noteWindowHidden(c)
+	if !a.InLargeView && !a.windowHidden {
 		a.settleThumbs(c)
 		a.sweepThumbs(c)
 	}
@@ -2078,9 +2080,7 @@ func (a *appState) gridView(c *ui.Context) {
 			a.armSlowRename(c, i, wasChosen)
 		}
 		card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-		if !item.Decoded && !item.Failed && !item.Loading {
-			a.requestThumb(root, a.Visible[i])
-		}
+		a.maybeRequestThumb(card, root, i)
 	})
 	grid.Grow(1).TrackScroll(&a.browseScroll)
 	if bounds := grid.LayoutBounds(); bounds.W > 1 {
@@ -2091,6 +2091,8 @@ func (a *appState) gridView(c *ui.Context) {
 		cols := gridColumnCount(contentW, float32(cell), gap)
 		a.noteBrowseBox(bounds, cols, gridStride(a.Thumb, gap), gap, contentW, len(a.Visible))
 	}
+	first, last := a.visibleIndexRange()
+	a.prefetchAround(root, first, last, len(a.Visible), thumbPrefetchExtra)
 	// Opening on Enter/Space is handled by the global shortcuts; the grid
 	// widget's own submit/selection path is not wired (see mediaListState).
 }
@@ -2199,6 +2201,15 @@ func (a *appState) largeImageView(c *ui.Context) {
 	})
 }
 
+func (a *appState) cancelLargeDrag(item *mediaItem) {
+	if a.LargeDrag.active && a.LargeDrag.button == 1 && item != nil && item.IsVideo && a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
+		a.Video.kernel.ScrubTo(a.SeekFrom)
+		a.Video.kernel.EndScrub()
+	}
+	a.LargeDrag.active = false
+	a.RightDown = false
+}
+
 // largeInput handles zoom, pan, edge clicks and double-click close.
 func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 	switch ev.Kind {
@@ -2267,6 +2278,10 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		}
 		return true
 	case ui.InputPointerUp:
+		if ev.Canceled {
+			a.cancelLargeDrag(item)
+			return true
+		}
 		button := ev.Button
 		moved := a.LargeDrag.moved
 		fired := a.LargeDrag.fired
@@ -2309,6 +2324,13 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		}
 		return false
 	case ui.InputKeyDown:
+		if ev.Key == ui.KeyUnknown {
+			return false
+		}
+		if ev.Key == ui.KeyEscape && a.LargeDrag.active {
+			a.cancelLargeDrag(item)
+			return true
+		}
 		switch ev.Key {
 		case ui.KeyEqual, ui.KeyMinus, ui.Key0:
 			switch ev.Key {

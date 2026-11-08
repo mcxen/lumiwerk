@@ -147,6 +147,10 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 		a.scrollBrowseBy(ev.DY)
 		return true
 	}
+	if ev.Kind == ui.InputKeyDown && ev.Key == ui.KeyEscape && a.Gesture.active {
+		a.Gesture = gestureState{}
+		return true
+	}
 	if ev.Button != 1 {
 		return false
 	}
@@ -161,6 +165,10 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 	case ui.InputPointerUp:
 		if !a.Gesture.active {
 			return false
+		}
+		if ev.Canceled {
+			a.Gesture = gestureState{}
+			return true
 		}
 		dx, dy := ev.X-a.Gesture.x, ev.Y-a.Gesture.y
 		a.Gesture = gestureState{}

@@ -310,7 +310,9 @@ func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64)
 			return true
 		case ui.InputPointerUp:
 			if a.Video != nil && a.Video.kernel != nil && a.Video.kernel.Scrubbing() {
-				a.scrubTimelineTo(ev.X, duration)
+				if !ev.Canceled {
+					a.scrubTimelineTo(ev.X, duration)
+				}
 				a.Video.kernel.EndScrub()
 			}
 			return true

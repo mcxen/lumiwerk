@@ -330,6 +330,9 @@ func (a *appState) editorPreviewInput(ev ui.InputEvent) bool {
 		if !a.Editor.Drag.Active {
 			return false
 		}
+		if ev.Canceled {
+			a.Editor.Crop = a.Editor.Drag.Crop
+		}
 		a.Editor.Drag.Active = false
 		return true
 	default:
@@ -382,6 +385,13 @@ func (a *appState) editorTimelineInput(ev ui.InputEvent) bool {
 	case ui.InputPointerUp:
 		if !a.Editor.Drag.Active {
 			return false
+		}
+		if ev.Canceled {
+			if a.Editor.Selected >= 0 && a.Editor.Selected < len(a.Editor.Segments) {
+				a.Editor.Segments[a.Editor.Selected] = a.Editor.Drag.Segment
+			}
+			a.Editor.Drag.Active = false
+			return true
 		}
 		a.Editor.Drag.Active = false
 		a.editorSeek(a.Editor.Playhead, true)

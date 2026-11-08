@@ -477,9 +477,7 @@ func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, wid
 	a.fileDragSource(card, item.Path)
 	a.cardPointer(card, i)
 	card.ContextMenu(func(m *ui.Menu) { a.mediaContextMenu(m, i) })
-	if !item.Decoded && !item.Failed && !item.Loading {
-		a.requestThumb(root, a.Visible[i])
-	}
+	a.maybeRequestThumb(card, root, i)
 }
 
 // paintMediaThumb draws one card's picture. Folder covers use the same

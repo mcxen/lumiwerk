@@ -24,8 +24,10 @@ import (
 //     until the first probe answered.
 
 const (
-	thumbSweepEvery = 2 * time.Second
-	thumbOffscreen  = 5 * time.Second
+	thumbSweepEvery             = 2 * time.Second
+	thumbOffscreen              = 5 * time.Second
+	thumbPrefetchMargin float32 = 240
+	thumbPrefetchExtra          = 12
 )
 
 // beginFrame starts a build. The stamp stays private until finishFrame so
@@ -119,7 +121,89 @@ func (a *appState) sweepThumbsAt(now time.Time) int {
 	return released
 }
 
+func (a *appState) noteWindowHidden(c *ui.Context) {
+	a.windowHidden = c.WindowHidden()
+}
+
+// maybeRequestThumb loads a card that is on screen or within the prefetch
+// margin. Hidden windows start no new decode.
+func (a *appState) maybeRequestThumb(el ui.Element, root string, visIndex int) {
+	if a.windowHidden {
+		return
+	}
+	item := a.visibleItem(visIndex)
+	if item == nil || item.Decoded || item.Failed || item.Loading {
+		return
+	}
+	if el != (ui.Element{}) && !el.InView() && !el.InViewMargin(thumbPrefetchMargin) {
+		return
+	}
+	a.requestThumb(root, a.Visible[visIndex])
+}
+
+func (a *appState) visibleIndexRange() (first, last int) {
+	n := len(a.Visible)
+	box := a.browseBox
+	if n == 0 || box.H < 1 || box.Stride < 1 {
+		return 0, -1
+	}
+	cols := box.Cols
+	if cols < 1 {
+		cols = 1
+	}
+	firstRow := int(a.browseScroll.Y / box.Stride)
+	if firstRow < 0 {
+		firstRow = 0
+	}
+	rows := int(box.H/box.Stride) + 2
+	first = firstRow * cols
+	last = first + rows*cols - 1
+	if first >= n {
+		return 0, -1
+	}
+	if last >= n {
+		last = n - 1
+	}
+	return first, last
+}
+
+// prefetchAround asks for the visible range first, then a few neighbors.
+func (a *appState) prefetchAround(root string, first, last, n, extra int) {
+	if a.windowHidden || n <= 0 {
+		return
+	}
+	if first < 0 {
+		first = 0
+	}
+	if last >= n {
+		last = n - 1
+	}
+	if last < first {
+		return
+	}
+	for i := first; i <= last; i++ {
+		a.maybeRequestThumb(ui.Element{}, root, i)
+	}
+	end := last + extra
+	if end >= n {
+		end = n - 1
+	}
+	for i := last + 1; i <= end; i++ {
+		a.maybeRequestThumb(ui.Element{}, root, i)
+	}
+	start := first - extra
+	if start < 0 {
+		start = 0
+	}
+	for i := first - 1; i >= start; i-- {
+		a.maybeRequestThumb(ui.Element{}, root, i)
+	}
+}
+
 func (a *appState) requestInfo(index int) {
+	if a.windowHidden {
+		return
+	}
 	a.mu.Lock()
 	if index < 0 || index >= len(a.Items) || a.Items[index].InfoLoaded || a.Items[index].InfoLoading {
 		a.mu.Unlock()

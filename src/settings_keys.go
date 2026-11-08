@@ -21,6 +21,9 @@ func (a *appState) settingsKeysPage(c *ui.Context, pal *settingsPalette) {
 		if keyCapture.id == "" || ev.Kind != ui.InputKeyDown {
 			return false
 		}
+		if ev.Key == ui.KeyUnknown {
+			return false
+		}
 		a.captureKey(keyCapture.id, ev.Mods, ev.Key)
 		return true
 	})
