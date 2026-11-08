@@ -748,7 +748,6 @@ func (a *appState) noteVideoZoom() {
 	a.videoEdgeDue = time.Now().Add(zoomSettle)
 }
 
-
 // flushPlayProgress writes the current playhead for the open video, then
 // persists when dirty. Safe when nothing is playing.
 func (a *appState) flushPlayProgress() {
@@ -826,10 +825,7 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 			logErrorf("video.open: path=%s err=%v", path, err)
 			return
 		}
-		if edgeBackend, ok := a.Video.kernel.backend.(*ffmpegBackend); ok {
-			edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
-			edgeBackend.SetNotify(func() { a.update(func() {}) })
-		}
+		a.wirePlaybackBackend(a.Video.kernel)
 		if !playing {
 			a.requestSharpFrame()
 		}
@@ -844,12 +840,7 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 		logErrorf("video.open: path=%s err=%v", path, err)
 		return
 	}
-	if edgeBackend, ok := kernel.backend.(*ffmpegBackend); ok {
-		edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
-		edgeBackend.SetNotify(func() {
-			a.update(func() {})
-		})
-	}
+	a.wirePlaybackBackend(kernel)
 	if !playing {
 		a.requestSharpFrame()
 	}
@@ -877,15 +868,28 @@ func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bi
 	}
 	a.maybeAutosavePlayProgress()
 	v.err = snapshot.Err
+	// A backend that announces its frames redraws the view itself at the
+	// video's own rate; the timer then only keeps the timeline moving.
+	// Polling at a fixed 30 Hz beat against 24/25/60 fps sources and
+	// showed frames unevenly.
+	poll := 33 * time.Millisecond
+	if snapshot.FramePushed {
+		poll = 250 * time.Millisecond
+	}
 	switch snapshot.Phase {
 	case playLoading, playPlaying, playBuffering:
-		c.After(33 * time.Millisecond)
+		c.After(poll)
 	default:
 		if snapshot.Seeking || snapshot.Scrubbing {
-			c.After(33 * time.Millisecond)
+			c.After(poll)
 		}
 	}
 	if snapshot.Frame == nil {
+		return v.frame
+	}
+	// Redraws for other reasons (pointer moves, the timeline tick) see the
+	// same frame again: converting and uploading it again is wasted work.
+	if v.frame != nil && v.shown == snapshot.Frame {
 		return v.frame
 	}
 	if v.frame == nil {
@@ -893,7 +897,27 @@ func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bi
 	} else {
 		v.frame.Update(snapshot.Frame)
 	}
+	v.shown = snapshot.Frame
 	return v.frame
+}
+
+// framePusher is a backend that tells the view when a new frame is ready.
+type framePusher interface{ SetFrameNotify(func()) }
+
+// wirePlaybackBackend lets the backend redraw the window when it has a new
+// frame, coalesced through the window's update queue.
+func (a *appState) wirePlaybackBackend(kernel *playbackSession) {
+	if kernel == nil {
+		return
+	}
+	redraw := func() { a.update(func() {}) }
+	if edgeBackend, ok := kernel.backend.(*ffmpegBackend); ok {
+		edgeBackend.SetRenderEdge(playbackEdge(a.Zoom))
+		edgeBackend.SetNotify(redraw)
+	}
+	if pusher, ok := kernel.backend.(framePusher); ok {
+		pusher.SetFrameNotify(redraw)
+	}
 }
 
 func (a *appState) videoLayer(c *ui.Context, transformed bool) {

@@ -1164,8 +1164,12 @@ func (a *appState) fileDragSource(card ui.Element, path string) {
 	}
 }
 
+// It runs every frame for each sidebar folder, folder row and the main view,
+// so it must not touch the file system: an os.Stat per row per frame stalled
+// the main thread (and every text redraw with it) on slow or sleeping
+// volumes. receiveFolderDrop checks that dest is a folder when a drop lands.
 func (a *appState) folderDropTarget(c *ui.Context, el ui.Element, dest string) {
-	if dest == "" || !isDir(dest) {
+	if dest == "" {
 		return
 	}
 	opts := transfer.DropOptions{

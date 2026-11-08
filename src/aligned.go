@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"image"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -98,6 +99,7 @@ type videoView struct {
 	kernel     *playbackSession
 	path       string
 	frame      *ui.Bitmap
+	shown      image.Image // the frame last given to frame
 	Still      *ui.Bitmap
 	stillToken int
 	err        error
@@ -105,6 +107,8 @@ type videoView struct {
 
 type appState struct {
 	Window *mygo.Window
+	// dirSeen caches folder existence for views (see folderPresent).
+	dirSeen dirPresence
 	// quitting is set on the main thread from OnBeforeQuit so the main
 	// window can tell a real quit from the close button.
 	quitting bool
@@ -1678,7 +1682,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 		a.sidebarSection(c, "收藏夹", &a.Profiles.FavoritesClosed, nil, func() {
 			for _, fav := range a.Profiles.Favorites {
 				fav := fav
-				if !isDir(fav) {
+				if !a.folderPresent(fav) {
 					continue
 				}
 				row := ui.Row(c.Key(fav)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)

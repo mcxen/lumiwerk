@@ -16,6 +16,16 @@ split by responsibility:
   `GOFLAGS=-tags=mpvbackend`) and the FFmpeg picture/sound fallback. The
   native controller uses `playbackSession`, never a second view-owned
   playhead. FFmpeg is used when libmpv is unavailable.
+  The libmpv backend never blocks the main thread: mpv's update callback
+  wakes a render thread that renders into pooled tight `*image.RGBA` frames
+  (`playback_frames.go`, taken by `ui.Bitmap.Update` without a copy), an
+  event thread caches observed properties (time-pos, duration, cache, size,
+  tracks, eof) for the getters, and seeks/volume/speed are asynchronous. New
+  frames redraw the window through `SetFrameNotify`; the view uploads each
+  frame once. Do not add synchronous `GetProperty` or render calls to the
+  getters `Snapshot` uses.
+- Views must not touch the file system per frame. Use `folderPresent` for
+  "does this folder still exist" checks in rows drawn every frame.
 - `actions.go`, `fileops.go`, `undo.go`: file operations and their inverses.
 - `logging.go`, `diagnostics.go`: persistent logs, in-memory events, runtime
   metrics and the diagnostic report UI.

@@ -119,6 +119,9 @@ type playbackSnapshot struct {
 	Seeking   bool
 	Audio     []playbackTrack
 	Video     []playbackTrack
+	// FramePushed tells that the backend announces new frames itself
+	// (framePusher), so the view need not poll for them.
+	FramePushed bool
 }
 
 // playbackSession owns backend selection and lifecycle. In particular, seeking
@@ -453,6 +456,7 @@ func (s *playbackSession) Snapshot() playbackSnapshot {
 		return snap
 	}
 	snap.Backend = s.backend.Name()
+	_, snap.FramePushed = s.backend.(framePusher)
 	// A pause keeps the picture already on screen. Pulling another frame
 	// here would keep showing whatever the backend is still decoding, so
 	// the view would move after the user had paused it.
