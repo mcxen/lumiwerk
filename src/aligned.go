@@ -143,6 +143,8 @@ type appState struct {
 	Chosen     int
 	Selected   ui.Selection[string]
 	FilterMode int
+	// menuPath is the sidebar folder whose context menu is being built.
+	menuPath string
 
 	Outline         ui.OutlineState[string]
 	treeOpenRoot    string
@@ -1683,7 +1685,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 					ui.Icon(c, dirIcon).FontSize(12)
 					ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
 				})
-				a.folderDropTarget(c, row, fav)
+				a.bindFolderRow(c, row, fav, func(m *ui.Menu) { a.folderContextMenu(m, fav) })
 				row.OnClick(func() { a.openFolder(fav) })
 			}
 		})
@@ -1732,12 +1734,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 						ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
 					}
 				})
-				row.ContextMenu(func(m *ui.Menu) {
-					if m.Item("清除历史记录").Chosen() {
-						a.clearHistory()
-					}
-				})
-				a.folderDropTarget(c, row, hist)
+				a.bindFolderRow(c, row, hist, func(m *ui.Menu) { a.historyContextMenu(m, hist) })
 				row.OnClick(func() { a.openFolder(hist) })
 			}
 		})
@@ -1780,7 +1777,7 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 		ui.Icon(c, dirIcon).FontSize(14)
 		ui.Text(c, pathName(path)).FontSize(12).SingleLine()
 	})
-	a.folderDropTarget(c, row, path)
+	a.bindFolderRow(c, row, path, func(m *ui.Menu) { a.folderContextMenu(m, path) })
 	row.OnClick(func() { a.openFolder(path) })
 }
 

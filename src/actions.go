@@ -29,6 +29,12 @@ type opState struct {
 }
 
 func (a *appState) selectedPaths() []string {
+	// menuPath is the sidebar row whose menu is open. It is set only while
+	// that menu is built, so a command from the menu acts on the row even
+	// when the folder is not in the current listing.
+	if a.menuPath != "" {
+		return []string{a.menuPath}
+	}
 	if a.InLargeView {
 		if item := a.currentItem(); item != nil {
 			return []string{item.Path}
@@ -304,7 +310,11 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	videos := !none && allVideos(paths)
 
 	if canOpen && m.Item("打开").Disabled(none).Chosen() {
-		a.openItem(a.Chosen)
+		if a.menuPath != "" && isDir(a.menuPath) {
+			a.openFolder(a.menuPath)
+		} else {
+			a.openItem(a.Chosen)
+		}
 	}
 	if one && isDir(paths[0]) && m.Item("在新标签页中打开").Chosen() {
 		a.openInNewTab(paths[0])
@@ -323,7 +333,11 @@ func (a *appState) fileMenu(m *ui.Menu, canOpen bool) {
 	if m.Item("复制").Disabled(none).Chosen() {
 		a.doCopy()
 	}
-	if m.Item("粘贴").Disabled(a.Root == "").Chosen() {
+	pasteDest := a.Root
+	if a.menuPath != "" && isDir(a.menuPath) {
+		pasteDest = a.menuPath
+	}
+	if m.Item("粘贴").Disabled(pasteDest == "").Chosen() {
 		a.doPaste(false)
 	}
 	if len(paths) > 1 {
@@ -808,7 +822,11 @@ func readClipboardFiles() []string {
 }
 
 func (a *appState) doPaste(forceMove bool) {
-	if a.Root == "" {
+	dest := a.Root
+	if a.menuPath != "" && isDir(a.menuPath) {
+		dest = a.menuPath
+	}
+	if dest == "" {
 		return
 	}
 	paths, cut := a.filesForPaste(forceMove)
@@ -816,7 +834,7 @@ func (a *appState) doPaste(forceMove bool) {
 		a.toast("剪贴板里没有文件")
 		return
 	}
-	op := fileOperation{op: opCopy, paths: paths, dest: a.Root}
+	op := fileOperation{op: opCopy, paths: paths, dest: dest}
 	if cut {
 		op.op = opMove
 		op.cut = true
@@ -1108,6 +1126,31 @@ func (a *appState) dragPaths(path string) []string {
 		return nil
 	}
 	return []string{path}
+}
+
+// folderContextMenu is the file-operation menu of a sidebar folder.
+// menuPath makes the shared file commands act on path.
+func (a *appState) folderContextMenu(m *ui.Menu, path string) {
+	a.menuPath = path
+	defer func() { a.menuPath = "" }()
+	a.fileMenu(m, true)
+}
+
+func (a *appState) historyContextMenu(m *ui.Menu, path string) {
+	a.folderContextMenu(m, path)
+	m.Separator()
+	if m.Item("清除历史记录").Chosen() {
+		a.clearHistory()
+	}
+}
+
+// bindFolderRow makes a sidebar folder a drag source, a drop target, and
+// a file-operation menu. Drag moves or copies the folder; a drop on it
+// files the dragged items there.
+func (a *appState) bindFolderRow(c *ui.Context, row ui.Element, path string, menu func(*ui.Menu)) {
+	a.fileDragSource(row, path)
+	a.folderDropTarget(c, row, path)
+	row.ContextMenu(menu)
 }
 
 func (a *appState) fileDragSource(card ui.Element, path string) {
