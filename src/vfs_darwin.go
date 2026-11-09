@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"syscall"
 	"time"
 )
+
+// quickLookBin is the QuickLook command-line tool; tests point it at a stub.
+var quickLookBin = "/usr/bin/qlmanage"
 
 func execCommand(name string, args ...string) *exec.Cmd {
 	return exec.Command(name, args...)
@@ -102,16 +106,22 @@ func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 }
 
 // platformVideoThumb asks QuickLook (qlmanage ships with macOS) for the
-// cover of the formats AVFoundation reads.
+// cover of the formats AVFoundation reads. qlmanage runs under
+// quickLookTimeout in its own process group (runThumbTool), so a file
+// QuickLook stalls on cannot leave a qlmanage process behind.
 func platformVideoThumb(path string, edge int) ([]byte, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("qlmanage: %w", err)
+	}
 	dir, err := os.MkdirTemp("", "lumiwerk-ql-*")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	cmd := exec.Command("/usr/bin/qlmanage", "-t", "-s", strconv.Itoa(edge), "-o", dir, path)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("qlmanage: %v %s", err, strings.TrimSpace(string(out)))
+	out, err := runThumbTool(context.Background(), quickLookTimeout,
+		quickLookBin, "-t", "-s", strconv.Itoa(edge), "-o", dir, path)
+	if err != nil {
+		return nil, fmt.Errorf("qlmanage: %w %s", err, strings.TrimSpace(string(out)))
 	}
 	data, err := os.ReadFile(filepath.Join(dir, filepath.Base(path)+".png"))
 	if err != nil {

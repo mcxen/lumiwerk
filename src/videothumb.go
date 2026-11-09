@@ -24,6 +24,12 @@ func videoThumb(path string, edge int) ([]byte, error) {
 	if edge < 64 {
 		edge = 64
 	}
+	// A path that is gone (deleted since the listing, an unmounted volume,
+	// a fixture path in a test) has no cover; do not hand it to ffmpeg,
+	// QuickLook or libmpv, which only fail slowly or, for qlmanage, hang.
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("video thumbnail: %w", err)
+	}
 	var errs []error
 	if data, err := embeddedCover(path); err == nil {
 		return data, nil
