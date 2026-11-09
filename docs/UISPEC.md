@@ -45,7 +45,7 @@
 
 ## 4. 缩略图加载
 
-- 内存 LRU(`thumbLRU`,字节预算 128 MiB)与磁盘缓存(`diskcache.go`)按**尺寸档**取图:
+- 内存 LRU(`thumbLRU`,字节预算 128 MiB,键含文件的 mtime 与大小:同名文件被改写后不会命中旧图)与磁盘缓存(`diskcache.go`)按**尺寸档**取图:
   `thumbBand` 把解码边长归到 256 / 384 / 512 / 768 / 1024,避免滑块微调就重建全部缩略图。
 - **命中内存缓存的缩略图必须在卡片构建的同一帧上屏**:`mediaCard` 调用 `adoptCachedThumb`,
   `loadThumb` 开头也先同步查缓存。不要让缓存命中再绕 goroutine 和 `Window.Update`,

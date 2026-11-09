@@ -103,7 +103,7 @@ func (a *appState) sweepThumbsAt(now time.Time) int {
 		if seen == 0 || seen > cut || item.Path == a.Hero.path {
 			continue
 		}
-		key := thumbCacheKey(item.Path, item.ThumbEdge)
+		key := itemThumbKey(item, item.ThumbEdge)
 		if item.IsDir {
 			key = item.CoverKey
 		}
@@ -170,7 +170,7 @@ func (a *appState) adoptCachedThumb(item *mediaItem) {
 	if item.Decoded || item.Failed || item.Loading {
 		return
 	}
-	bitmap := thumbLRU.Get(thumbCacheKey(item.Path, edge))
+	bitmap := thumbLRU.Get(itemThumbKey(item, edge))
 	if bitmap == nil {
 		return
 	}

@@ -53,7 +53,7 @@ func TestSweepReleasesOffscreenUncachedThumbs(t *testing.T) {
 	a.Items[1].Seen = now.UnixNano() // on screen: kept
 	a.Items[2].Seen = 0              // never drawn by a view: kept
 	a.Items[3].Seen = old            // off screen but cached: kept
-	key := thumbCacheKey(a.Items[3].Path, 384)
+	key := itemThumbKey(&a.Items[3], 384)
 	thumbLRU.Put(key, bm, 384)
 	defer thumbLRU.Delete(key)
 	if got := a.sweepThumbsAt(now); got != 1 {

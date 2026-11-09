@@ -46,7 +46,7 @@ func TestScrolledCardsShowCachedThumbInSameFrame(t *testing.T) {
 			edge := thumbBand(thumbEdge(a.Thumb))
 			for i := range a.Items {
 				a.Items[i].Decoded = false
-				key := thumbCacheKey(a.Items[i].Path, edge)
+				key := itemThumbKey(&a.Items[i], edge)
 				thumbLRU.Put(key, bm, edge)
 				defer thumbLRU.Delete(key)
 			}

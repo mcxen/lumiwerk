@@ -277,6 +277,7 @@ func streamVideoCopy(ctx context.Context, src, dest string, report func(float32)
 		return stageVideoSaveError("target", err)
 	}
 	committed = true
+	forgetThumb(dest) // the name now holds a different file
 	if report != nil {
 		report(1)
 	}

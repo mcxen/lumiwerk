@@ -1393,10 +1393,9 @@ func rotateImageFile(path string, degrees int) error {
 	return nil
 }
 
+// forgetThumb drops every cached size band and version of path's thumbnail.
 func forgetThumb(path string) {
-	for _, edge := range []int{384, 512, 768, 1024} {
-		thumbLRU.Delete(thumbCacheKey(path, edge))
-	}
+	thumbLRU.DeletePrefix(thumbCachePrefix(path))
 }
 
 func (a *appState) rotateSelection(degrees int) {

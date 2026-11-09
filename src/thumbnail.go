@@ -36,8 +36,20 @@ func thumbBand(edge int) int {
 	}
 }
 
-func thumbCacheKey(path string, edge int) string {
-	return fmt.Sprintf("%s#thumb#%d", path, thumbBand(edge))
+// thumbCachePrefix starts every in-memory thumbnail key of one file.
+func thumbCachePrefix(path string) string { return path + "#thumb#" }
+
+// thumbCacheKey names one decoded thumbnail in memory. It carries the
+// file's size and modification time, as the disk cache's key does, so a file
+// rewritten under the same name misses the old entry and is decoded again.
+// Callers pass the values the item already holds; nothing here touches disk.
+func thumbCacheKey(path string, edge int, mtime, size int64) string {
+	return fmt.Sprintf("%s%d#%d#%d", thumbCachePrefix(path), thumbBand(edge), mtime, size)
+}
+
+// itemThumbKey is thumbCacheKey for a listed item.
+func itemThumbKey(item *mediaItem, edge int) string {
+	return thumbCacheKey(item.Path, edge, item.ModTime, item.Size)
 }
 
 // folderCoverKey identifies one stacked folder cover in the shared

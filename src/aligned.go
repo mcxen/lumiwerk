@@ -1241,7 +1241,7 @@ func (a *appState) loadThumb(root string, index int) {
 	// A thumbnail already in memory needs no worker: prefetch would
 	// otherwise mark the item Loading and hand it over a frame late, after
 	// the card's name was drawn.
-	if bitmap := thumbLRU.Get(thumbCacheKey(item.Path, edge)); bitmap != nil {
+	if bitmap := thumbLRU.Get(itemThumbKey(item, edge)); bitmap != nil {
 		item.LoadGen++
 		item.Bitmap = bitmap
 		item.Decoded = true
@@ -1254,6 +1254,7 @@ func (a *appState) loadThumb(root string, index int) {
 	item.Loading = true
 	path := item.Path
 	video := item.IsVideo
+	key := itemThumbKey(item, edge)
 	a.mu.Unlock()
 
 	safeGo("loadThumb", func() {
@@ -1261,7 +1262,6 @@ func (a *appState) loadThumb(root string, index int) {
 			a.clearThumbClaim(index, path, gen)
 			return
 		}
-		key := thumbCacheKey(path, edge)
 		if bitmap := thumbLRU.Get(key); bitmap != nil {
 			a.update(func() {
 				a.mu.Lock()
@@ -3050,5 +3050,6 @@ func carryItemState(old, fresh []mediaItem) {
 		f := &fresh[i]
 		f.Bitmap, f.Decoded, f.Failed, f.ThumbEdge = o.Bitmap, o.Decoded, o.Failed, o.ThumbEdge
 		f.Info, f.InfoLoaded, f.Tags = o.Info, o.InfoLoaded, o.Tags
+		f.CoverKey = o.CoverKey
 	}
 }

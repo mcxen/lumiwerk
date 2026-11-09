@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/list"
+	"strings"
 	"sync"
 	"time"
 	"weak"
@@ -143,6 +144,25 @@ func (c *thumbCache) Delete(key string) {
 		c.size -= t.bytes
 	}
 	delete(c.gone, key)
+}
+
+// DeletePrefix forgets every key that starts with prefix, such as all the
+// size bands and versions of one file's thumbnail.
+func (c *thumbCache) DeletePrefix(prefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, t := range c.art {
+		if strings.HasPrefix(key, prefix) {
+			c.ll.Remove(t.el)
+			delete(c.art, key)
+			c.size -= t.bytes
+		}
+	}
+	for key := range c.gone {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.gone, key)
+		}
+	}
 }
 
 // SetLimit resizes the budget and evicts to it.
