@@ -60,6 +60,7 @@ type prefsFile struct {
 	ZipPassword       string                `json:"zipPassword,omitempty"`
 	ZipPasswords      []string              `json:"zipPasswords,omitempty"`
 	ZipUsePassword    bool                  `json:"zipUsePassword,omitempty"`
+	Webtoon           bool                  `json:"webtoon,omitempty"`
 	Favorites         []string              `json:"favorites,omitempty"`
 	View              viewPreferences       `json:"view"`
 	ViewSet           bool                  `json:"viewSet"`

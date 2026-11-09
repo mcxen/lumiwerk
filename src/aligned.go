@@ -171,14 +171,20 @@ type appState struct {
 	thumbSizeOpen bool
 	thumbDue      time.Time
 	browseScroll  ui.ScrollState
-	browseBox     browseBox
-	marquee       marqueeState
-	marqueeBox    ui.Rect
-	cardRects     cardRects
-	laidScrollY   float32
-	browseAnchor  browseAnchor
-	columnX       float32
-	columnY       float32
+
+	// Vertical continuous reading and archive stepping; see webtoon.go.
+	webtoonScroll   ui.ScrollState
+	webtoonJumpTo   int
+	webtoonJumping  bool
+	pendingLargeEnd int
+	browseBox       browseBox
+	marquee         marqueeState
+	marqueeBox      ui.Rect
+	cardRects       cardRects
+	laidScrollY     float32
+	browseAnchor    browseAnchor
+	columnX         float32
+	columnY         float32
 
 	InLargeView bool
 	// largeSidebarFold is the sidebar Split's size while the large view
@@ -602,21 +608,30 @@ func (a *appState) scanFolder(root string, seq int) {
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })
 	a.update(func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if a.Root != root || a.scanSeq != seq {
-			return
+		pending := func() int {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.Root != root || a.scanSeq != seq {
+				return 0
+			}
+			a.noteSelectionAnchorLocked()
+			carryItemState(a.Items, files)
+			a.Items = files
+			a.applyFilterLocked()
+			a.restorePendingSelection()
+			if a.InLargeView && (a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible)) {
+				a.closeLargeImage()
+			}
+			safeGo("loadTags", a.loadTags)
+			safeGo("probeAspects", a.probeVisibleAspects)
+			end := a.pendingLargeEnd
+			a.pendingLargeEnd = 0
+			return end
+		}()
+		// Opening a picture takes the lock itself, so it waits for the unlock.
+		if pending != 0 {
+			a.openLargeAtEnd(pending)
 		}
-		a.noteSelectionAnchorLocked()
-		carryItemState(a.Items, files)
-		a.Items = files
-		a.applyFilterLocked()
-		a.restorePendingSelection()
-		if a.InLargeView && (a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible)) {
-			a.closeLargeImage()
-		}
-		safeGo("loadTags", a.loadTags)
-		safeGo("probeAspects", a.probeVisibleAspects)
 	})
 }
 
@@ -1471,6 +1486,9 @@ func (a *appState) rootView(c *ui.Context) {
 			a.nextImage()
 		}
 	}
+	if a.InLargeView && !a.Editor.Open && !a.modalOpen() && !a.videoLargeView() && c.Shortcut(0, ui.KeyW) {
+		a.toggleWebtoon()
+	}
 	a.videoPlayerKeys(c)
 	if a.keyHit(c, "maximize") && !a.InLargeView {
 		a.Window.ToggleMaximize()
@@ -2184,6 +2202,14 @@ func (a *appState) largeImageView(c *ui.Context) {
 	box := ui.Box(c).Fill().Background(bg)
 	a.tickLongPress(c, item)
 	box.Children(func() {
+		if a.webtoon() && !item.IsVideo {
+			a.webtoonView(c)
+			a.zoomHUD(c)
+			if !a.galleryActive() {
+				a.largeControls(c, item)
+			}
+			return
+		}
 		// The gesture surface sits behind the controls so buttons still receive clicks.
 		stage := ui.Box(c).Fill().Justify(ui.Center).AlignItems(ui.Center).Clip()
 		if bounds := stage.LayoutBounds(); bounds.W > 1 && bounds.H > 1 {
@@ -2486,30 +2512,11 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 			if barIconButton(c, "image-next", "下一张", "下一张（→）", lucideChevronRight).Clicked() {
 				a.nextImage()
 			}
-			barSeparator(c)
-			barText(c, fmt.Sprintf("%d%%", a.zoomPercent(item)), true)
-			barSeparator(c)
-			if barIconButton(c, "zoom-out", "缩小", "缩小", lucideMinus).Clicked() {
-				a.zoomStep(1 / 1.25)
+			if barToggleButton(c, "webtoon", "纵向连续", "纵向连续阅读（W）", lucideArrowUpDown, a.webtoon()).Clicked() {
+				a.toggleWebtoon()
 			}
-			if barIconButton(c, "zoom-in", "放大", "放大", lucidePlus).Clicked() {
-				a.zoomStep(1.25)
-			}
-			if barChip(c, "fit", "适应", "适应窗口", "适应").Clicked() {
-				a.resetZoom()
-			}
-			if barChip(c, "zoom-100", "1:1", "实际大小", "1:1").Clicked() {
-				a.zoom100()
-			}
-			barSeparator(c)
-			if barIconButton(c, "rotate", "顺时针旋转", "顺时针旋转", lucideRotateCW).Clicked() {
-				a.Rotation += 90
-			}
-			if barIconButton(c, "rotate-ccw", "逆时针旋转", "逆时针旋转", lucideRotateCCW).Clicked() {
-				a.Rotation -= 90
-			}
-			if barToggleButton(c, "mirror", "镜像", "镜像", lucideMirror, a.Mirror).Clicked() {
-				a.Mirror = !a.Mirror
+			if !a.webtoon() {
+				a.imageZoomControls(c, item)
 			}
 			barSeparator(c)
 			if barIconButton(c, "image-fullscreen", "全屏", "全屏（F）", lucideExpand).Clicked() {
@@ -2518,6 +2525,36 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 		})
 	})
 	fadeControlBar(bar, "image-fade", a.controlBarShown(c, bar.Hovered(), bar.FocusWithin(), false, false))
+}
+
+// imageZoomControls are the zoom, rotate and mirror buttons of the image bar;
+// the continuous column has no use for them.
+func (a *appState) imageZoomControls(c *ui.Context, item *mediaItem) {
+	barSeparator(c)
+	barText(c, fmt.Sprintf("%d%%", a.zoomPercent(item)), true)
+	barSeparator(c)
+	if barIconButton(c, "zoom-out", "缩小", "缩小", lucideMinus).Clicked() {
+		a.zoomStep(1 / 1.25)
+	}
+	if barIconButton(c, "zoom-in", "放大", "放大", lucidePlus).Clicked() {
+		a.zoomStep(1.25)
+	}
+	if barChip(c, "fit", "适应", "适应窗口", "适应").Clicked() {
+		a.resetZoom()
+	}
+	if barChip(c, "zoom-100", "1:1", "实际大小", "1:1").Clicked() {
+		a.zoom100()
+	}
+	barSeparator(c)
+	if barIconButton(c, "rotate", "顺时针旋转", "顺时针旋转", lucideRotateCW).Clicked() {
+		a.Rotation += 90
+	}
+	if barIconButton(c, "rotate-ccw", "逆时针旋转", "逆时针旋转", lucideRotateCCW).Clicked() {
+		a.Rotation -= 90
+	}
+	if barToggleButton(c, "mirror", "镜像", "镜像", lucideMirror, a.Mirror).Clicked() {
+		a.Mirror = !a.Mirror
+	}
 }
 
 func (a *appState) toggleVideoVolume() {
@@ -2863,6 +2900,9 @@ func (a *appState) openLargeImage(index int) {
 	// current picture shows, so stepping through a folder feels instant.
 	a.ensureNeighborLarge(index - 1)
 	a.ensureNeighborLarge(index + 1)
+	if a.webtoon() && !item.IsVideo {
+		a.webtoonJump(index)
+	}
 }
 
 // ensureNeighborLarge prefetches one adjacent picture's large bitmap
@@ -2948,6 +2988,8 @@ func (a *appState) closeLargeImage() {
 	}
 }
 
+// nextImage steps to the next picture; past the last one of an archive it
+// carries on into the next archive in the folder.
 func (a *appState) nextImage() {
 	for i := a.LargeIndex + 1; i < len(a.Visible); i++ {
 		if !a.Items[a.Visible[i]].IsDir {
@@ -2955,6 +2997,7 @@ func (a *appState) nextImage() {
 			return
 		}
 	}
+	a.stepArchive(1)
 }
 
 func (a *appState) prevImage() {
@@ -2964,6 +3007,7 @@ func (a *appState) prevImage() {
 			return
 		}
 	}
+	a.stepArchive(-1)
 }
 
 func (a *appState) mediaCount() int {

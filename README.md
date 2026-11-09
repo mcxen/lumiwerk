@@ -36,6 +36,8 @@ A fast, native media browser for photos and videos. Built with Go and [MyGo](htt
 
 **Archives**
 - Open ZIP, CBZ, RAR, CBR, 7Z, TAR and more as folders, with thumbnails and the large view, no extracting first. Members are read-only; extract to change them.
+- Reading order carries on: past the last page of an archive the arrow opens the next archive, and back from the first page lands on the previous one.
+- Continuous vertical reading (W): all pages as one column fitted to the width, for webtoons and long scans.
 - Keep a password book and Lumiwerk tries each saved password when browsing or extracting.
 
 **Everyday polish**
