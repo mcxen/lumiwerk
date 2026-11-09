@@ -302,7 +302,11 @@ func extractOne(archive, password string) (string, error) {
 	}
 	if err := runTool("/usr/bin/bsdtar", args, ""); err != nil {
 		_ = os.RemoveAll(dest)
-		if archivePasswordError(err.Error()) {
+		// A wrong password does not always say so: depending on the bsdtar
+		// build it surfaces as a bare read or CRC error. An encrypted zip
+		// that fails while we hold a password means that password is wrong.
+		if archivePasswordError(err.Error()) ||
+			(password != "" && isZipName(filepath.Base(archive)) && zipEncrypted(archive)) {
 			return "", errNeedZipPassword
 		}
 		return "", err
