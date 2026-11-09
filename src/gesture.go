@@ -123,6 +123,26 @@ func (a *appState) applyThumbSettle(now time.Time) bool {
 	return true
 }
 
+// browseInput is the main column's input handler. The right button is left
+// out of it: a handler that takes the press of a button has the press to
+// itself, and the context menus (cards, empty space) open on that very press
+// on macOS, so a handler that took the right press left every browse menu
+// dead. The right-drag gesture watches the button through observeGesture,
+// which sees the press and the release without taking them.
+func (a *appState) browseInput(ev ui.InputEvent) bool {
+	if ev.Button == 1 && (ev.Kind == ui.InputPointerDown || ev.Kind == ui.InputPointerUp || ev.Kind == ui.InputPointerMove) {
+		return false
+	}
+	return a.handleGesture(ev)
+}
+
+// observeGesture feeds the right button's press and release to the gesture.
+func (a *appState) observeGesture(ev ui.InputEvent) {
+	if ev.Button == 1 && (ev.Kind == ui.InputPointerDown || ev.Kind == ui.InputPointerUp) {
+		a.handleGesture(ev)
+	}
+}
+
 func (a *appState) handleGesture(ev ui.InputEvent) bool {
 	if !a.InLargeView && ev.Kind == ui.InputZoom && ev.Scale > 0 && ev.Scale != 1 {
 		a.zoomBrowse(ev.Scale, a.columnX+ev.X, a.columnY+ev.Y, true)
@@ -149,6 +169,9 @@ func (a *appState) handleGesture(ev ui.InputEvent) bool {
 	}
 	if ev.Kind == ui.InputKeyDown && ev.Key == ui.KeyEscape && a.Gesture.active {
 		a.Gesture = gestureState{}
+		return true
+	}
+	if a.marqueeInput(ev) {
 		return true
 	}
 	if ev.Button != 1 {

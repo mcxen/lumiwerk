@@ -172,6 +172,10 @@ type appState struct {
 	thumbDue      time.Time
 	browseScroll  ui.ScrollState
 	browseBox     browseBox
+	marquee       marqueeState
+	marqueeBox    ui.Rect
+	cardRects     cardRects
+	laidScrollY   float32
 	browseAnchor  browseAnchor
 	columnX       float32
 	columnY       float32
@@ -1669,13 +1673,7 @@ func (a *appState) rootView(c *ui.Context) {
 		a.doPaste(true)
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyA) && !a.InLargeView && !a.Renaming && !a.NewFolder && !a.modalOpen() {
-		a.Selected.Clear()
-		for _, index := range a.Visible {
-			a.Selected.Add(a.Items[index].Path)
-		}
-		if a.Chosen < 0 && len(a.Visible) > 0 {
-			a.Chosen = 0
-		}
+		a.selectAllVisible()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyR) {
 		a.refresh()
@@ -1847,8 +1845,9 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 
 func (a *appState) mainView(c *ui.Context) {
 	t := c.Theme()
+	a.marqueeAutoScroll(c)
 	col := ui.Column(c).Fill().Background(t.Background)
-	col.HandleInput(a.handleGesture)
+	col.HandleInput(a.browseInput).ObserveInput(a.observeGesture)
 	if bounds := col.LayoutBounds(); bounds.W > 1 {
 		a.columnX, a.columnY = bounds.X, bounds.Y
 	}
@@ -1883,6 +1882,9 @@ func (a *appState) mainView(c *ui.Context) {
 			a.justifiedView(c)
 		} else {
 			a.gridView(c)
+		}
+		if !a.InLargeView && !a.galleryActive() {
+			a.marqueeFrame(c)
 		}
 		if !a.galleryActive() {
 			a.statusBar(c)
@@ -2110,7 +2112,7 @@ func (a *appState) gridView(c *ui.Context) {
 	grid := ui.GridView(c, state.Grid, len(a.Visible), float32(cell), float32(cell)+flowLabel, func(i int) {
 		a.mediaCard(c, root, i, mediaCardOptions{fit: ui.Contain, tagDots: true, inlineRename: true, tooltip: true})
 	})
-	grid.Grow(1).TrackScroll(&a.browseScroll)
+	grid.Grow(1).TrackScroll(&a.browseScroll).ContextMenu(a.fileContextMenu)
 	if bounds := grid.LayoutBounds(); bounds.W > 1 {
 		contentW := gridRowWidth(&a.Grid)
 		if contentW <= 0 {
@@ -2118,6 +2120,7 @@ func (a *appState) gridView(c *ui.Context) {
 		}
 		cols := gridColumnCount(contentW, float32(cell), gap)
 		a.noteBrowseBox(bounds, cols, gridStride(a.Thumb, gap), gap, contentW, len(a.Visible))
+		a.noteMarqueeBox(bounds)
 	}
 	first, last := a.visibleIndexRange()
 	a.prefetchAround(root, first, last, len(a.Visible), thumbPrefetchExtra)

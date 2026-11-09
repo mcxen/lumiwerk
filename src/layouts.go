@@ -320,13 +320,14 @@ const flowOverscan = 0.5
 
 func (a *appState) waterfallView(c *ui.Context) {
 	root := a.Root
-	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
+	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll).ContextMenu(a.fileContextMenu)
 	width := float32(1280)
 	height := float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
 		width = bounds.W
 		height = bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
+		a.noteMarqueeBox(bounds)
 	}
 	boxes := a.cachedWaterfall(width)
 	contentH := float32(0)
@@ -375,11 +376,12 @@ func (a *appState) waterfallView(c *ui.Context) {
 // justifiedView packs items into rows, each row stretched to fill the width.
 func (a *appState) justifiedView(c *ui.Context) {
 	root := a.Root
-	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll)
+	scroll := ui.Scroll(c).Fill().TrackScroll(&a.browseScroll).ContextMenu(a.fileContextMenu)
 	width, height := float32(1280), float32(800)
 	if bounds := scroll.LayoutBounds(); bounds.W > 1 {
 		width, height = bounds.W, bounds.H
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
+		a.noteMarqueeBox(bounds)
 	}
 	const gap = float64(flowGap)
 	rows := a.cachedJustified(width)
@@ -494,7 +496,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
-	picked := a.Chosen == i || a.Selected.Has(item.Path)
+	picked := a.Chosen == i || a.Selected.Has(item.Path) || a.impliedPicked(item.Path)
 	var name ui.Element
 	wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 	card.Children(func() {
@@ -529,6 +531,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	}
 	a.fileDragSource(card, item.Path)
 	a.cardPointer(card, i)
+	a.noteCardRect(i, card)
 	if opts.inlineRename && wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {
 		a.armSlowRename(c, i, wasChosen)
 	}

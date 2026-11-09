@@ -73,6 +73,35 @@ and similar), put the key on the context **before** construction:
 `ui.TextArea(c.Key("report"), &text)`. Calling `.Key` after construction
 panics once MyGo has initialized the widget's state.
 
+## Marquee Selection and Context Menus
+
+`src/marquee.go` is the rubber-band selection. The main column's input handler
+(`browseInput` → `handleGesture` → `marqueeInput`) takes a left press only on
+blank space of the browse area; a press on a card falls through to the card's
+click, file drag and Finder-style chrome. Cards report their layout bounds each
+frame (`noteCardRect`, content coordinates, kept while the layout key is
+unchanged), which is how the band finds what it touches in the grid, the
+waterfall, the justified rows and the list (list rects live one frame: its
+table scrolls on its own state). The band is the `marquee-band` overlay, and
+`marqueeAutoScroll` runs before the layout builds, because a scroll offset
+written after the container was built is lost. The Tester's pointer events
+carry no modifier keys: feed `a.marqueeInput` events with `Mods` (see
+`dragBand` in `marquee_test.go`).
+
+The right button is not taken by `browseInput`. A handler that takes a press
+owns it, and context menus open on that press on macOS, so taking it left
+every browse menu dead. The right-drag gesture reads the press and release
+through `ObserveInput` instead (`observeGesture`).
+
+`src/menus.go` is the only place menu items are written. `menuEntries` lists
+every entry once with its surface, submenu, `Show`/`Off` predicates over a
+`menuScope` (counts of folders, pictures, videos, archives among the targets).
+`modelFor` filters it and tidies separators; `drawMenu` draws it. Add a command
+there, not in a menu function. Targets come from `operationPaths`, which
+collapses a folder and the files a recursive listing expanded from it into one
+target (`collapseNested`); compress takes files of several folders (stored by
+their path below the common parent).
+
 ## Settings Composition
 
 The settings window is a slim nav plus pages made of `setGroup` cards (see

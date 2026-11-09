@@ -30,8 +30,21 @@ func TestArchiveNamesAndZipArgs(t *testing.T) {
 	if filepath.Base(dest) != "Archive_20261031_010203.zip" {
 		t.Fatalf("multi dest = %s", dest)
 	}
-	if _, err := zipDestination([]string{photo, other}, when); err == nil {
-		t.Fatal("expected same-folder rejection")
+	// Items from different folders (a recursive listing) zip from the folder
+	// above them, each stored under its path below it.
+	mixed, err := zipDestination([]string{photo, other}, when)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(mixed) != filepath.Dir(dir) {
+		t.Fatalf("mixed dest = %s, want a file in %s", mixed, filepath.Dir(dir))
+	}
+	mcwd, margs, err := zipArgs([]string{photo, other}, mixed, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mcwd != filepath.Dir(dir) || margs[len(margs)-2] != filepath.Join(filepath.Base(dir), "photo.jpg") || margs[len(margs)-1] != "other.jpg" {
+		t.Fatalf("mixed zip cwd %s args %v", mcwd, margs)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "photo.zip"), []byte("x"), 0o644); err != nil {

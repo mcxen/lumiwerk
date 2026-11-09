@@ -98,18 +98,37 @@ func configuredZipPassword(p prefsFile) (string, bool) {
 	return pass, true
 }
 
+// commonParent is the deepest folder that holds every path: the folder
+// itself when they share one, an ancestor when a recursive listing mixed
+// files from several subfolders.
+func commonParent(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	parent := filepath.Dir(paths[0])
+	for _, path := range paths[1:] {
+		for parent != filepath.Dir(parent) && !pathWithin(parent, path) {
+			parent = filepath.Dir(parent)
+		}
+	}
+	return parent
+}
+
+// pathWithin reports that path lies inside dir.
+func pathWithin(dir, path string) bool {
+	rel, err := filepath.Rel(pathKey(dir), pathKey(path))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // zipDestination matches FlowVision: one item becomes basename.zip, several
 // become Archive_yyyyMMdd_HHmmss.zip, and an existing name becomes name_2.
+// It lands in the items' folder, or in the folder above them all when they
+// come from several.
 func zipDestination(paths []string, now time.Time) (string, error) {
 	if len(paths) == 0 {
 		return "", errors.New("没有要压缩的项目")
 	}
-	parent := filepath.Dir(paths[0])
-	for _, path := range paths[1:] {
-		if pathKey(filepath.Dir(path)) != pathKey(parent) {
-			return "", errors.New("请在同一目录下选择要压缩的项目。")
-		}
-	}
+	parent := commonParent(paths)
 	var name string
 	if len(paths) == 1 {
 		base := strings.TrimSuffix(filepath.Base(paths[0]), filepath.Ext(paths[0]))
@@ -126,21 +145,24 @@ func extractDestination(archive string) string {
 }
 
 // zipArgs is FlowVision's /usr/bin/zip -r -y, with -P only for an encrypted zip.
+// Items are stored by their path below the common folder, so files from
+// several subfolders keep their folders in the archive.
 func zipArgs(paths []string, dest, password string) (string, []string, error) {
 	if len(paths) == 0 {
 		return "", nil, errors.New("没有要压缩的项目")
 	}
-	cwd := filepath.Dir(paths[0])
+	cwd := commonParent(paths)
 	args := []string{"-r", "-y"}
 	if password != "" {
 		args = append(args, "-P", password)
 	}
 	args = append(args, dest)
 	for _, path := range paths {
-		if pathKey(filepath.Dir(path)) != pathKey(cwd) {
-			return "", nil, errors.New("请在同一目录下选择要压缩的项目。")
+		rel, err := filepath.Rel(cwd, path)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			return "", nil, errors.New("压缩项目不在同一目录树内。")
 		}
-		args = append(args, filepath.Base(path))
+		args = append(args, rel)
 	}
 	return cwd, args, nil
 }

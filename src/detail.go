@@ -87,7 +87,7 @@ func (a *appState) detailView(c *ui.Context) {
 			if detailColumns[col].Align == ui.End {
 				cell.Justify(ui.End)
 			}
-			if a.Chosen == i || a.Selected.Has(item.Path) {
+			if a.Chosen == i || a.Selected.Has(item.Path) || a.impliedPicked(item.Path) {
 				cell.Background(base.SurfacePressed)
 			}
 			var name ui.Element
@@ -114,6 +114,7 @@ func (a *appState) detailView(c *ui.Context) {
 				}
 			})
 			a.cardPointer(cell, i)
+			a.noteCardRect(i, cell)
 			if wasChosen && name != (ui.Element{}) && pointerOver(cell, name) && cell.Clicked() && !cell.DoubleClicked() {
 				a.armSlowRename(c, i, wasChosen)
 			}
@@ -125,7 +126,8 @@ func (a *appState) detailView(c *ui.Context) {
 				cell.Opacity(0.4)
 			}
 		})
-		table.Grow(1).TrackScroll(&a.browseScroll)
+		table.Grow(1).TrackScroll(&a.browseScroll).ContextMenu(a.fileContextMenu)
+		a.noteMarqueeBox(table.LayoutBounds())
 	})
 	if a.tableSort != before {
 		if sort := sortForTable(a.tableSort); sort != "" && sort != a.Sort {
