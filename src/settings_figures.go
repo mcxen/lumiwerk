@@ -266,3 +266,30 @@ func figureZipBook(c *ui.Context, pal *settingsPalette, saved int) {
 		}
 	})
 }
+
+// figureViewerBar shows when the floating control bar of the viewer is up.
+func figureViewerBar(c *ui.Context, pal *settingsPalette, mode string) {
+	var caption string
+	var capsuleAlpha float32 = 1
+	switch mode {
+	case barHover:
+		caption, capsuleAlpha = "平时隐藏，鼠标移到窗口底部才出现，移开后很快收起。", 0.35
+	case barAlways:
+		caption = "一直显示，不会自动收起。"
+	default:
+		caption = "鼠标一动就出现，静止约 2 秒后淡出；视频暂停时保持显示。"
+	}
+	setFigure(c, pal, caption, func() {
+		ui.Box(c).Width(150).Height(72).Radius(8).Clip().
+			Gradient(figPhotos[0][0], figPhotos[0][1], 150).Children(func() {
+			row := ui.Row(c).Absolute().Left(0).Right(0).Bottom(6).Justify(ui.Center).PassThrough()
+			row.Children(func() {
+				ui.Row(c).Height(14).Width(76).Radius(7).Padding(0, 6).Gap(4).AlignItems(ui.Center).
+					Background(ui.RGBA(28, 28, 32, 0.78)).Opacity(capsuleAlpha).Children(func() {
+					ui.Box(c).Width(8).Height(8).Radius(4).Background(ui.RGBA(255, 255, 255, 0.85))
+					ui.Box(c).Grow(1).Height(2).Radius(1).Background(ui.RGBA(255, 255, 255, 0.45))
+				})
+			})
+		})
+	})
+}

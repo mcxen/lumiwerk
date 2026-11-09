@@ -122,6 +122,14 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 		}
 	})
+	setGroup(c, "查看器控制栏", func() {
+		a.Profiles.ViewerBar = normalizeBarMode(a.Profiles.ViewerBar)
+		if setChoiceHint(c, "viewer-bar", "底部悬浮栏", "看图和看视频时的控制胶囊", &a.Profiles.ViewerBar,
+			[]string{barAuto, barHover, barAlways}, []string{"自动隐藏", "悬停底部显示", "一直显示"}) {
+			savePrefs(a.Profiles)
+		}
+		figureViewerBar(c, pal, a.Profiles.ViewerBar)
+	})
 	setGroup(c, "视频播放", func() {
 		if setChoice(c, "vidend", "播放结束后", &a.Settings.PlaybackEnd,
 			[]string{playbackEndStop, playbackEndNext, playbackEndLoop}, []string{"停住", "下一个", "循环"}) {

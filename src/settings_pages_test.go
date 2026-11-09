@@ -113,3 +113,23 @@ func TestGeneralPageHasMenuBarGroup(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsViewerBarChoicePersists(t *testing.T) {
+	a := newSettingsTestState(t)
+	a.setPage("browse")
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1100)
+	te.Frame()
+	if a.Profiles.ViewerBar != barAuto {
+		t.Fatalf("default = %q, want auto", a.Profiles.ViewerBar)
+	}
+	if err := te.Click("悬停底部显示"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if got := loadPrefs().ViewerBar; got != barHover {
+		t.Fatalf("saved mode = %q, want hover", got)
+	}
+	if !te.HasText("鼠标移到窗口底部才出现") {
+		t.Fatalf("figure caption missing: %v", te.Texts())
+	}
+}

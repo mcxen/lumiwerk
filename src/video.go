@@ -885,8 +885,7 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 		at = a.resumePlayAt(path)
 	}
 	a.videoEdgeDue = time.Time{}
-	a.playerMoved = time.Now()
-	a.playerPtrSeen = false
+	a.revealControlBar()
 	a.playerEndSeen = false
 	a.playerSkipClick = false
 	volume := a.VideoVolume

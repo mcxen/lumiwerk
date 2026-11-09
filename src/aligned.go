@@ -295,6 +295,8 @@ type appState struct {
 	playerPtrX      float32
 	playerPtrY      float32
 	playerPtrSeen   bool
+	playerInZone    bool   // pointer is in the bottom hot zone of the stage
+	barItemPath     string // item the control bar last revealed for
 	playerTimelineW float32
 	playerMenu      bool
 	playerEndSeen   bool
@@ -2185,10 +2187,15 @@ func (a *appState) largeImageView(c *ui.Context) {
 		}
 		showSharp := a.prepareSharp(c, item)
 		stage.HandleInput(func(ev ui.InputEvent) bool { return a.largeInput(ev, item) })
-		if item.IsVideo {
-			if x, y, over := stage.PointerPosition(); over {
-				a.notePlayerPointer(x, y)
-			}
+		if a.barItemPath != item.Path {
+			// A new picture or clip: show the bar briefly.
+			a.barItemPath = item.Path
+			a.revealControlBar()
+		}
+		if x, y, over := stage.PointerPosition(); over {
+			a.notePlayerPointer(x, y, stage.LayoutBounds().H)
+		} else {
+			a.playerInZone = false
 		}
 		stage.ContextMenu(func(m *ui.Menu) { a.largeContextMenu(m, item) })
 		stage.Children(func() {
@@ -2462,9 +2469,9 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 		a.videoControlsBar(c, item)
 		return
 	}
-	// 与视频控制栏共用 controlBarShell 和 bar* 组件，见 controlbar.go。
-	bar := controlBarShell(c, "image-bar")
-	bar.Children(func() {
+	// 与视频控制栏共用 controlBar 和 bar* 组件，见 controlbar.go。
+	bar := controlBar(c, "image-bar", 0, func() {
+		a.playerMenu = false
 		controlBarRow(c).Children(func() {
 			if barIconButton(c, "image-previous", "上一张", "上一张（←）", lucideChevronLeft).Clicked() {
 				a.prevImage()
@@ -2474,7 +2481,7 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 			}
 			barSeparator(c)
 			barText(c, fmt.Sprintf("%d%%", a.zoomPercent(item)), true)
-			barSpacer(c)
+			barSeparator(c)
 			if barIconButton(c, "zoom-out", "缩小", "缩小", lucideMinus).Clicked() {
 				a.zoomStep(1 / 1.25)
 			}
@@ -2503,6 +2510,7 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 			}
 		})
 	})
+	fadeControlBar(bar, "image-fade", a.controlBarShown(c, bar.Hovered(), bar.FocusWithin(), false, false))
 }
 
 func (a *appState) toggleVideoVolume() {

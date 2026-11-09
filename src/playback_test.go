@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"image"
+	"image/png"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -309,8 +311,22 @@ func TestVideoLargeViewRendersController(t *testing.T) {
 		t.Fatalf("full player controls missing: %q", te.Texts())
 	}
 	progress, ok := te.Find("播放进度")
-	if !ok || progress.Y+progress.H > 800 || progress.W < 1200*0.45 {
-		t.Fatalf("timeline is not a wide bottom control: %+v", progress)
+	if !ok || progress.Y+progress.H > 800 || progress.W < 200 {
+		t.Fatalf("timeline is too short for a seek bar: %+v", progress)
+	}
+	// A floating capsule, not a full-width bar: centered, narrower than the
+	// window, and clear of both sides.
+	first, okFirst := te.Find("暂停")
+	last, okLast := te.Find("更多播放操作")
+	if !okFirst || !okLast {
+		t.Fatal("capsule ends missing")
+	}
+	span := last.X + last.W - first.X
+	if span > barMaxWidth || span > 1200-2*barSideMargin {
+		t.Fatalf("control bar spans %.0fpt, want a capsule of at most %d", span, barMaxWidth)
+	}
+	if centre := (first.X + last.X + last.W) / 2; absf(centre-600) > 12 {
+		t.Fatalf("capsule is not centered: middle at %.0f of 1200", centre)
 	}
 	// One compact row: the play button sits on the timeline's line and
 	// the whole bar (8pt margin + 6pt padding) stays within ~56pt.
@@ -321,17 +337,22 @@ func TestVideoLargeViewRendersController(t *testing.T) {
 	if mid := func(r ui.Rect) float32 { return r.Y + r.H/2 }; absf(mid(play)-mid(progress)) > 2 {
 		t.Fatalf("timeline %+v is not on the transport row %+v", progress, play)
 	}
-	if top := progress.Y - 6; top < 800-60 {
+	if top := progress.Y + progress.H/2 - barHeight/2; top < 800-barBottom-barHeight-2 {
 		t.Fatalf("control bar starts %.0fpt above the bottom, want a single row", 800-top)
 	}
 	if !te.HasText("00:20") || !te.HasText("02:00") {
 		t.Fatalf("clock missing: %q", te.Texts())
 	}
+	if dir := os.Getenv("LW_CARD_SHOTS"); dir != "" {
+		f, _ := os.Create(filepath.Join(dir, "video-capsule.png"))
+		_ = png.Encode(f, te.Image())
+		f.Close()
+	}
 	if te.HasText("另存视频…") {
 		t.Fatal("the save action belongs in the more menu, not on the bar")
 	}
-	if stars, ok := te.Find("评级"); ok && stars.Y+stars.H > progress.Y-6 {
-		t.Fatalf("rating %+v overlaps the control bar starting at %.0f", stars, progress.Y-6)
+	if stars, ok := te.Find("评级"); ok && stars.Y+stars.H > progress.Y+progress.H/2-barHeight/2 {
+		t.Fatalf("rating %+v overlaps the control bar starting at %.0f", stars, progress.Y-barHeight/2)
 	}
 }
 

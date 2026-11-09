@@ -71,8 +71,11 @@ type prefsFile struct {
 	EnterOpens        bool                  `json:"enterOpens,omitempty"`
 	VideoShiftArrow   bool                  `json:"videoShiftArrow"`
 	PlaybackEnd       string                `json:"playbackEnd,omitempty"`
-	Volume            float64               `json:"videoVolume,omitempty"`
-	PreviousVolume    float64               `json:"previousVideoVolume,omitempty"`
+	// ViewerBar is when the floating control bar of the image and video
+	// viewer shows: barAuto, barHover or barAlways (see controlbar.go).
+	ViewerBar      string  `json:"viewerBar,omitempty"`
+	Volume         float64 `json:"videoVolume,omitempty"`
+	PreviousVolume float64 `json:"previousVideoVolume,omitempty"`
 	// RestoreSession holds the inverse of the stored opt-out; an absent
 	// field means restore (the zero false is flipped by RestoreOff below).
 	RestoreSession bool `json:"restoreSession"`
@@ -241,6 +244,7 @@ func normalizePrefs(p *prefsFile) {
 		p.PreviousVolume = 1
 	}
 	p.PlaybackEnd = normalizePlaybackEnd(p.PlaybackEnd)
+	p.ViewerBar = normalizeBarMode(p.ViewerBar)
 	p.ThumbCacheMiB = normalizeThumbCacheMiB(p.ThumbCacheMiB)
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.

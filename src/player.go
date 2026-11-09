@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -14,7 +13,6 @@ const (
 
 	// timelineInset keeps the knob inside the scrub box at both ends.
 	timelineInset = float32(6)
-	playerIdle    = 2 * time.Second
 )
 
 func normalizePlaybackEnd(mode string) string {
@@ -110,40 +108,6 @@ func (a *appState) toggleFullscreen() {
 		return
 	}
 	a.Window.ToggleFullScreen()
-}
-
-// notePlayerPointer starts the idle clock only after the pointer actually
-// moves. A still pointer, including the first sample, does not count.
-func (a *appState) notePlayerPointer(x, y float32) {
-	if !a.playerPtrSeen {
-		a.playerPtrSeen = true
-		a.playerPtrX, a.playerPtrY = x, y
-		return
-	}
-	if abs32(x-a.playerPtrX) <= 0.5 && abs32(y-a.playerPtrY) <= 0.5 {
-		return
-	}
-	a.playerPtrX, a.playerPtrY = x, y
-	a.playerMoved = time.Now()
-}
-
-// playerBarShown keeps the chrome up while the pointer is on it, a menu is
-// open, or a scrub is in progress. playerMoved zero means the bar stays
-// visible and does not schedule a wake, which is how tests render it.
-func (a *appState) playerBarShown(c *ui.Context, hover, focus, scrubbing bool) bool {
-	if a.playerMoved.IsZero() {
-		return true
-	}
-	if hover || focus || a.playerMenu || scrubbing {
-		a.playerMoved = c.Now()
-		return true
-	}
-	remain := playerIdle - c.Now().Sub(a.playerMoved)
-	if remain > 0 {
-		c.After(remain)
-		return true
-	}
-	return false
 }
 
 func (a *appState) tickPlaybackEnd() {
@@ -254,21 +218,15 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 	// One row like the image strip: the timeline takes the width left
 	// between the transport buttons and the trailing controls. The loading
 	// and buffering state is the badge on the stage, not part of the bar.
-	bar := controlBarShell(c, "player-bar")
-	bar.Children(func() {
+	winW, _ := c.Size()
+	bar := controlBar(c, "player-bar", controlBarWidth(winW), func() {
 		a.playerMenu = false
 		a.videoTransport(c, item, snapshot, pos, buffered, duration)
 	})
-	shown := a.playerBarShown(c, bar.Hovered(), bar.FocusWithin(), snapshot.Scrubbing)
-	target := float32(0)
-	if shown {
-		target = 1
-	}
-	opacity := bar.AnimateTo("player-fade", target, ui.Animation{Duration: 180 * time.Millisecond})
-	bar.Opacity(opacity)
-	if !shown && opacity < 0.04 {
-		bar.Hidden(true)
-	}
+	// A paused, loading or failed clip keeps the bar up in auto mode:
+	// the user is about to press something.
+	hold := snapshot.Phase != playPlaying
+	fadeControlBar(bar, "player-fade", a.controlBarShown(c, bar.Hovered(), bar.FocusWithin(), snapshot.Scrubbing, hold))
 }
 
 func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64) {
