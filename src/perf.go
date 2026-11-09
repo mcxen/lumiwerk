@@ -148,10 +148,28 @@ func (a *appState) maybeRequestThumb(el ui.Element, root string, visIndex int) {
 // while the text is already in place, and scrolling back through cached
 // thumbnails looks as if the picture trails the label.
 func (a *appState) adoptCachedThumb(item *mediaItem) {
-	if item == nil || item.IsDir || item.Decoded || item.Failed || item.Loading {
+	if item == nil {
 		return
 	}
 	edge := thumbBand(thumbEdge(a.Thumb))
+	if item.IsDir {
+		// Show the stack last built for this folder at once. Decoded and
+		// Loading stay as they are: the cover is still checked against the
+		// folder's current contents in the background, and replaced if the
+		// digest changed.
+		if item.Bitmap != nil {
+			return
+		}
+		if bitmap, key := knownCover(item.Path, edge); bitmap != nil {
+			a.mu.Lock()
+			item.Bitmap, item.CoverKey, item.ThumbEdge = bitmap, key, edge
+			a.mu.Unlock()
+		}
+		return
+	}
+	if item.Decoded || item.Failed || item.Loading {
+		return
+	}
 	bitmap := thumbLRU.Get(thumbCacheKey(item.Path, edge))
 	if bitmap == nil {
 		return

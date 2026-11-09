@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -192,9 +193,43 @@ func (a *appState) folderCoverStop(index int, path string, gen int) bool {
 	return a.thumbAbandoned(index, path, gen)
 }
 
+// coverKeys remembers the last cache key each folder's stack was built
+// under. The key carries a digest of the folder's contents, which takes a
+// directory walk to compute, so without this a stack already in memory could
+// only be found by a worker goroutine, one frame after the card's name.
+var coverKeys = struct {
+	sync.Mutex
+	m map[string]string
+}{m: map[string]string{}}
+
+func coverKeyID(path string, edge int) string { return fmt.Sprintf("%s#%d", path, thumbBand(edge)) }
+
+func rememberCoverKey(path string, edge int, key string) {
+	coverKeys.Lock()
+	defer coverKeys.Unlock()
+	if len(coverKeys.m) > 8192 {
+		coverKeys.m = map[string]string{}
+	}
+	coverKeys.m[coverKeyID(path, edge)] = key
+}
+
+// knownCover returns the in-memory stack last built for the folder, or nil.
+func knownCover(path string, edge int) (*ui.Bitmap, string) {
+	coverKeys.Lock()
+	key := coverKeys.m[coverKeyID(path, edge)]
+	coverKeys.Unlock()
+	if key == "" {
+		return nil, ""
+	}
+	return thumbLRU.Get(key), key
+}
+
 func (a *appState) publishFolderCover(root string, index int, path string, gen, edge int, key string, bitmap *ui.Bitmap, store bool) {
 	if store && bitmap != nil && key != "" {
 		thumbLRU.Put(key, bitmap, edge)
+	}
+	if bitmap != nil && key != "" {
+		rememberCoverKey(path, edge, key)
 	}
 	a.update(func() {
 		a.mu.Lock()

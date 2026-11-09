@@ -105,3 +105,46 @@ func TestCardNamesKeepSizeWhileChromeScales(t *testing.T) {
 		}
 	}
 }
+
+// TestScrolledFolderCoversShowRememberedStackInSameFrame is the folder
+// version: a stack still in memory shows in the frame its card is built,
+// even though finding its key by digest needs a directory walk.
+func TestScrolledFolderCoversShowRememberedStackInSameFrame(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bm := testThumbBitmap(t)
+	for _, tc := range []struct {
+		name   string
+		layout int
+	}{{"grid", 0}, {"waterfall", 2}, {"justified", 3}} {
+		t.Run(tc.name, func(t *testing.T) {
+			const n = 600
+			a := waterfalTestState(n)
+			a.LayoutMode = tc.layout
+			edge := thumbBand(thumbEdge(a.Thumb))
+			for i := range a.Items {
+				it := &a.Items[i]
+				it.IsDir, it.Decoded, it.Ext = true, false, ""
+				key := folderCoverKey(it.Path, "digest", edge)
+				thumbLRU.Put(key, bm, edge)
+				rememberCoverKey(it.Path, edge, key)
+				defer thumbLRU.Delete(key)
+			}
+			te := ui.NewTester(a.view, 1280, 820)
+			te.Frame()
+			a.browseScroll.Y = a.browseScroll.MaxY / 2
+			te.Frame()
+			built, bare := 0, 0
+			for i := range a.Items {
+				if it := &a.Items[i]; it.Seen != 0 {
+					built++
+					if it.Bitmap == nil {
+						bare++
+					}
+				}
+			}
+			if built == 0 || bare != 0 {
+				t.Fatalf("%d of %d built folder cards drew without the remembered stack", bare, built)
+			}
+		})
+	}
+}
