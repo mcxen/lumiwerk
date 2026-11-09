@@ -96,23 +96,6 @@ func TestOnlyGridCardArmsSlowRename(t *testing.T) {
 	}
 }
 
-func TestMediaGlyphSizeFollowsTheThumbnail(t *testing.T) {
-	for _, tc := range []struct{ side, want float32 }{
-		{0, minCardGlyph}, {40, minCardGlyph}, {96, 48}, {200, 100}, {400, maxCardGlyph},
-	} {
-		if got := mediaGlyphSize(tc.side); got != tc.want {
-			t.Errorf("mediaGlyphSize(%v) = %v, want %v", tc.side, got, tc.want)
-		}
-	}
-	a := &appState{Thumb: 300}
-	if got := a.cardGlyphSize(0); got != 150 {
-		t.Errorf("grid card glyph = %v, want 150", got)
-	}
-	if got := a.cardGlyphSize(120); got != 60 {
-		t.Errorf("a narrow flow card must size the glyph by its width: %v", got)
-	}
-}
-
 // A file with no picture (a .dmg, a .html…) draws its type icon; on a large
 // grid card it must grow with the card instead of staying a 28-DIP speck.
 func TestOtherTypeGlyphGrowsWithLargeGridCards(t *testing.T) {

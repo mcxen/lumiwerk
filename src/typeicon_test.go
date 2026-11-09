@@ -22,7 +22,7 @@ func TestPaintMediaThumbShowsGlyphBeforeDecode(t *testing.T) {
 	item := &mediaItem{Path: "/probe/a.jpg", Name: "a.jpg", Ext: "jpg"}
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Size(96, 96).Children(func() {
-			paintMediaThumb(c, item, 96, ui.Cover)
+			paintMediaThumb(c, item, 96, ui.Cover, 96)
 		})
 	}, 96, 96)
 	te.Frame()
@@ -51,7 +51,7 @@ func TestFolderCardAndDetailRowPaintWithoutCover(t *testing.T) {
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			ui.Box(c).Size(96, 96).Children(func() {
-				paintMediaThumb(c, item, 96, ui.Cover)
+				paintMediaThumb(c, item, 96, ui.Cover, 96)
 			})
 			ui.Row(c).Children(func() {
 				paintFolderGlyph(c, item.Path, 15)

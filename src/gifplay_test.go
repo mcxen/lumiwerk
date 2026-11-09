@@ -79,7 +79,7 @@ func TestGridGIFStaysStill(t *testing.T) {
 	a.Visible = []int{0}
 	te := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Size(96, 96).Children(func() {
-			paintMediaThumb(c, &a.Items[0], 96, ui.Cover)
+			paintMediaThumb(c, &a.Items[0], 96, ui.Cover, 96)
 		})
 	}, 96, 96)
 	te.Frame()

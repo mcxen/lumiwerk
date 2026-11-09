@@ -86,7 +86,7 @@ var flowLabel float32 = 30
 
 // syncCaption applies 无字模式 to the card geometry, once per change.
 func (a *appState) syncCaption() {
-	want := float32(30)
+	want := float32(30) // names keep their size, so the band does too
 	if a.Profiles.View.NoCaption {
 		want = 0
 	}
@@ -468,7 +468,9 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	}
 	thumbCardProbe()
 	a.markSeen(item)
-	card := ui.Column(c).Gap(4)
+	a.adoptCachedThumb(item)
+	s := cardScale(float32(a.Thumb))
+	card := ui.Column(c).Gap(4 * s)
 	if opts.width > 0 {
 		card.Width(opts.width).Shrink(0)
 	} else {
@@ -489,15 +491,15 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 		thumb.Children(func() {
 			if opts.tagDots {
 				if dots := tagDots(item.Tags); len(dots) > 0 {
-					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4, 4).Gap(2)
+					tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(4*s, 4*s).Gap(2 * s)
 					tags.Children(func() {
 						for _, tag := range dots {
-							ui.Box(c).Width(5).Height(5).Radius(2).Background(tagColor(tag))
+							ui.Box(c).Width(5 * s).Height(5 * s).Radius(2 * s).Background(tagColor(tag))
 						}
 					})
 				}
 			}
-			paintMediaThumbSized(c, item, opts.width, opts.fit, a.cardGlyphSize(opts.width))
+			paintMediaThumb(c, item, opts.width, opts.fit, a.cardGlyphBox(opts))
 			a.paintThumbBadges(c, item, opts.waterfallBadges)
 		})
 		if flowLabel > 0 {
@@ -520,40 +522,40 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	a.maybeRequestThumb(card, root, i)
 }
 
+// cardScale is how much a card's chrome (badges, dots, gaps) grows
+// with the thumbnail size: 1 at the default 150, never below 0.9 so a small
+// card stays legible, and up to 1.8 so a big one is not dwarfed by fixed text.
+func cardScale(thumb float32) float32 {
+	return min(max(thumb/defaultThumb, 0.9), 1.8)
+}
+
+// cardGlyphBox is the edge of the square a card's picture fills: the grid's
+// thumb size, or the smaller side of a justified/waterfall card's picture.
+func (a *appState) cardGlyphBox(opts mediaCardOptions) float32 {
+	if opts.width > 0 && opts.height > 0 {
+		return min(opts.width, opts.height-flowLabel)
+	}
+	return float32(a.Thumb)
+}
+
+// glyphSize scales a placeholder icon with its card, as Finder's icon view
+// does: a folder fills most of a big cell instead of staying a 28pt chip.
+// floor is the size for small cards and for callers that give no box.
+func glyphSize(box, floor float32) float32 {
+	return max(floor, min2(box*0.7, 160))
+}
+
+func min2(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // paintMediaThumb draws one card's picture. Folder covers use the same
 // stacked bitmap in every layout; until that exists the card keeps the
 // plain folder icon. Photos keep the layout's own fit.
-func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit) {
-	paintMediaThumbSized(c, item, width, fit, minCardGlyph)
-}
-
-// Card glyphs (the system icon of a folder without a cover or of a file
-// not yet decoded) scale with the thumbnail: a fixed 28-DIP icon was a
-// speck in the middle of a large card.
-const (
-	minCardGlyph   float32 = 28
-	maxCardGlyph   float32 = 160
-	cardGlyphShare float32 = 0.5 // of the card's shorter thumbnail side
-)
-
-// mediaGlyphSize is the icon size for a thumbnail side of side DIPs.
-func mediaGlyphSize(side float32) float32 {
-	return min(max(side*cardGlyphShare, minCardGlyph), maxCardGlyph)
-}
-
-// cardGlyphSize sizes the glyph for a card of the current thumbnail size,
-// narrowed to the card's own width where the layout fixes one.
-func (a *appState) cardGlyphSize(width float32) float32 {
-	side := float32(a.Thumb)
-	if width > 0 && width < side {
-		side = width
-	}
-	return mediaGlyphSize(side)
-}
-
-// paintMediaThumbSized is paintMediaThumb with the glyph size for cards
-// that show no picture yet.
-func paintMediaThumbSized(c *ui.Context, item *mediaItem, width float32, fit ui.Fit, glyph float32) {
+func paintMediaThumb(c *ui.Context, item *mediaItem, width float32, fit ui.Fit, box float32) {
 	if item.IsDir {
 		if item.Bitmap != nil {
 			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
@@ -563,7 +565,7 @@ func paintMediaThumbSized(c *ui.Context, item *mediaItem, width float32, fit ui.
 			releaseShownPixels(item)
 			return
 		}
-		paintFolderGlyph(c, item.Path, glyph)
+		paintFolderGlyph(c, item.Path, glyphSize(box, 28))
 		return
 	}
 	if item.Bitmap != nil {
@@ -578,9 +580,8 @@ func paintMediaThumbSized(c *ui.Context, item *mediaItem, width float32, fit ui.
 		return
 	}
 	if item.Failed {
-		// A little smaller: the file is known not to decode.
-		paintTypeGlyph(c, item.Ext, glyph*6/7)
+		paintTypeGlyph(c, item.Ext, glyphSize(box, 24))
 		return
 	}
-	paintTypeGlyph(c, item.Ext, glyph)
+	paintTypeGlyph(c, item.Ext, glyphSize(box, 28))
 }
