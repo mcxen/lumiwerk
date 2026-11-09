@@ -124,6 +124,7 @@ type appState struct {
 	// on quit. flyout is its status panel; nil when it has not been opened
 	// or AppKit has dismissed it.
 	Tray   *mygo.Tray
+	trayRT trayRuntime
 	flyout *mygo.Window
 	mu     sync.Mutex
 

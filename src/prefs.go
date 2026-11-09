@@ -99,6 +99,21 @@ type prefsFile struct {
 	// 0 is the old default (every known type on). 1 showed images and
 	// videos only. 2 shows every file type, the current default.
 	TypeFilterRev int `json:"typeFilterRev,omitempty"`
+	// TrayTitle shows a short status (task progress, playback time) next
+	// to the menu-bar icon. Off by default.
+	TrayTitle bool `json:"trayTitle,omitempty"`
+	// TrayTab is the quick-access tab the status panel opens on.
+	TrayTab string `json:"trayTab,omitempty"`
+	// TrayRecent is how many recent folders the panel and menu list; 0
+	// means the default, normalizePrefs clamps it to 3–20.
+	TrayRecent int `json:"trayRecent,omitempty"`
+	// TrayHotkey is the global accelerator that shows or hides the main
+	// window; empty means the default, TrayHotkeyOff turns it off.
+	TrayHotkey    string `json:"trayHotkey,omitempty"`
+	TrayHotkeyOff bool   `json:"trayHotkeyOff,omitempty"`
+	// HideDockWhenShelved drops the Dock icon while the main window is
+	// hidden in the tray, leaving a menu-bar-only app.
+	HideDockWhenShelved bool `json:"hideDockWhenShelved,omitempty"`
 }
 
 const typeFilterRevAll = 2
@@ -188,6 +203,7 @@ func migrateViewInstallers(data []byte, p *prefsFile) {
 // slice marshals to null, which would drop the nine configuration slots and
 // the startup folder on the next save. Existing profiles are kept.
 func normalizePrefs(p *prefsFile) {
+	normalizeTrayPrefs(p)
 	if len(p.Profiles) != 9 {
 		profiles := make([]profile, 9)
 		copy(profiles, p.Profiles)

@@ -73,6 +73,7 @@ func (a *appState) shelfMainWindow() {
 	a.persistBrowsingHistory()
 	a.Window.Hide()
 	a.syncTrayTip()
+	a.applyDockPolicy()
 }
 
 // showMainWindow brings the browser back, creating it when this run has
@@ -88,6 +89,7 @@ func (a *appState) showMainWindow() {
 	a.Window.Show()
 	a.Window.Focus()
 	a.syncTrayTip()
+	a.applyDockPolicy()
 	if created && a.Root == "" {
 		a.scheduleLaunchFolder()
 	}

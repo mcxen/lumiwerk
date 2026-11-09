@@ -5,8 +5,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
@@ -37,6 +39,34 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 		}
 		figureClose(c, pal, a.Profiles.CloseAction)
+	})
+	setGroup(c, "菜单栏", func() {
+		if setToggle(c, "tray-title", "在图标旁显示状态", &a.Profiles.TrayTitle) {
+			savePrefs(a.Profiles)
+			a.refreshTray()
+		}
+		recent := a.Profiles.trayRecentCount()
+		if setSelect(c, "tray-recent", "最近目录条数", &recent, []int{3, 5, 8, 12, 20},
+			func(n int) string { return strconv.Itoa(n) + " 条" }) {
+			a.Profiles.TrayRecent = recent
+			savePrefs(a.Profiles)
+		}
+		hotkeyOn := !a.Profiles.TrayHotkeyOff
+		if setToggle(c, "tray-hotkey", "全局快捷键显示/隐藏窗口（⌘⌥L）", &hotkeyOn) {
+			a.Profiles.TrayHotkeyOff = !hotkeyOn
+			savePrefs(a.Profiles)
+			a.applyTrayPrefs()
+		}
+		if setToggle(c, "tray-dock", "窗口收起时隐藏 Dock 图标", &a.Profiles.HideDockWhenShelved) {
+			savePrefs(a.Profiles)
+			a.applyDockPolicy()
+		}
+		login := openAtLogin()
+		if setToggle(c, "tray-login", "登录时启动", &login) {
+			if err := mygo.App.SetOpenAtLogin(login); err != nil {
+				logWarnf("open at login: %v", err)
+			}
+		}
 	})
 }
 

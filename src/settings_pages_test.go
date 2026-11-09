@@ -101,3 +101,15 @@ func TestSettingsFiguresAndPasswordBookPersist(t *testing.T) {
 		}
 	}
 }
+
+func TestGeneralPageHasMenuBarGroup(t *testing.T) {
+	a := newSettingsTestState(t)
+	a.setPage("general")
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1100)
+	te.Frame()
+	for _, want := range []string{"菜单栏", "在图标旁显示状态", "最近目录条数", "登录时启动"} {
+		if !te.HasText(want) {
+			t.Fatalf("general page missing %q: %v", want, te.Texts())
+		}
+	}
+}
