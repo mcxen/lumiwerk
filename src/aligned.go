@@ -2260,8 +2260,8 @@ func (a *appState) largeImageView(c *ui.Context) {
 						a.HUD = "原图加载中"
 						a.HUDUntil = time.Now().Add(1200 * time.Millisecond)
 					}
-					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr) }) {
-						ui.Image(c, pic).Fit(ui.Contain).Grow(1).Transform(tr)
+					if !a.largeHero(c, item, pic, func() { ui.Image(c, pic).Fit(ui.Contain).Fill().Transform(tr) }) {
+						ui.Image(c, pic).Fit(ui.Contain).Fill().Transform(tr)
 					}
 				}
 			}

@@ -149,7 +149,7 @@ func (a *appState) heroFlyer(c *ui.Context) {
 	}
 	ui.Overlay(c, func() {
 		fly := a.heroBox(c, "lw-hero-flyer", h.path, rect.W, rect.H, heroThumbRadius, heroClosing, func() {
-			ui.Image(c, item.Bitmap).PassThrough().Fit(ui.Cover).Grow(1)
+			ui.Image(c, item.Bitmap).PassThrough().Fit(ui.Cover).Fill()
 		})
 		fly.Absolute().Left(rect.X).Top(rect.Y).PassThrough().Background(c.Theme().Background)
 		if abs32(h.radius-heroThumbRadius) < 0.01 && !fly.Transitioning() {
