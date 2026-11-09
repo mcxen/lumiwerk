@@ -12,7 +12,8 @@ const (
 	playbackEndNext = "next"
 	playbackEndLoop = "loop"
 
-	timelineInset = float32(64)
+	// timelineInset keeps the knob inside the scrub box at both ends.
+	timelineInset = float32(6)
 	playerIdle    = 2 * time.Second
 )
 
@@ -250,11 +251,13 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 	if buffered < pos {
 		buffered = pos
 	}
+	// One row like the image strip: the timeline takes the width left
+	// between the transport buttons and the trailing controls. The loading
+	// and buffering state is the badge on the stage, not part of the bar.
 	bar := controlBarShell(c, "player-bar")
 	bar.Children(func() {
 		a.playerMenu = false
-		a.videoTimeline(c, pos, buffered, duration)
-		a.videoTransport(c, item, snapshot, pos, duration)
+		a.videoTransport(c, item, snapshot, pos, buffered, duration)
 	})
 	shown := a.playerBarShown(c, bar.Hovered(), bar.FocusWithin(), snapshot.Scrubbing)
 	target := float32(0)
@@ -269,7 +272,7 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 }
 
 func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64) {
-	box := ui.Box(c.Key("video-progress")).FillWidth().Height(36).Label("播放进度").Tooltip("拖动跳转")
+	box := ui.Box(c.Key("video-progress")).Grow(1).MinWidth(80).Height(barBtnSize).Label("播放进度").Tooltip("拖动跳转")
 	width := box.LayoutBounds().W
 	if width > 1 {
 		// Input handlers run between builds, when an Element is no longer
@@ -334,19 +337,16 @@ func (a *appState) videoTimeline(c *ui.Context, pos, buffered, duration float64)
 		p.Fill(ui.Rect{X: knobX, Y: track.Y - 4, W: 12, H: 12}, ui.RGB(255, 255, 255), 6)
 	})
 	box.Children(func() {
-		ui.Text(c, formatPlaybackTime(pos)).Absolute().Left(0).Top(10).
-			FontSize(12).TextColor(ui.RGB(245, 245, 247)).PassThrough()
-		ui.Text(c, formatPlaybackTime(duration)).Absolute().Right(0).Top(10).
-			FontSize(12).TextColor(ui.RGB(180, 180, 185)).PassThrough()
 		if bubble != "" {
-			ui.Text(c, bubble).Absolute().Left(bubbleLeft).Top(0).
+			// Above the bar, so the pointer never covers it.
+			ui.Text(c, bubble).Absolute().Left(bubbleLeft).Top(-30).
 				Padding(2, 6).Radius(4).Background(ui.RGBA(0, 0, 0, 0.82)).
 				FontSize(11).TextColor(ui.RGB(255, 255, 255)).PassThrough()
 		}
 	})
 }
 
-func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playbackSnapshot, pos, duration float64) {
+func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playbackSnapshot, pos, buffered, duration float64) {
 	row := controlBarRow(c)
 	row.Children(func() {
 		if barPrimaryButton(c, "video-play", playbackButtonLabel(snapshot.Playing), "播放 / 暂停（空格）", playbackButtonIcon(snapshot.Playing)).Clicked() {
@@ -358,34 +358,30 @@ func (a *appState) videoTransport(c *ui.Context, item *mediaItem, snapshot playb
 		if barIconButton(c, "video-next", "下一个媒体", "下一个媒体", lucideSkipForward).Clicked() {
 			a.nextImage()
 		}
-		if barIconButton(c, "video-volume", "静音", "静音 / 恢复音量（M）", volumeButtonIcon(a.VideoVolume)).Clicked() {
-			a.toggleVideoVolume()
-		}
-		volume := a.VideoVolume
-		if ui.Slider(c.Key("video-volume-slider"), &volume, 0, 1).Width(76).Height(22).
-			Step(0.01).Label("音量").Changed() {
-			a.setVideoVolume(volume)
-		}
-		if save := ui.Button(c.Key("video-save"), "另存视频…").
-			Tooltip("把当前视频另存一份").Padding(4, 8).Radius(5).
-			TextColor(ui.RGB(245, 245, 247)).Disabled(a.VideoSave.active()); save.Clicked() {
-			a.chooseVideoSave(item)
-		}
+		ui.Box(c).Width(4)
+		barText(c, formatPlaybackTime(pos), false)
+		a.videoTimeline(c, pos, buffered, duration)
+		barText(c, formatPlaybackTime(duration), true)
+		ui.Box(c).Width(4)
+		// Saving lives in the 更多 menu; its progress shows here while it
+		// runs or after it fails, so it stays visible during playback.
 		if status := a.VideoSave.statusLabel(); status != "" {
-			ui.Text(c, status).FontSize(11).TextColor(ui.RGB(180, 180, 185)).SingleLine()
+			ui.Text(c, status).FontSize(11).TextColor(barFGDim).SingleLine()
 			if a.VideoSave.phase == saveRunning {
-				ui.Progress(c, float64(a.VideoSave.progress)).Width(70).Label("另存进度")
-				if ui.Button(c.Key("video-save-cancel"), "取消").Clicked() {
+				ui.Progress(c, float64(a.VideoSave.progress)).Width(60).Label("另存进度")
+				if barChip(c, "video-save-cancel", "取消", "取消另存", "取消").Clicked() {
 					a.cancelVideoSave()
 				}
 			}
 		}
-		barSpacer(c)
-		clock := formatPlaybackTime(pos) + " / " + formatPlaybackTime(duration)
-		if status := playbackStatusLabel(snapshot); status != "" {
-			clock = status + "  " + clock
+		if barIconButton(c, "video-volume", "静音", "静音 / 恢复音量（M）", volumeButtonIcon(a.VideoVolume)).Clicked() {
+			a.toggleVideoVolume()
 		}
-		barText(c, clock, false)
+		volume := a.VideoVolume
+		if ui.Slider(c.Key("video-volume-slider"), &volume, 0, 1).Width(64).Height(22).
+			Step(0.01).Label("音量").Changed() {
+			a.setVideoVolume(volume)
+		}
 		barChip(c, "video-speed", "倍速", "播放速度", formatPlaybackSpeed(snapshot.Speed)).
 			PopoverMenuButton(func(m *ui.Menu) { a.fillSpeedMenu(m, snapshot.Speed) })
 		if len(snapshot.Audio) > 0 || len(snapshot.Video) > 1 {

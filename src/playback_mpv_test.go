@@ -163,3 +163,82 @@ func TestMPVOpenDropsThePreviousFilesState(t *testing.T) {
 		t.Fatalf("position right after reopen=%.3f, still the previous file's", pos)
 	}
 }
+
+// Stepping between two clips of the same size used to stick on "loading":
+// beginLoad cleared the cached dwidth/dheight, but mpv only reports a
+// property when its value changes, so the second clip's size never came
+// back and the render loop waited for it forever.
+func TestMPVSameSizeClipsBothRenderAFrame(t *testing.T) {
+	first := mpvTestClip(t, 30)
+	second := filepath.Join(t.TempDir(), "second.mp4")
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=3",
+		"-pix_fmt", "yuv420p", "-c:v", "libx264", second)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ffmpeg: %v %s", err, out)
+	}
+	backend, err := newMPVBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	// The first frame of each clip is fingerprinted: a switch must never
+	// show the previous clip's picture as the new clip's first frame.
+	waitFrame := func(name string) uint64 {
+		t.Helper()
+		deadline := time.Now().Add(4 * time.Second)
+		for time.Now().Before(deadline) {
+			if frame, ok := backend.Frame().(*image.RGBA); ok && frame != nil {
+				return mpvFingerprint(frame)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Fatalf("%s: no frame rendered (duration=%.2f)", name, backend.Duration())
+		return 0
+	}
+	firsts := map[string]uint64{}
+	for round := 0; round < 3; round++ {
+		for i, clip := range []string{first, second} {
+			if err := backend.Open(clip, 0, false); err != nil {
+				t.Fatal(err)
+			}
+			name := fmt.Sprintf("round %d %s", round, filepath.Base(clip))
+			got := waitFrame(name)
+			other := []string{second, first}[i]
+			if prev, ok := firsts[other]; ok && got == prev {
+				t.Fatalf("%s: first frame is the previous clip's picture", name)
+			}
+			firsts[clip] = got
+		}
+	}
+}
+
+// mpvFingerprint hashes a sparse sample of a frame's pixels.
+func mpvFingerprint(frame *image.RGBA) uint64 {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(frame.Pix); i += 4 * 97 {
+		h = (h ^ uint64(frame.Pix[i])) * 1099511628211
+		h = (h ^ uint64(frame.Pix[i+1])) * 1099511628211
+	}
+	return h
+}
+
+func TestMPVSelectedVideoPixels(t *testing.T) {
+	list := []any{
+		map[string]any{"type": "audio", "selected": true, "demux-w": int64(0)},
+		map[string]any{"type": "video", "selected": false, "demux-w": int64(3840), "demux-h": int64(2160)},
+		map[string]any{"type": "video", "selected": true, "demux-w": int64(1280), "demux-h": int64(720)},
+	}
+	if got := mpvSelectedVideoPixels(list); got != 1280*720 {
+		t.Fatalf("pixels = %d, want the selected track's %d", got, 1280*720)
+	}
+	if mpvSelectedVideoPixels(list) > mpvSoftwareDecodePixels {
+		t.Fatal("720p must decode on the CPU")
+	}
+	if 3840*2160 <= mpvSoftwareDecodePixels {
+		t.Fatal("4K must use the hardware decoder")
+	}
+	if got := mpvSelectedVideoPixels(nil); got != 0 {
+		t.Fatalf("empty list = %d", got)
+	}
+}

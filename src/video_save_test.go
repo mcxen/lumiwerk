@@ -46,8 +46,12 @@ func TestSaveVideoControlBarUsesDownloadsDefault(t *testing.T) {
 		ui.Box(c).Fill().Children(func() { a.videoControlsBar(c, &a.Items[1]) })
 	}, 1000, 620)
 	te.Frame()
+	// The save action lives in the bar's 更多 menu, not as a bar button.
+	if err := te.Click("更多播放操作"); err != nil {
+		t.Fatal(err)
+	}
 	if !te.HasText("另存视频…") {
-		t.Fatalf("control bar is missing the save action: %q", te.Texts())
+		t.Fatalf("more menu is missing the save action: %q", te.Texts())
 	}
 	if err := te.Click("另存视频…"); err != nil {
 		t.Fatal(err)

@@ -49,6 +49,9 @@ type mpvBackend struct {
 	st mpvState
 
 	frames mpvFramePool
+	// scratch receives frames rendered only to release libmpv's video
+	// output; touched by the render goroutine alone.
+	scratch []byte
 	// notify is called (coalesced) after a new frame is published.
 	notify        atomic.Pointer[func()]
 	notifyPending atomic.Bool
@@ -69,8 +72,14 @@ type mpvState struct {
 	height      int
 	audioTracks []playbackTrack
 	videoTracks []playbackTrack
-	// redraw asks the render loop to render even without a frame update,
-	// e.g. when the size became known after mpv announced the first frame.
+	// loaded is set once mpv reports the current file loaded (file-loaded
+	// or video-reconfig). Before that the video output may still hold the
+	// previous file's picture, which must not be shown as the new one.
+	loaded bool
+	// deferred records a frame update that arrived before the file was
+	// loaded or its size known; it is rendered once both are.
+	deferred bool
+	// redraw asks the render loop to render even without a frame update.
 	redraw bool
 }
 
@@ -112,11 +121,14 @@ var mpvRequiredOptions = [][2]string{
 }
 
 // mpvTunedOptions are best effort: an older libmpv may not know a value.
-// The software render API has no hardware interop, so plain "auto-safe"
-// silently decodes on the CPU; the copy-back variants keep VideoToolbox
-// decoding and only copy the decoded planes back.
+//
+// Decoding starts on the CPU: opening a VideoToolbox decoder costs about
+// 220 ms per file, while the first software frame of a 1080p clip takes
+// ~15 ms, and the software render API copies every frame back to memory
+// anyway. markLoaded turns hardware decoding on for the file when its video
+// is larger than mpvSoftwareDecodePixels, where the CPU would struggle.
 var mpvTunedOptions = [][]string{
-	{"hwdec", "auto-copy-safe", "auto-copy", "auto-safe"},
+	{"hwdec", "no"},
 	{"vd-lavc-threads", "0"},
 	{"sws-fast", "yes"},
 	{"zimg-fast", "yes"},
@@ -218,24 +230,43 @@ func (b *mpvBackend) renderLoop(ready chan<- error) {
 		}
 		flags := render.Update()
 		b.st.mu.Lock()
-		redraw := b.st.redraw
+		want := flags&mpv.RenderUpdateFrame != 0 || b.st.redraw
 		b.st.redraw = false
-		width, height := b.st.width, b.st.height
+		width, height := mpvRenderSize(b.st.width, b.st.height)
+		ready := b.st.accepting && b.st.loaded && width >= 2 && height >= 2
+		if want && !ready {
+			// A frame before the file is loaded or its size known: show
+			// it once both are (markLoaded / the size event).
+			b.st.deferred = true
+		}
 		b.st.mu.Unlock()
-		if flags&mpv.RenderUpdateFrame == 0 && !redraw {
-			continue
+		switch {
+		case !want:
+		case ready:
+			b.renderFrame(render, width, height)
+		default:
+			// libmpv's video output waits for every announced frame to
+			// be rendered and stalls 200 ms per unrendered one ("render()
+			// not being called or stuck"), twice per file open. Consume it
+			// into a scratch buffer and drop the picture.
+			b.discardFrame(render)
 		}
-		width, height = mpvRenderSize(width, height)
-		if width < 2 || height < 2 {
-			// mpv announced a frame before its size: render it once the
-			// dwidth/dheight event arrives.
-			b.st.mu.Lock()
-			b.st.redraw = true
-			b.st.mu.Unlock()
-			continue
-		}
-		b.renderFrame(render, width, height)
 	}
+}
+
+// mpvScratchEdge is the size of the throwaway render that releases a frame
+// the view cannot use yet.
+const mpvScratchEdge = 16
+
+func (b *mpvBackend) discardFrame(render *mpv.RenderContext) {
+	if b.scratch == nil {
+		b.scratch = make([]byte, mpvScratchEdge*mpvScratchEdge*4)
+	}
+	if err := render.RenderSW(mpvScratchEdge, mpvScratchEdge, mpvScratchEdge*4, "rgb0", b.scratch); err != nil {
+		logDebugf("video.mpv.discard: %v", err)
+		return
+	}
+	render.ReportSwap()
 }
 
 func (b *mpvBackend) renderFrame(render *mpv.RenderContext, width, height int) {
@@ -280,12 +311,96 @@ func (b *mpvBackend) eventLoop() {
 			b.st.mu.Unlock()
 		case mpv.EventPropertyChange:
 			b.applyProperty(ev.Property())
+		case mpv.EventFileLoaded:
+			b.chooseDecoder(core)
+			b.markLoaded(core)
 		case mpv.EventVideoReconfig:
-			b.st.mu.Lock()
-			b.st.redraw = true
-			b.st.mu.Unlock()
-			b.signal()
+			b.markLoaded(core)
 		}
+	}
+}
+
+// markLoaded reads the properties a new file needs straight from the core.
+// mpv only reports an observed property when its value changes, so after
+// beginLoad cleared the cache, a second clip with the same size, duration
+// or tracks as the first never got them back: the render loop waited for a
+// size forever and the view stayed on "loading". It runs on the event
+// goroutine, never on the UI thread.
+func (b *mpvBackend) markLoaded(core *mpv.Mpv) {
+	width, _ := core.GetProperty("dwidth", mpv.FormatInt64)
+	height, _ := core.GetProperty("dheight", mpv.FormatInt64)
+	duration, _ := core.GetProperty("duration", mpv.FormatDouble)
+	tracks, _ := core.GetProperty("track-list", mpv.FormatNode)
+	b.st.mu.Lock()
+	if !b.st.accepting {
+		b.st.mu.Unlock()
+		return
+	}
+	if w, ok := mpvInt(width); ok && w > 1 {
+		b.st.width = w
+	}
+	if h, ok := mpvInt(height); ok && h > 1 {
+		b.st.height = h
+	}
+	if d := mpvFloat(duration); d > 0 {
+		b.st.duration = d
+	}
+	if list, ok := tracks.([]any); ok {
+		b.st.audioTracks, b.st.videoTracks = mpvParseTracks(list)
+	}
+	b.st.loaded = true
+	b.st.releaseDeferredLocked()
+	b.st.mu.Unlock()
+	b.signal()
+}
+
+// mpvSoftwareDecodePixels is the largest video decoded on the CPU; larger
+// ones (1440p, 4K and up) use the copy-back hardware decoders.
+const mpvSoftwareDecodePixels = 1920 * 1088
+
+// mpvHardwareDecoders are tried in order; the copy-back variants keep
+// VideoToolbox decoding and only copy the decoded planes back, which the
+// software render API needs.
+var mpvHardwareDecoders = []string{"auto-copy-safe", "auto-copy"}
+
+// chooseDecoder turns on hardware decoding for this file only (it resets
+// on the next loadfile) when its video track is too large for the CPU.
+func (b *mpvBackend) chooseDecoder(core *mpv.Mpv) {
+	tracks, _ := core.GetProperty("track-list", mpv.FormatNode)
+	list, _ := tracks.([]any)
+	if mpvSelectedVideoPixels(list) <= mpvSoftwareDecodePixels {
+		return
+	}
+	for _, value := range mpvHardwareDecoders {
+		err := core.SetPropertyString("file-local-options/hwdec", value)
+		if err == nil {
+			return
+		}
+		logDebugf("video.mpv.hwdec: %s err=%v", value, err)
+	}
+}
+
+// mpvSelectedVideoPixels is width×height of the selected video track as the
+// demuxer reports it, or 0 when unknown.
+func mpvSelectedVideoPixels(list []any) int {
+	for _, raw := range list {
+		item, ok := raw.(map[string]any)
+		if !ok || item["type"] != "video" || !mpvBool(item["selected"]) {
+			continue
+		}
+		w, _ := mpvInt(item["demux-w"])
+		h, _ := mpvInt(item["demux-h"])
+		return w * h
+	}
+	return 0
+}
+
+// releaseDeferredLocked turns a frame update that arrived too early into a
+// redraw once the file is loaded and its size known.
+func (s *mpvState) releaseDeferredLocked() {
+	if s.deferred && s.loaded && s.width > 1 && s.height > 1 {
+		s.deferred = false
+		s.redraw = true
 	}
 }
 
@@ -294,7 +409,7 @@ func (s *mpvState) resetLocked() {
 	s.stalled, s.eof = false, false
 	s.width, s.height = 0, 0
 	s.audioTracks, s.videoTracks = nil, nil
-	s.redraw = false
+	s.loaded, s.deferred, s.redraw = false, false, false
 }
 
 func (b *mpvBackend) applyProperty(p mpv.EventProperty) {
@@ -323,9 +438,11 @@ func (b *mpvBackend) applyProperty(p mpv.EventProperty) {
 		} else {
 			b.st.height = n
 		}
-		if b.st.width > 1 && b.st.height > 1 {
-			b.st.redraw = true
-			b.signal()
+		if b.st.deferred {
+			b.st.releaseDeferredLocked()
+			if b.st.redraw {
+				b.signal()
+			}
 		}
 	case "track-list":
 		list, _ := p.Data.([]any)

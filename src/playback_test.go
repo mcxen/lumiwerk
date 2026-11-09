@@ -309,9 +309,37 @@ func TestVideoLargeViewRendersController(t *testing.T) {
 		t.Fatalf("full player controls missing: %q", te.Texts())
 	}
 	progress, ok := te.Find("播放进度")
-	if !ok || progress.Y+progress.H > 800 || progress.W < 1000 {
-		t.Fatalf("timeline is not a full-width bottom control: %+v", progress)
+	if !ok || progress.Y+progress.H > 800 || progress.W < 1200*0.45 {
+		t.Fatalf("timeline is not a wide bottom control: %+v", progress)
 	}
+	// One compact row: the play button sits on the timeline's line and
+	// the whole bar (8pt margin + 6pt padding) stays within ~56pt.
+	play, ok := te.Find("暂停")
+	if !ok {
+		t.Fatal("missing play button")
+	}
+	if mid := func(r ui.Rect) float32 { return r.Y + r.H/2 }; absf(mid(play)-mid(progress)) > 2 {
+		t.Fatalf("timeline %+v is not on the transport row %+v", progress, play)
+	}
+	if top := progress.Y - 6; top < 800-60 {
+		t.Fatalf("control bar starts %.0fpt above the bottom, want a single row", 800-top)
+	}
+	if !te.HasText("00:20") || !te.HasText("02:00") {
+		t.Fatalf("clock missing: %q", te.Texts())
+	}
+	if te.HasText("另存视频…") {
+		t.Fatal("the save action belongs in the more menu, not on the bar")
+	}
+	if stars, ok := te.Find("评级"); ok && stars.Y+stars.H > progress.Y-6 {
+		t.Fatalf("rating %+v overlaps the control bar starting at %.0f", stars, progress.Y-6)
+	}
+}
+
+func absf(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func TestVideoControlsSwitchMedia(t *testing.T) {

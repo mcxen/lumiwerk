@@ -18,8 +18,9 @@ const (
 	barChipRad   = 5
 	barFontSize  = 12
 
-	// mediaBarClearance keeps overlays such as rating stars above the bar.
-	mediaBarClearance = 74
+	// mediaBarClearance keeps overlays such as rating stars above the bar:
+	// the 8pt margin, 6pt padding twice and one 32pt row, plus a gap.
+	mediaBarClearance = 58
 )
 
 var (
@@ -36,7 +37,7 @@ var (
 // rows with Children and may fade it with Opacity.
 func controlBarShell(c *ui.Context, key string) ui.Element {
 	bar := ui.Column(c.Key(key)).Absolute().Left(8).Right(8).Bottom(8).
-		Padding(8, 12, 10).Gap(barGap).Radius(barRadius).
+		Padding(6, 10).Gap(barGap).Radius(barRadius).
 		Background(barBackground)
 	bar.Shadow(0, -6, 18, 0, barShadow)
 	return bar

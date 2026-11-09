@@ -1031,14 +1031,19 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 			return
 		}
 		// Show the grid thumbnail immediately while libmpv warms up the
-		// first frame — avoids a blank stage on image→video switches.
+		// first frame — avoids a blank stage on image→video switches. It
+		// fills the stage like the frame that replaces it: the stage
+		// centers its children, so an unsized image shrank to the
+		// thumbnail's own few hundred points.
 		if item := a.currentItem(); item != nil && item.Bitmap != nil {
-			img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Grow(1)
-			if transformed {
-				img.Transform(a.transform())
-			}
-			playbackBadge(c, playbackWaitLabel(snapshot), playbackBadgeStyle{
-				at: ui.AnchorCenter, self: ui.AnchorBottom, alpha: 0.55, size: 12, color: ui.RGB(255, 255, 255),
+			ui.Box(c).Fill().Children(func() {
+				img := ui.Image(c, item.Bitmap).Fit(ui.Contain).Fill()
+				if transformed {
+					img.Transform(a.transform())
+				}
+				playbackBadge(c, playbackWaitLabel(snapshot), playbackBadgeStyle{
+					at: ui.AnchorCenter, self: ui.AnchorCenter, alpha: 0.55, size: 12, color: ui.RGB(255, 255, 255),
+				})
 			})
 			return
 		}
@@ -1048,8 +1053,8 @@ func (a *appState) videoLayer(c *ui.Context, transformed bool) {
 		})
 		return
 	}
-	ui.Box(c).Grow(1).Children(func() {
-		image := ui.Image(c, pic).Fit(ui.Contain).Grow(1)
+	ui.Box(c).Fill().Children(func() {
+		image := ui.Image(c, pic).Fit(ui.Contain).Fill()
 		if transformed {
 			image.Transform(a.transform())
 		}
