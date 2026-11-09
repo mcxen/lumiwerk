@@ -289,14 +289,26 @@ func flowHit(boxes []flowBox, x, y float32) (flowBox, bool) {
 // and restore; production never reads it.
 var thumbCardProbe = func() {}
 
-// selectionChrome marks a media card chosen or selected. The old loud accent
-// frame is gone: a quiet neutral fill, rounded like the thumbnail it wraps,
-// keeps the selection legible in both themes without drawing a box.
-func selectionChrome(c *ui.Context, el ui.Element, on bool) {
+// Selection follows the Finder: the thumbnail sits on a soft rounded plate
+// and the name turns into an accent pill. The plate is a spread shadow, so a
+// selected card takes no more room than an unselected one and the grid does
+// not shift when the selection moves.
+const selectionPlate = 4
+
+// selectionThumb draws the plate behind a selected thumbnail.
+func selectionThumb(c *ui.Context, thumb ui.Element, on bool) {
 	if !on {
 		return
 	}
-	el.Radius(heroThumbRadius).Background(c.Theme().SurfacePressed)
+	thumb.Shadow(0, 0, 0, selectionPlate, c.Theme().SurfacePressed)
+}
+
+// selectionName turns a selected card's name into the accent pill.
+func selectionName(c *ui.Context, name ui.Element, on bool) {
+	if !on {
+		return
+	}
+	name.Background(c.Theme().Accent).TextColor(ui.RGB(255, 255, 255)).Radius(5).Padding(1, 6)
 }
 
 // waterfallView packs items into N columns, each appended to the shortest.
@@ -482,11 +494,12 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	if a.isCut(item.Path) {
 		card.Opacity(0.4)
 	}
-	selectionChrome(c, card, a.Chosen == i || a.Selected.Has(item.Path))
+	picked := a.Chosen == i || a.Selected.Has(item.Path)
 	var name ui.Element
 	wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
+		selectionThumb(c, thumb, picked)
 		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
 			if opts.tagDots {
@@ -507,6 +520,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 				a.inlineRenameField(c, 11, true)
 			} else {
 				name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
+				selectionName(c, name, picked)
 			}
 		}
 	})

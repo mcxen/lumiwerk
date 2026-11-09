@@ -194,7 +194,7 @@ type extractedArchive struct {
 	dest    string
 }
 
-func extractArchives(paths []string, password string) ([]extractedArchive, []string, error) {
+func extractArchives(paths []string, password string, candidates ...string) ([]extractedArchive, []string, error) {
 	archives := archivesOnly(sortedPaths(paths))
 	if len(archives) == 0 {
 		return nil, nil, errors.New("请先选择压缩包文件。")
@@ -203,7 +203,7 @@ func extractArchives(paths []string, password string) ([]extractedArchive, []str
 	var failed []string
 	passwordFails := 0
 	for _, archive := range archives {
-		dest, err := extractOne(archive, password)
+		dest, err := extractWithPasswords(archive, password, candidates)
 		if err != nil {
 			failed = append(failed, filepath.Base(archive))
 			if errors.Is(err, errNeedZipPassword) {
@@ -220,6 +220,50 @@ func extractArchives(paths []string, password string) ([]extractedArchive, []str
 		return nil, failed, errors.New("解压失败。")
 	}
 	return extracted, failed, nil
+}
+
+// zipPasswordCandidates is the ordered, de-duplicated list of saved passwords
+// to try on an encrypted archive: the default password first, then the book.
+func zipPasswordCandidates(p prefsFile) []string {
+	return mergePasswords(append([]string{p.ZipPassword}, p.ZipPasswords...))
+}
+
+func mergePasswords(list []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, pass := range list {
+		pass = strings.TrimSpace(pass)
+		if pass == "" || seen[pass] {
+			continue
+		}
+		seen[pass] = true
+		out = append(out, pass)
+	}
+	return out
+}
+
+// extractWithPasswords opens an archive without a password first, then with
+// the one the user typed, then with every saved candidate. Only when none of
+// them fit does it report errNeedZipPassword so the UI can ask.
+func extractWithPasswords(archive, password string, candidates []string) (string, error) {
+	tries := mergePasswords(append([]string{password}, candidates...))
+	if strings.TrimSpace(password) == "" {
+		tries = append([]string{""}, tries...)
+	} else {
+		tries[0] = password
+	}
+	var last error = errNeedZipPassword
+	for _, pass := range tries {
+		dest, err := extractOne(archive, pass)
+		if err == nil {
+			return dest, nil
+		}
+		if !errors.Is(err, errNeedZipPassword) {
+			return "", err
+		}
+		last = err
+	}
+	return "", last
 }
 
 func extractOne(archive, password string) (string, error) {

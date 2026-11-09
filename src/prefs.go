@@ -46,7 +46,7 @@ type viewPreferences struct {
 
 func defaultViewPreferences() viewPreferences {
 	return viewPreferences{
-		Images: true, Videos: true,
+		AllTypes: true, Images: true, Videos: true,
 		AutoPlaySelected: true, InternalPlayer: true,
 		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
 	}
@@ -58,6 +58,7 @@ type prefsFile struct {
 	QuickRename       string                `json:"quickRename,omitempty"`
 	Shortcuts         map[string]keyBinding `json:"shortcuts,omitempty"`
 	ZipPassword       string                `json:"zipPassword,omitempty"`
+	ZipPasswords      []string              `json:"zipPasswords,omitempty"`
 	ZipUsePassword    bool                  `json:"zipUsePassword,omitempty"`
 	Favorites         []string              `json:"favorites,omitempty"`
 	View              viewPreferences       `json:"view"`
@@ -95,12 +96,12 @@ type prefsFile struct {
 	// RememberPlayOff is the persisted opt-out for resume-on-reopen.
 	RememberPlayOff bool `json:"rememberPlayOff,omitempty"`
 	// TypeFilterRev marks which type-filter default has been applied.
-	// 0 is the old default (every known type on). 1 shows images and
-	// videos only until the other types are turned on in settings.
+	// 0 is the old default (every known type on). 1 showed images and
+	// videos only. 2 shows every file type, the current default.
 	TypeFilterRev int `json:"typeFilterRev,omitempty"`
 }
 
-const typeFilterRevMedia = 1
+const typeFilterRevAll = 2
 
 const (
 	// closeToTray hides the main window into the system tray.
@@ -124,13 +125,13 @@ func loadPrefs() prefsFile {
 		if !os.IsNotExist(err) {
 			logWarnf("could not read preferences %s: %v", prefsPath(), err)
 		}
-		p.TypeFilterRev = typeFilterRevMedia
+		p.TypeFilterRev = typeFilterRevAll
 		normalizePrefs(&p)
 		return p
 	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		logWarnf("preferences %s are not valid JSON (%v); using defaults", prefsPath(), err)
-		p = prefsFile{View: defaultViewPreferences(), ViewSet: true, TypeFilterRev: typeFilterRevMedia}
+		p = prefsFile{View: defaultViewPreferences(), ViewSet: true, TypeFilterRev: typeFilterRevAll}
 		normalizePrefs(&p)
 		return p
 	}
@@ -144,19 +145,21 @@ func loadPrefs() prefsFile {
 	return p
 }
 
-// migrateTypeFilterDefault moves a saved copy of the old "every type on"
-// default to images and videos only. A view the user already customized,
-// including 全部, is left alone. It reports whether the file should be
-// rewritten so a later launch does not apply the change again.
+// migrateTypeFilterDefault moves a saved copy of an older default (every
+// type on, or images and videos only) to 全部. A view the user customized
+// is left alone. It reports whether the file should be rewritten so a later
+// launch does not apply the change again.
 func migrateTypeFilterDefault(p *prefsFile) bool {
-	if p.TypeFilterRev >= typeFilterRevMedia {
+	if p.TypeFilterRev >= typeFilterRevAll {
 		return false
 	}
 	v := &p.View
-	if !v.AllTypes && v.Images && v.RAW && v.Videos && v.Archives && v.Installers {
-		v.RAW, v.Archives, v.Installers = false, false, false
+	everyType := v.Images && v.RAW && v.Videos && v.Archives && v.Installers
+	mediaOnly := v.Images && v.Videos && !v.RAW && !v.Archives && !v.Installers
+	if !v.AllTypes && (everyType || mediaOnly) {
+		v.AllTypes = true
 	}
-	p.TypeFilterRev = typeFilterRevMedia
+	p.TypeFilterRev = typeFilterRevAll
 	return true
 }
 

@@ -107,6 +107,9 @@ func (a *appState) startArchive(op fileOperation) {
 	if len(op.paths) == 0 {
 		return
 	}
+	if op.op == opExtract {
+		op.passwords = zipPasswordCandidates(a.Profiles)
+	}
 	if a.Window == nil {
 		applied, err := perform(op)
 		if err != nil {

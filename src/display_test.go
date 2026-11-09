@@ -100,14 +100,11 @@ func TestPreferencesKeepExplicitFalseValues(t *testing.T) {
 	}
 }
 
-func TestMissingPreferencesUseVisibleMediaDefaults(t *testing.T) {
+func TestMissingPreferencesShowEveryFileType(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	prefs := loadPrefs()
-	if !prefs.View.Images || !prefs.View.Videos || !prefs.View.InternalPlayer {
-		t.Fatalf("missing preferences did not show images and videos: %#v", prefs.View)
-	}
-	if prefs.View.RAW || prefs.View.Archives || prefs.View.Installers || prefs.View.AllTypes {
-		t.Fatalf("missing preferences showed other types: %#v", prefs.View)
+	if !prefs.View.AllTypes || !prefs.View.InternalPlayer {
+		t.Fatalf("missing preferences did not default to all types: %#v", prefs.View)
 	}
 }
 
@@ -138,41 +135,34 @@ func TestMediaCountExcludesFoldersAndOtherFiles(t *testing.T) {
 	}
 }
 
-func TestOldTypeDefaultMigratesToImagesAndVideos(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	old := prefsFile{ViewSet: true, View: viewPreferences{
-		Images: true, RAW: true, Videos: true, Archives: true, Installers: true,
-		Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2,
-	}}
-	savePrefs(old)
-	loaded := loadPrefs()
-	if !loaded.View.Images || !loaded.View.Videos || loaded.View.RAW || loaded.View.Archives || loaded.View.Installers {
-		t.Fatalf("old default did not narrow: %#v", loaded.View)
-	}
-	if loaded.TypeFilterRev != typeFilterRevMedia {
-		t.Fatalf("rev %d", loaded.TypeFilterRev)
-	}
-	loaded.View.Archives = true
-	savePrefs(loaded)
-	if again := loadPrefs(); !again.View.Archives || again.View.RAW || again.View.Installers {
-		t.Fatalf("explicit archive choice was reset: %#v", again.View)
+func TestOldTypeDefaultsMigrateToAllTypes(t *testing.T) {
+	base := viewPreferences{Theme: "system", AutoScrollSpeed: 60, AutoPlayInterval: 2}
+	for name, view := range map[string]viewPreferences{
+		"every type on": {Images: true, RAW: true, Videos: true, Archives: true, Installers: true},
+		"media only":    {Images: true, Videos: true},
+	} {
+		t.Setenv("HOME", t.TempDir())
+		view.Theme, view.AutoScrollSpeed, view.AutoPlayInterval = base.Theme, base.AutoScrollSpeed, base.AutoPlayInterval
+		savePrefs(prefsFile{ViewSet: true, View: view})
+		loaded := loadPrefs()
+		if !loaded.View.AllTypes || loaded.TypeFilterRev != typeFilterRevAll {
+			t.Fatalf("%s: did not move to 全部: %#v rev %d", name, loaded.View, loaded.TypeFilterRev)
+		}
 	}
 
+	// A view the user customized is kept, and a later 自定义 choice is not
+	// turned back into 全部 on the next launch.
 	t.Setenv("HOME", t.TempDir())
-	custom := old
-	custom.View.Images = false
-	savePrefs(custom)
+	savePrefs(prefsFile{ViewSet: true, View: viewPreferences{Images: true, Archives: true, Theme: "system"}})
 	kept := loadPrefs()
-	if kept.View.Images || !kept.View.RAW || !kept.View.Archives {
+	if kept.View.AllTypes || !kept.View.Archives || kept.View.Videos {
 		t.Fatalf("custom types were rewritten: %#v", kept.View)
 	}
-
-	t.Setenv("HOME", t.TempDir())
-	all := old
-	all.View.AllTypes = true
-	savePrefs(all)
-	if showAll := loadPrefs(); !showAll.View.AllTypes || !showAll.View.RAW {
-		t.Fatalf("全部 was narrowed: %#v", showAll.View)
+	kept.View.AllTypes = false
+	kept.View.Images, kept.View.Videos = true, true
+	savePrefs(kept)
+	if again := loadPrefs(); again.View.AllTypes {
+		t.Fatalf("explicit 自定义 was reset: %#v", again.View)
 	}
 }
 

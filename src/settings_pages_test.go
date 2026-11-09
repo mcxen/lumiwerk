@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -19,7 +20,7 @@ func newSettingsTestState(t *testing.T) *appState {
 // View menu already controls is repeated in settings.
 func TestSettingsPagesRenderAndNavigate(t *testing.T) {
 	a := newSettingsTestState(t)
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 600)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 900)
 	te.Frame()
 	for _, p := range settingsPages {
 		if err := te.Click(p.title); err != nil {
@@ -45,7 +46,7 @@ func TestSettingsPagesRenderAndNavigate(t *testing.T) {
 func TestSettingsBrowseControlsPersist(t *testing.T) {
 	a := newSettingsTestState(t)
 	a.setPage("browse")
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 600)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 900)
 	te.Frame()
 	if err := te.Click("打开/关闭"); err != nil {
 		t.Fatal(err)
@@ -66,11 +67,37 @@ func TestSettingsBrowseControlsPersist(t *testing.T) {
 func TestSettingsFilesPageTogglesZipDefault(t *testing.T) {
 	a := newSettingsTestState(t)
 	a.setPage("files")
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 600)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 900)
 	te.Frame()
 	for _, want := range []string{"图片复制到", "视频复制到", "重命名规则", "默认密码", "默认加密"} {
 		if !te.HasText(want) {
 			t.Fatalf("files page missing %q: %v", want, te.Texts())
+		}
+	}
+}
+
+func TestSettingsFiguresAndPasswordBookPersist(t *testing.T) {
+	a := newSettingsTestState(t)
+	a.Settings.ZipBook = "alpha\nbeta"
+	a.setPage("files")
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 900)
+	te.Frame()
+	if !te.HasText("备用密码") || !te.HasText("依次试这 2 个密码") {
+		t.Fatalf("password book missing: %v", te.Texts())
+	}
+	a.Settings.ZipBook = "alpha\nbeta\n\ngamma"
+	te.Frame()
+	if got := loadPrefs().ZipPasswords; strings.Join(got, ",") != "alpha,beta,gamma" {
+		t.Fatalf("saved passwords = %v", got)
+	}
+	for page, caption := range map[string]string{
+		"general": "跟随 macOS",
+		"browse":  "播完停在最后一帧",
+	} {
+		a.setPage(page)
+		te.Frame()
+		if !te.HasText(caption) {
+			t.Fatalf("%s figure caption %q missing: %v", page, caption, te.Texts())
 		}
 	}
 }

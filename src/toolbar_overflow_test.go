@@ -40,3 +40,56 @@ func TestToolbarOverflowLayoutLabels(t *testing.T) {
 		}
 	}
 }
+
+// TestToolbarKeepsRightClusterAndFoldsDepth checks the toolbar at the width
+// of a typical window (990pt) and a wide one: the display controls on the
+// right always stay on the bar; the depth menu shows only while recursion is
+// on and there is room, and otherwise moves into the 显示与浏览 menu.
+func TestToolbarKeepsRightClusterAndFoldsDepth(t *testing.T) {
+	for _, tc := range []struct {
+		width     int
+		recursive bool
+		depthBar  bool
+	}{
+		{990, false, false},
+		{990, true, false},
+		{1700, false, false},
+		{1700, true, true},
+	} {
+		a := &appState{
+			Thumb: 128, SidebarShown: true, SidebarWidth: sidebarDefaultWidth,
+			Root: "/Users/mcx/Downloads", Recursive: tc.recursive, Sort: "name", FilterMode: filterMedia,
+			Profiles: prefsFile{View: defaultViewPreferences()},
+		}
+		tt := ui.NewTester(func(c *ui.Context) { a.toolbarView(c) }, tc.width, 48)
+		tt.Frame()
+		tt.Frame()
+		texts := tt.Texts()
+		if has := hasText(texts, "全部层级"); has != tc.depthBar {
+			t.Fatalf("%+v: depth on the bar = %v: %v", tc, has, texts)
+		}
+		for _, want := range []string{"排序", "显示与浏览", "媒体模式：只看图片和视频"} {
+			if _, ok := tt.Find(want); !ok {
+				t.Fatalf("%+v: %q fell off the toolbar: %v", tc, want, texts)
+			}
+		}
+		if tc.width > 1000 && tc.recursive {
+			if err := tt.Click("显示与浏览"); err != nil {
+				t.Fatal(err)
+			}
+			for _, dup := range []string{"递归浏览", "包含文件夹", "递归深度"} {
+				if hasText(tt.Menu(), dup) {
+					t.Fatalf("%q repeats a toolbar control in the menu: %v", dup, tt.Menu())
+				}
+			}
+		}
+		if tc.recursive && !tc.depthBar {
+			if err := tt.Click("显示与浏览"); err != nil {
+				t.Fatal(err)
+			}
+			if !hasText(tt.Menu(), "递归深度") || !hasText(tt.Menu(), "媒体：图片") {
+				t.Fatalf("%+v: folded controls missing from the menu: %v", tc, tt.Menu())
+			}
+		}
+	}
+}

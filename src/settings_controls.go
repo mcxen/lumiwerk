@@ -67,17 +67,22 @@ func settingsPopup[T comparable](c *ui.Context, key string, value *T, options []
 	})
 	sel.Popup(func(panel ui.Element) {
 		settingsMenuPanel(panel, pal)
-		ui.Scroll(c.Key("items")).MaxHeight(280).Children(func() {
+		ui.Scroll(c.Key("items")).MaxHeight(280).MinWidth(width - 2*settingsMenuPad).Gap(0).Children(func() {
 			for _, option := range options {
 				option := option
+				// Each option is one horizontal row: check, then name.
+				// Without Row() and an explicit Children the check stacked
+				// over the name and every row grew to about 52pt.
 				item := sel.Item(option)
-				item.Height(settingsMenuItemH).Padding(0, 10).Gap(8).AlignItems(ui.Center).Radius(6)
-				if option == *value {
-					ui.Icon(c, lucideCheck).Size(13, 13).Shrink(0).TextColor(pal.text)
-				} else {
-					ui.Box(c).Size(13, 13).Shrink(0)
-				}
-				ui.Text(c, label(option)).FontSize(13).TextColor(pal.text).SingleLine()
+				item.Row().Height(settingsMenuItemH).Shrink(0).Padding(0, 10).Gap(8).AlignItems(ui.Center).Radius(6)
+				item.Children(func() {
+					if option == *value {
+						ui.Icon(c, lucideCheck).Size(13, 13).Shrink(0).TextColor(pal.text)
+					} else {
+						ui.Box(c).Size(13, 13).Shrink(0)
+					}
+					ui.Text(c, label(option)).FontSize(13).TextColor(pal.text).SingleLine()
+				})
 			}
 		})
 	})

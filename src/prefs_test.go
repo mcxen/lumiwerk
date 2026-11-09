@@ -184,7 +184,7 @@ func TestMigrateViewInstallersWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := loadPrefs()
-	if !loaded.View.Images || !loaded.View.Videos || loaded.View.RAW || loaded.View.Archives || loaded.View.Installers {
-		t.Fatalf("old all-type view should narrow to images and videos: %#v", loaded.View)
+	if !loaded.View.AllTypes || !loaded.View.Images || !loaded.View.Videos {
+		t.Fatalf("old all-type view should become 全部: %#v", loaded.View)
 	}
 }

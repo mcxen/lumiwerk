@@ -172,3 +172,46 @@ func TestEncryptedZipPromptsAndDropSource(t *testing.T) {
 func errorsIsPassword(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "需要密码")
 }
+
+func TestExtractTriesSavedPasswordsInOrder(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/zip"); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(src, []byte("top"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := perform(fileOperation{op: opCompress, paths: []string{src}, password: "third"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipPath := applied.created[0]
+
+	// No saved password fits: the caller must be asked.
+	_, err = perform(fileOperation{op: opExtract, paths: []string{zipPath}, passwords: []string{"one", "two"}})
+	if !errorsIsPassword(err) {
+		t.Fatalf("no match err = %v", err)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(dir, "secret")); len(matches) != 0 {
+		t.Fatalf("failed attempts left %v", matches)
+	}
+
+	// The third saved password opens it without asking.
+	got, err := perform(fileOperation{op: opExtract, paths: []string{zipPath}, passwords: []string{"one", "two", "third"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(got.created[0], "secret.txt"))
+	if err != nil || string(data) != "top" {
+		t.Fatalf("decrypted = %q err=%v", data, err)
+	}
+}
+
+func TestZipPasswordCandidatesOrderAndDedupe(t *testing.T) {
+	got := zipPasswordCandidates(prefsFile{ZipPassword: " main ", ZipPasswords: []string{"a", "main", "", "b", "a"}})
+	want := []string{"main", "a", "b"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("candidates = %v, want %v", got, want)
+	}
+}

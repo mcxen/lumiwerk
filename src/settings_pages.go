@@ -17,6 +17,7 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			[]string{"system", "light", "dark"}, []string{"跟随系统", "浅色", "深色"}) {
 			a.setTheme(a.Profiles.View.Theme)
 		}
+		figureTheme(c, pal, a.Profiles.View.Theme)
 	})
 	setGroup(c, "启动", func() {
 		if setToggleHint(c, "restore-session", "恢复上次会话", "重新打开上次的文件夹和标签页", &a.Profiles.RestoreSession) {
@@ -35,6 +36,7 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			}
 			savePrefs(a.Profiles)
 		}
+		figureClose(c, pal, a.Profiles.CloseAction)
 	})
 }
 
@@ -79,11 +81,13 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 				a.setViewFilter()
 			}
 		}
+		figureTypes(c, pal, *view)
 	})
 	setGroup(c, "浏览", func() {
 		if setChoiceHint(c, "enter", "按 Enter 时", "对选中的文件", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开/关闭"}) {
 			a.applyActionSettings()
 		}
+		figureEnter(c, pal, a.Settings.EnterOpens)
 		if setToggleHint(c, "autoplay-selected", "选中即播", "在浏览器里选中视频就开始预览", &a.Profiles.View.AutoPlaySelected) {
 			savePrefs(a.Profiles)
 		}
@@ -93,6 +97,7 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 			[]string{playbackEndStop, playbackEndNext, playbackEndLoop}, []string{"停住", "下一个", "循环"}) {
 			a.applyActionSettings()
 		}
+		figurePlayEnd(c, pal, a.Settings.PlaybackEnd)
 		if setToggleHint(c, "remember-play", "记住播放进度", "下次从上次看到的位置继续", &a.Profiles.RememberPlayProgress) {
 			a.Profiles.RememberPlayOff = !a.Profiles.RememberPlayProgress
 			savePrefs(a.Profiles)

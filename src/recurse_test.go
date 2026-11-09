@@ -103,12 +103,7 @@ func TestRecurseToolbarSummaryAndWaterfallMarks(t *testing.T) {
 	texts := te.Texts()
 	for _, want := range []string{
 		"递归",
-		"全部",
-		"图片",
-		"视频",
 		"全部层级",
-		"1 层",
-		"2 层",
 		"已展开 2 个子文件夹，平铺显示全部 2 项（1 图片 · 1 视频）",
 		"RAW 原片/太平山等日出",
 		"1:23",
@@ -117,19 +112,45 @@ func TestRecurseToolbarSummaryAndWaterfallMarks(t *testing.T) {
 			t.Fatalf("missing %q in %v", want, texts)
 		}
 	}
-	if err := te.Click("2 层"); err != nil {
+	if err := te.Click("递归深度"); err != nil {
 		t.Fatal(err)
+	}
+	if err := te.ChooseMenuItem("2 层"); err != nil {
+		t.Fatalf("depth menu %v: %v", te.Menu(), err)
 	}
 	te.Frame()
 	if a.Profiles.View.RecurseDepth != 2 {
 		t.Fatalf("depth %d", a.Profiles.View.RecurseDepth)
 	}
+	// Media mode: one click lists images and videos; the two kind buttons
+	// are independent toggles, and the last one on cannot be switched off.
+	if err := te.Click("媒体模式：只看图片和视频"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if a.FilterMode != filterMedia {
+		t.Fatalf("media mode filter %d", a.FilterMode)
+	}
+	if err := te.Click("视频"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if a.FilterMode != filterImages {
+		t.Fatalf("images only filter %d", a.FilterMode)
+	}
 	if err := te.Click("图片"); err != nil {
 		t.Fatal(err)
 	}
 	te.Frame()
-	if a.FilterMode != 1 {
-		t.Fatalf("filter %d", a.FilterMode)
+	if a.FilterMode != filterImages {
+		t.Fatalf("the last kind was switched off: %d", a.FilterMode)
+	}
+	if err := te.Click("视频"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if a.FilterMode != filterMedia {
+		t.Fatalf("both kinds filter %d", a.FilterMode)
 	}
 	if err := te.Click("排序"); err != nil {
 		t.Fatal(err)

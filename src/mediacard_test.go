@@ -1,6 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -150,4 +156,51 @@ func absDiff(a, b uint32) uint32 {
 		return a - b
 	}
 	return b - a
+}
+
+// TestSelectedCardUsesFinderStyle checks the selection chrome: the name turns
+// into an accent pill, the thumbnail gets a plate, and neither moves the
+// neighbouring card.
+func TestSelectedCardUsesFinderStyle(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	count := func(img image.Image, want color.RGBA) int {
+		n := 0
+		b := img.Bounds()
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				r, g, bl, _ := img.At(x, y).RGBA()
+				if uint8(r>>8) == want.R && uint8(g>>8) == want.G && uint8(bl>>8) == want.B {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	for _, layout := range []int{0, 3, 4, 5} {
+		a := mediaCardState(layout)
+		var accent ui.Color
+		te := ui.NewTester(func(c *ui.Context) { accent = c.Theme().Accent; a.view(c) }, 1000, 700)
+		te.SetDark(layout >= 4)
+		te.Frame()
+		te.Frame()
+		pill := color.RGBA{R: accent.R, G: accent.G, B: accent.B, A: 255}
+		before, _ := te.Find("b.mp4")
+		base := count(te.Image(), pill)
+		a.Chosen = 0
+		a.Selected.Add("/probe/a.jpg")
+		te.Frame()
+		te.Frame()
+		if n := count(te.Image(), pill); n < base+40 {
+			t.Fatalf("layout %d: name pill missing (%d accent pixels, %d before)", layout, n, base)
+		}
+		after, _ := te.Find("b.mp4")
+		if before != after {
+			t.Fatalf("layout %d: selecting moved the next card %v -> %v", layout, before, after)
+		}
+		if dir := os.Getenv("LW_CARD_SHOTS"); dir != "" {
+			f, _ := os.Create(filepath.Join(dir, fmt.Sprintf("select-%d.png", layout)))
+			_ = png.Encode(f, te.Image())
+			f.Close()
+		}
+	}
 }

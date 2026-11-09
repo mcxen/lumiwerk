@@ -147,6 +147,9 @@ type appState struct {
 	Chosen     int
 	Selected   ui.Selection[string]
 	FilterMode int
+	// toolbarCompact is set while the window is too narrow for the full
+	// recursion and media controls; they then live in the 显示与浏览 menu.
+	toolbarCompact bool
 	// menuPath is the sidebar folder whose context menu is being built.
 	menuPath string
 
@@ -320,7 +323,6 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Role: mygo.RoleOpenRecent},
 			{Label: "上级目录", Accelerator: "CmdOrCtrl+Up", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.goUp() }) }},
 			mygo.Separator(),
-			{Label: "递归浏览", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.setRecursive(!a.Recursive) }) }},
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.setCopyDestination", a.setCopyDestination) }},
 			{Label: "设置…", Accelerator: a.accel("settings"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.openSettings(); a.settingsWindow() })
@@ -329,9 +331,6 @@ func newAppMenu(a *appState) *mygo.Menu {
 			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
 			{Label: "移动到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opMove) }) }},
 			{Label: "新建文本文件", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.newTextFile() }) }},
-			{Label: "按文件夹名重命名", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.update(func() { a.renameByFolderName() })
-			}},
 			{Label: "快速重命名当前目录", Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
 				a.update(func() { a.quickRenameFolder() })
 			}},
@@ -761,18 +760,63 @@ func (a *appState) layoutSwitcher(c *ui.Context) {
 	})
 }
 
-// filterSwitcher is 全部 / 图片 / 视频 as icons.
+// filterSwitcher is the media mode: one button turns it on or off, and while
+// it is on the image and video buttons are independent toggles, so either or
+// both can be listed. The last one on cannot be turned off; turn the mode off
+// instead.
 func (a *appState) filterSwitcher(c *ui.Context) {
-	if a.FilterMode < 0 || a.FilterMode > 2 {
-		a.FilterMode = 0
+	if a.FilterMode < filterAll || a.FilterMode > filterMedia {
+		a.FilterMode = filterAll
 	}
-	if iconSegmented(c.Key("filter-kind"), &a.FilterMode, []iconChoice{
-		{allTypesIcon, "全部"},
-		{imageIcon, "图片"},
-		{videoIcon, "视频"},
-	}) {
-		a.applyFilter()
+	t := c.Theme()
+	on := a.FilterMode != filterAll
+	mode := lucideIconButton(c, "media-mode", "媒体模式：只看图片和视频", allTypesIcon)
+	if on {
+		mode.Background(t.Accent).TextColor(t.AccentText)
 	}
+	if mode.Clicked() {
+		a.setFilterMode(map[bool]int{true: filterAll, false: filterMedia}[on])
+	}
+	if !on || a.toolbarCompact {
+		return
+	}
+	images := a.FilterMode == filterImages || a.FilterMode == filterMedia
+	videos := a.FilterMode == filterVideos || a.FilterMode == filterMedia
+	img := lucideIconButton(c, "media-images", "图片", imageIcon)
+	if images {
+		img.Background(t.Accent).TextColor(t.AccentText)
+	}
+	if img.Clicked() && !(images && !videos) {
+		a.setFilterMode(toFilterMode(!images, videos))
+	}
+	vid := lucideIconButton(c, "media-videos", "视频", videoIcon)
+	if videos {
+		vid.Background(t.Accent).TextColor(t.AccentText)
+	}
+	if vid.Clicked() && !(videos && !images) {
+		a.setFilterMode(toFilterMode(images, !videos))
+	}
+}
+
+// toFilterMode is the media mode for the two toggles; both off is filterAll.
+func toFilterMode(images, videos bool) int {
+	switch {
+	case images && videos:
+		return filterMedia
+	case images:
+		return filterImages
+	case videos:
+		return filterVideos
+	}
+	return filterAll
+}
+
+func (a *appState) setFilterMode(mode int) {
+	if a.FilterMode == mode {
+		return
+	}
+	a.FilterMode = mode
+	a.applyFilter()
 }
 
 // setThumb moves the thumbnail slider from old to next and keeps the row
@@ -941,7 +985,7 @@ func (a *appState) applyFilterLocked() {
 	anchor := a.takeSelectionAnchorLocked()
 	a.Visible = a.Visible[:0]
 	q := strings.ToLower(strings.TrimSpace(a.Query))
-	mediaOnly := a.FilterMode == 1 || a.FilterMode == 2
+	mediaOnly := a.FilterMode != filterAll
 	kind := filterMediaKind(a.FilterMode)
 	showHidden := a.Profiles.View.Hidden
 	for i := range a.Items {
@@ -959,7 +1003,7 @@ func (a *appState) applyFilterLocked() {
 			}
 		} else {
 			ext := a.Items[i].Ext
-			if (a.FilterMode == 1 && (!isImageFile(ext) && !isRawFile(ext))) || (a.FilterMode == 2 && !isVideoFile(ext)) {
+			if a.FilterMode != filterAll && !matchesMediaKind(ext, filterMediaKind(a.FilterMode)) {
 				continue
 			}
 		}
@@ -1131,7 +1175,7 @@ func (a *appState) treeChildren(path string) []string {
 // filterTreeDirs applies 仅媒体 folder hiding to the sidebar outline.
 // Unknown folders stay until a background scan proves they have no media.
 func (a *appState) filterTreeDirs(dirs []string) []string {
-	if a.FilterMode != 1 && a.FilterMode != 2 {
+	if a.FilterMode == filterAll {
 		return dirs
 	}
 	kind := filterMediaKind(a.FilterMode)
@@ -1862,8 +1906,18 @@ func toolbarCluster(c *ui.Context, grow bool, fn func()) {
 	row.Children(fn)
 }
 
+// toolbarFullWidth is what the toolbar needs, beside the sidebar, to show
+// the path (at least 200), the recursion depth and the media kind buttons
+// together with the display controls, which always stay on the bar.
+const toolbarFullWidth = 980
+
 func (a *appState) toolbarView(c *ui.Context) {
 	t := c.Theme()
+	avail, _ := c.Size()
+	if a.SidebarShown && !a.InLargeView {
+		avail -= float32(a.SidebarWidth)
+	}
+	a.toolbarCompact = avail < toolbarFullWidth
 	bar := ui.Toolbar(c, func() {
 		// 左块：侧栏、前进后退、面包屑。块宽随窗口伸缩，路径先收缩。
 		toolbarCluster(c, true, func() {

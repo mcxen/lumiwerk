@@ -85,12 +85,23 @@ var folderMedia = &presenceCache{
 	archive:  map[archiveKey]archiveDir{},
 }
 
+// The toolbar's media mode. filterAll lists every file type the view allows;
+// filterImages and filterVideos list only that kind; filterMedia lists both.
+const (
+	filterAll    = 0
+	filterImages = 1
+	filterVideos = 2
+	filterMedia  = 3
+)
+
 func filterMediaKind(mode int) mediaKind {
 	switch mode {
 	case 1:
 		return mediaKindImage
 	case 2:
 		return mediaKindVideo
+	case filterMedia:
+		return mediaKindAny
 	default:
 		return mediaKindAny
 	}

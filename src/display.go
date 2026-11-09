@@ -138,21 +138,41 @@ func (a *appState) openItem(index int) {
 }
 
 // viewMenu is the toolbar's 显示与浏览 menu: frequent toggles only.
-// Toolbar buttons (sidebar, 无字模式, filter, layout, sort, gallery) and
+// Toolbar controls (sidebar, 无字模式, media mode, recursion and its depth,
+// layout, sort, gallery) and
 // set-and-forget preferences (file types, theme) are not repeated here.
 func (a *appState) viewMenu(m *ui.Menu) {
 	view := a.Profiles.View
 	if m.Item("显示隐藏文件").Checked(view.Hidden).Shortcut(a.menuKey(a.binding("hidden"))).Chosen() {
 		a.toggleViewOption("hidden")
 	}
-	if m.Item("递归浏览").Checked(a.Recursive).Shortcut(a.menuKey(a.binding("recursive"))).Chosen() {
-		a.setRecursive(!a.Recursive)
-	}
-	if m.Item("包含文件夹").Checked(view.RecursiveFolders).Disabled(!a.Recursive).Shortcut(a.menuKey(a.binding("folders"))).Chosen() {
-		a.toggleViewOption("folders")
-	}
 	if m.Item("媒体单元模式").Checked(a.MediaUnitRoot != "").Chosen() {
 		a.setMediaUnit(a.MediaUnitRoot == "")
+	}
+	if a.toolbarCompact {
+		// The window is too narrow for these on the toolbar.
+		if a.Recursive {
+			m.Submenu("递归深度", func(sub *ui.Menu) {
+				for i, name := range []string{"全部层级", "1 层", "2 层"} {
+					if sub.Item(name).Checked(view.RecurseDepth == i).Chosen() {
+						a.setRecurseDepth(i)
+					}
+				}
+			})
+			if m.Item("包含文件夹").Checked(view.RecursiveFolders).Chosen() {
+				a.toggleViewOption("folders")
+			}
+		}
+		if a.FilterMode != filterAll {
+			images := a.FilterMode == filterImages || a.FilterMode == filterMedia
+			videos := a.FilterMode == filterVideos || a.FilterMode == filterMedia
+			if m.Item("媒体：图片").Checked(images).Chosen() && !(images && !videos) {
+				a.setFilterMode(toFilterMode(!images, videos))
+			}
+			if m.Item("媒体：视频").Checked(videos).Chosen() && !(videos && !images) {
+				a.setFilterMode(toFilterMode(images, !videos))
+			}
+		}
 	}
 	m.Separator()
 	if m.Item("自动滚动").Checked(a.AutoScroll).Disabled(a.InLargeView).Chosen() {

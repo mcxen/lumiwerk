@@ -23,6 +23,7 @@ type settingsState struct {
 	CacheCap       float64
 	QuickRule      string
 	ZipPassword    string
+	ZipBook        string // extra passwords, one per line
 	ZipUsePassword bool
 	// StartFolder is the folder the next launch opens, kept apart from the
 	// live Root so choosing one does not move the browser.
@@ -42,6 +43,7 @@ func (a *appState) openSettings() {
 		CacheCap:       cacheCapMiB(thumbLRU.Limit()),
 		QuickRule:      a.Profiles.QuickRename,
 		ZipPassword:    a.Profiles.ZipPassword,
+		ZipBook:        strings.Join(a.Profiles.ZipPasswords, "\n"),
 		ZipUsePassword: a.Profiles.ZipUsePassword,
 		UpdateSource:   a.Profiles.UpdateSource,
 	}
@@ -129,6 +131,7 @@ func (a *appState) applyActionSettings() {
 	a.Profiles.ImageDestination = strings.TrimSpace(a.Settings.Dest)
 	a.Profiles.VideoDestination = strings.TrimSpace(a.Settings.VideoDest)
 	a.Profiles.ZipPassword = a.Settings.ZipPassword
+	a.Profiles.ZipPasswords = mergePasswords(strings.Split(a.Settings.ZipBook, "\n"))
 	a.Profiles.ZipUsePassword = a.Settings.ZipUsePassword
 	if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
 		a.Profiles.Profiles[a.Profiles.Active].Destination = a.Profiles.ImageDestination

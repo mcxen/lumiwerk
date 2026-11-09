@@ -137,17 +137,20 @@ const (
 )
 
 type fileOperation struct {
-	op         fileOp
-	paths      []string
-	dest       string
-	newName    string
-	mappings   []pathPair
-	created    []string
-	cut        bool
-	replace    bool
-	replaced   bool
-	permanent  bool
-	password   string
+	op        fileOp
+	paths     []string
+	dest      string
+	newName   string
+	mappings  []pathPair
+	created   []string
+	cut       bool
+	replace   bool
+	replaced  bool
+	permanent bool
+	password  string
+	// passwords are the saved candidates an extraction tries in turn when
+	// the archive is encrypted and password did not open it.
+	passwords  []string
 	dropSource bool
 	detail     string
 	// onStep, when set, runs after each path a copy or move places, from
@@ -245,7 +248,7 @@ func perform(op fileOperation) (fileOperation, error) {
 			}
 		}
 	case opExtract:
-		extracted, failed, err := extractArchives(op.paths, op.password)
+		extracted, failed, err := extractArchives(op.paths, op.password, op.passwords...)
 		if err != nil {
 			return op, err
 		}

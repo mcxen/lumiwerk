@@ -178,11 +178,26 @@ func (a *appState) recurseControls(c *ui.Context) {
 			a.setRecursive(a.Recursive)
 		}
 		ui.Text(c, "递归").FontSize(12).SingleLine()
-		depth := a.Profiles.View.RecurseDepth
-		seg := ui.Segmented(c.Key("recurse-depth"), &depth, "全部层级", "1 层", "2 层").Label("递归深度").Disabled(!a.Recursive)
-		if seg.Changed() {
-			a.setRecurseDepth(depth)
+		if !a.Recursive || a.toolbarCompact {
+			// Depth and folders mean nothing until recursion is on; in a
+			// narrow window they move into the 显示与浏览 menu.
+			return
 		}
+		// Depth and 含文件夹 share one compact menu, so recursion costs the
+		// toolbar a single small button and the right-hand controls stay put.
+		depth := a.Profiles.View.RecurseDepth
+		names := []string{"全部层级", "1 层", "2 层"}
+		ui.MenuButton(c.Key("recurse-options"), names[min(max(depth, 0), 2)], func(m *ui.Menu) {
+			for i, name := range names {
+				if m.Item(name).Checked(depth == i).Chosen() {
+					a.setRecurseDepth(i)
+				}
+			}
+			m.Separator()
+			if m.Item("包含文件夹").Checked(a.Profiles.View.RecursiveFolders).Chosen() {
+				a.toggleViewOption("folders")
+			}
+		}).Label("递归深度").Tooltip("递归深度与文件夹")
 	})
 }
 

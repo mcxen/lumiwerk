@@ -140,3 +140,32 @@ methods such as `commitAutoConfig`, not only tests calling `savePrefs` directly.
 - File tags and ★ ratings: macOS writes the Finder tag xattr on the file. Windows and Linux use the path-keyed store in `src/tagstore.go` (`<config dir>/lumiwerk/filetags.json`); in-app moves and renames migrate entries, changes made outside the app are not followed.
 - Trash: macOS uses Finder, Windows the Recycle Bin, Linux `gio trash` or the XDG trash (`src/xdgtrash.go`, with `.trashinfo`).
 - "Open with": macOS LaunchServices, Windows the Explorer `OpenWithList` registry key. Not available on Linux. The share menu is macOS only.
+
+## ZIP password book
+
+`prefsFile.ZipPasswords` holds extra passwords next to `ZipPassword` (the
+default, also used for encrypted compression). `startArchive` hands the merged,
+de-duplicated list (`zipPasswordCandidates`) to every extraction;
+`extractWithPasswords` tries no password, the typed one, then each saved one,
+and only returns `errNeedZipPassword` (the prompt) when none fit. Passwords are
+never logged. Settings pages draw a small schematic of each effect from
+`settings_figures.go`; add one with `setFigure` when a setting changes
+something the user cannot see in the row itself.
+
+## Shared MyGo components
+
+Build screens from these helpers instead of new widget scaffolding:
+`controlbar.go` (floating bar shell, icon buttons, chips), `settings_form.go`
+(`setGroup`, `setRow`, `setSelect`, `setSegmented`, `setToggle`, `setText`,
+`setBook`), `settings_controls.go` (`settingsPopup`, the one dropdown) and
+`settings_figures.go` (`setFigure`). Rules learned the hard way:
+
+- A mygo part such as `sel.Item(v)` takes its content from `.Children(...)`.
+  Putting `ui.Icon`/`ui.Text` after it, un-nested, stacks them in a column and
+  inflates the row. Give every row `.Row()` and an explicit `Children`.
+- A toolbar overflows from its last control, so the controls that must stay
+  visible (the display cluster) go last and the optional ones fold into the
+  显示与浏览 menu via `a.toolbarCompact`. Never show the same command on the
+  toolbar and in that menu at once.
+- Each shared widget gets a `ui.NewTester` test of its geometry, not only its
+  text (see `settings_controls_test.go`).
