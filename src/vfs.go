@@ -40,6 +40,9 @@ type scanEntry struct {
 // scanDir lists the immediate children of root, with platform-aware hidden
 // detection. It is the single choke point for directory browsing.
 func scanDir(root string) ([]scanEntry, error) {
+	if archive, inner, ok := archiveLocation(root); ok {
+		return archiveChildren(archive, inner)
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
@@ -88,7 +91,7 @@ func entryHidden(name string, info os.FileInfo) bool {
 // probeImageSize reads an image's pixel size from its header alone. It never
 // spawns a process and covers every format DecodeBitmap accepts plus TIFF.
 func probeImageSize(path string) (int, int) {
-	file, err := os.Open(path)
+	file, err := os.Open(realPathOr(path))
 	if err != nil {
 		return 0, 0
 	}

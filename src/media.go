@@ -162,6 +162,9 @@ type fileOperation struct {
 // mapping so swaps and case-only changes roll back together. The returned
 // operation records the paths that were actually created or moved.
 func perform(op fileOperation) (fileOperation, error) {
+	if err := rejectArchiveMembers(op); err != nil {
+		return op, err
+	}
 	switch op.op {
 	case opCopy, opMove:
 		if len(op.mappings) > 0 && op.op == opMove {

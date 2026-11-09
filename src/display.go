@@ -128,6 +128,10 @@ func (a *appState) openItem(index int) {
 	if item == nil {
 		return
 	}
+	if !item.IsDir && isBrowsableArchive(item.Name) {
+		a.openFolder(item.Path)
+		return
+	}
 	if !item.IsDir && !item.IsVideo && !isImageFile(item.Ext) && !isRawFile(item.Ext) {
 		_ = openWithDefault(item.Path)
 		return

@@ -471,7 +471,7 @@ func (a *appState) noteRecentFolder(path string) {
 
 func (a *appState) openFolder(path string) {
 	path = filepath.Clean(path)
-	if path == "" || !isDir(path) || path == a.Root {
+	if path == "" || !(isDir(path) || isArchiveDir(path)) || path == a.Root {
 		return
 	}
 
@@ -518,7 +518,9 @@ func (a *appState) openFolder(path string) {
 	// so switching to 图片/视频 does not wait on a cold scan.
 	showHidden := a.Profiles.View.Hidden
 	folderMedia.SetPreferHidden(showHidden)
-	folderMedia.Prewarm(path, showHidden)
+	if _, _, inArchive := archiveLocation(path); !inArchive {
+		folderMedia.Prewarm(path, showHidden)
+	}
 	a.refreshView()
 }
 
@@ -546,7 +548,8 @@ func (a *appState) scanFolder(root string, seq int) {
 	mediaUnitRoot := a.MediaUnitRoot
 	a.mu.Unlock()
 	var files []mediaItem
-	flat := recursive || mediaUnitRoot == root
+	_, _, inArchive := archiveLocation(root)
+	flat := !inArchive && (recursive || mediaUnitRoot == root)
 	includeFile := func(path, ext string) bool {
 		if !view.Hidden && isHiddenPath(root, path) {
 			return false
@@ -1046,6 +1049,10 @@ func (a *appState) startWatcher() {
 	if a.isShelved() || a.Root == "" {
 		return
 	}
+	// An archive is one file: there is nothing below it for the disk watcher.
+	if _, _, inArchive := archiveLocation(a.Root); inArchive {
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	a.watchCtx = ctx
@@ -1306,7 +1313,7 @@ func (a *appState) loadThumb(root string, index int) {
 			}
 		}
 		if err != nil && !video {
-			data, err = os.ReadFile(path)
+			data, err = os.ReadFile(realPathOr(path))
 		}
 		var bitmap *ui.Bitmap
 		if err == nil {

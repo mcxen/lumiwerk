@@ -133,6 +133,7 @@ func (a *appState) applyActionSettings() {
 	a.Profiles.ZipPassword = a.Settings.ZipPassword
 	a.Profiles.ZipPasswords = mergePasswords(strings.Split(a.Settings.ZipBook, "\n"))
 	a.Profiles.ZipUsePassword = a.Settings.ZipUsePassword
+	setArchivePasswords(zipPasswordCandidates(a.Profiles))
 	if a.Profiles.Active >= 0 && a.Profiles.Active < len(a.Profiles.Profiles) {
 		a.Profiles.Profiles[a.Profiles.Active].Destination = a.Profiles.ImageDestination
 	}

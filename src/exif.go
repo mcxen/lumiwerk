@@ -20,7 +20,7 @@ func probeExif(path string, info *mediaInfo) {
 	default:
 		return
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(realPathOr(path))
 	if err != nil {
 		return
 	}

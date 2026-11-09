@@ -30,7 +30,7 @@ func (a *appState) ensureGIF(item *mediaItem) bool {
 		return true
 	}
 	a.closeGIF()
-	data, err := os.ReadFile(item.Path)
+	data, err := os.ReadFile(realPathOr(item.Path))
 	if err != nil {
 		return false
 	}

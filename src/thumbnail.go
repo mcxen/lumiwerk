@@ -99,7 +99,7 @@ func largeStageEdge(stage float32) int {
 // (sips on macOS, in-process Go elsewhere); videos take one scaled frame.
 // Callers fall back to the original bytes if this fails.
 func thumbBytes(path string, video bool, edge int) ([]byte, error) {
-	return mediaThumbJPEG(path, video, edge)
+	return mediaThumbJPEG(realPathOr(path), video, edge)
 }
 
 // decodeLargeBitmap decodes the original for 1:1 zoom. edge is the stage
@@ -108,6 +108,10 @@ func thumbBytes(path string, video bool, edge int) ([]byte, error) {
 // larger than largeMaxSide are always capped so one photo cannot
 // exhaust memory.
 func decodeLargeBitmap(path string, edge int) (*ui.Bitmap, error) {
+	path, err := realPath(path)
+	if err != nil {
+		return nil, err
+	}
 	data, err := decodeLargeImage(path, edge)
 	if err != nil {
 		return nil, err

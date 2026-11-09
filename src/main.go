@@ -31,6 +31,7 @@ func main() {
 
 	a := &appState{Chosen: -1, LargeIndex: -1, keyPivot: -1, Thumb: defaultThumb, LayoutMode: defaultLayout, FolderFirst: true}
 	a.Profiles = loadPrefs()
+	setArchivePasswords(zipPasswordCandidates(a.Profiles))
 	thumbLRU.SetLimit(a.Profiles.ThumbCacheMiB << 20)
 	a.VideoVolume = normalizedPlaybackVolume(a.Profiles.Volume)
 	a.PrevVolume = normalizedPlaybackVolume(a.Profiles.PreviousVolume)

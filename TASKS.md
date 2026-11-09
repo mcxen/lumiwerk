@@ -208,3 +208,6 @@ Reference screenshots: `docs/ref-grid.png`, `docs/ref-large-image.png`
 - [x] T27.3 统一右键菜单（`src/menus.go`）：`menuEntries` 一张注册表，按 surface（项目/大图/空白处）与选中内容（单个/多个、文件夹、图片、视频、压缩包）决定显示与禁用，分隔线自动收拢；`fileMenu`/`fileContextMenu`/`largeContextMenu` 都从它生成；网格/瀑布流/列表的空白处现在也有右键菜单（粘贴、新建、全选、刷新…）
 - [x] T27.4 右键按下不再被右键拖拽手势吞掉：主列的 HandleInput 放行右键，手势改由 ObserveInput 观察按下/松开，主界面的右键菜单恢复可开
 - [x] T27.5 跨目录批量压缩：递归浏览里框选来自多个子文件夹的文件，ZIP 存到它们的共同上级并保留相对路径（原先报「请在同一目录下选择」）
+- [x] T28.1 压缩包当作文件夹浏览（`src/vpath.go`）：`/a/b.cbz/ch1/p01.jpg` 这样的虚拟路径（普通文件下不可能有子项，所以拆分无歧义，面包屑与「上一级」不用改）；ZIP/CBZ 读中央目录，RAR/CBR/7Z/TAR 系/LZH/CAB/ISO 走 bsdtar 列目录；`scanDir` 在压缩包内返回合成的文件夹与条目，隐藏 `__MACOSX`、`.DS_Store`
+- [x] T28.2 条目按需解压到缓存（`realPath`）：缩略图、大图、尺寸探测、EXIF、GIF、视频播放都在各自的打开点调用；ZIP 随机读单个条目，其它格式 2 GiB 内整包解压一次，更大的逐条解；缓存键含压缩包 mtime+size，7 天未用自动清理；加密条目走密码本
+- [x] T28.3 双击压缩包进入；压缩包内项目只读（`rejectArchiveMembers`），不监听磁盘、不预热媒体索引

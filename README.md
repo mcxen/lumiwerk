@@ -35,7 +35,8 @@ A fast, native media browser for photos and videos. Built with Go and [MyGo](htt
 - Covers come from embedded artwork first, then FFmpeg and the system.
 
 **Archives**
-- Browse inside ZIP files. Keep a password book and Lumiwerk tries each saved password when extracting.
+- Open ZIP, CBZ, RAR, CBR, 7Z, TAR and more as folders, with thumbnails and the large view, no extracting first. Members are read-only; extract to change them.
+- Keep a password book and Lumiwerk tries each saved password when browsing or extracting.
 
 **Everyday polish**
 - A menu bar item with recent folders, a global show/hide hotkey and a Dock policy.

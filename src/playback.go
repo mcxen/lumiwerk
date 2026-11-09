@@ -214,7 +214,7 @@ func (s *playbackSession) openLocked(path string, at float64, playing bool) erro
 	s.buffered = s.position
 	s.stalled = false
 	s.phase = playLoading
-	if err := s.backend.Open(path, at, playing); err != nil {
+	if err := s.backend.Open(realPathOr(path), at, playing); err != nil {
 		return s.failOpen(path, err)
 	}
 	s.backend.SetVolume(s.volume)
