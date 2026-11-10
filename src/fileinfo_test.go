@@ -41,7 +41,7 @@ func TestDescribeAndDuplicate(t *testing.T) {
 	}
 }
 
-func TestFinderTagRoundTripAndRating(t *testing.T) {
+func TestFinderTagRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "pic.jpg")
 	if err := os.WriteFile(file, []byte("not-a-real-jpeg"), 0o644); err != nil {
@@ -61,20 +61,6 @@ func TestFinderTagRoundTripAndRating(t *testing.T) {
 	tags, err = urlTags(file)
 	if err != nil || containsString(tags, "LumiwerkTest") {
 		t.Fatalf("after remove = %#v err=%v", tags, err)
-	}
-	if err := applyRating([]string{file}, 4); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyRating([]string{file}, 2); err != nil {
-		t.Fatal(err)
-	}
-	tags, err = urlTags(file)
-	if err != nil || !containsString(tags, "评分2") || containsString(tags, "评分4") {
-		t.Fatalf("rating tags = %#v err=%v", tags, err)
-	}
-	item := mediaItem{Tags: tags}
-	if ratingFor(&item) != 2 {
-		t.Fatalf("rating = %d", ratingFor(&item))
 	}
 	labels := finderLabelNames()
 	if len(labels) < 7 {

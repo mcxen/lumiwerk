@@ -21,7 +21,7 @@ A fast, native media browser for photos and videos. Built with Go and [MyGo](htt
 **Select and act**
 - Rubber-band selection: drag on empty space to select files and folders, and use Shift to add or Cmd to toggle.
 - One context menu for every surface. Items follow what is selected, and recursive selections work in a single step: copy, move, rename, zip, tag, trash.
-- Batch rename with a live preview, undo and redo for file operations, and Finder tags and ratings.
+- Batch rename with a live preview, undo and redo for file operations, and Finder tags.
 
 **View**
 - A large viewer with pointer-anchored zoom, fit and 1:1, rotate, mirror, and EXIF and file info overlays.

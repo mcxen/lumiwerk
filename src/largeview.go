@@ -245,24 +245,6 @@ func (a *appState) knownDuration() (float64, bool) {
 	return item.Info.DurationSec, true
 }
 
-// ratingFor reads a 1-5 rating from Finder tags such as "评分3" or "3 星".
-func ratingFor(item *mediaItem) int {
-	if item == nil {
-		return 0
-	}
-	for _, tag := range item.Tags {
-		if !isRatingTag(tag) {
-			continue
-		}
-		for _, r := range tag {
-			if r >= '1' && r <= '5' {
-				return int(r - '0')
-			}
-		}
-	}
-	return 0
-}
-
 // tagColor maps Finder tag names to their system colors.
 func tagColor(tag string) ui.Color {
 	switch {

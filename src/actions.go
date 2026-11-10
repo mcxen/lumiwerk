@@ -1655,43 +1655,7 @@ func (a *appState) tagMenu(m *ui.Menu, paths []string) {
 		if sub.Item("移除所有标签").Chosen() {
 			a.clearTags(kept)
 		}
-		if allImages(kept) {
-			sub.Separator()
-			a.ratingMenu(sub, kept)
-		}
 	})
-}
-
-func (a *appState) ratingMenu(m *ui.Menu, paths []string) {
-	if !allImages(paths) {
-		return
-	}
-	kept := append([]string(nil), paths...)
-	m.Submenu("评级", func(sub *ui.Menu) {
-		for rating := 5; rating >= 1; rating-- {
-			rating := rating
-			label := strings.Repeat("★", rating)
-			if sub.Item(label).Chosen() {
-				a.setRating(kept, rating)
-			}
-		}
-		if sub.Item("无评级").Chosen() {
-			a.setRating(kept, 0)
-		}
-	})
-}
-
-func (a *appState) setRating(paths []string, rating int) {
-	if err := writeRating(paths, rating); err != nil {
-		a.toast("无法写入评级。")
-		return
-	}
-	a.rememberTags(paths)
-	if rating == 0 {
-		a.toast("已清除评级")
-		return
-	}
-	a.toast("评级 " + strings.Repeat("★", rating))
 }
 
 func (a *appState) openWithMenu(m *ui.Menu, paths []string) {

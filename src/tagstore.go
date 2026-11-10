@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// tagStore keeps file tags (including ★ ratings, stored as "评分N") for
+// tagStore keeps file tags for
 // platforms without Finder-style file metadata. It is a path-keyed JSON file
 // in the user config dir. macOS does not use it: tags live in the file's own
 // xattr there. Renames and moves made by the app migrate the entries; changes

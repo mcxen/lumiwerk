@@ -32,6 +32,11 @@ func (a *appState) toggleGallery() {
 	}
 }
 
+const (
+	galleryProgressH = 14     // the thin progress row at the bottom edge
+	galleryStripH    = 56 + 8 // strip thumbnails plus their padding
+)
+
 func (a *appState) galleryView(c *ui.Context) {
 	box := ui.Box(c).Fill().Background(ui.RGB(0, 0, 0))
 	show := a.galleryPeek
@@ -39,6 +44,12 @@ func (a *appState) galleryView(c *ui.Context) {
 		if _, y, over := box.PointerPosition(); over && y > b.Y+b.H-110 {
 			show = true
 		}
+	}
+	// The gallery's progress bar and thumbnail strip hold the bottom edge, so
+	// the floating control bar of a video rides above them.
+	a.galleryLift = galleryProgressH
+	if show {
+		a.galleryLift += galleryStripH
 	}
 	box.Children(func() {
 		a.largeImageView(c)

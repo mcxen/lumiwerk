@@ -46,6 +46,17 @@ stack. Background jobs call `safeGo`. These boundaries are for diagnosis and
 containment, not for hiding invalid state: every recovered panic must also have
 a regression test and a code fix.
 
+## Window Look and Platform Chrome
+
+`look.go` gives the browser its kero-style look: a wash (`View.Wash`, settings
+General -> 背景色调) under the window, the sidebar written on it, and the content
+in one rounded card (`contentCard`, `cardSurface`). `shellPalette`/`shellTheme`
+retint stock widgets inside the card. `chrome.go` draws minimize/maximize/close
+on Windows and Linux (`windowChrome` in `titlebar_other.go` hides the system
+title bar); `LUMIWERK_WINDOW_CONTROLS=1|0` forces them shown or hidden, and a
+tiling compositor without title-bar buttons gets none. macOS keeps its traffic
+lights, which `toolbarView` and `tabsBar` pad past when the sidebar is hidden.
+
 ## Selection and Keys
 
 Lumiwerk keeps media selection in `appState` (`a.Chosen`, `a.Selected`, a
@@ -166,7 +177,7 @@ methods such as `commitAutoConfig`, not only tests calling `savePrefs` directly.
 
 ## Platform support notes
 
-- File tags and ★ ratings: macOS writes the Finder tag xattr on the file. Windows and Linux use the path-keyed store in `src/tagstore.go` (`<config dir>/lumiwerk/filetags.json`); in-app moves and renames migrate entries, changes made outside the app are not followed.
+- File tags: macOS writes the Finder tag xattr on the file. Windows and Linux use the path-keyed store in `src/tagstore.go` (`<config dir>/lumiwerk/filetags.json`); in-app moves and renames migrate entries, changes made outside the app are not followed.
 - Trash: macOS uses Finder, Windows the Recycle Bin, Linux `gio trash` or the XDG trash (`src/xdgtrash.go`, with `.trashinfo`).
 - "Open with": macOS LaunchServices, Windows the Explorer `OpenWithList` registry key. Not available on Linux. The share menu is macOS only.
 

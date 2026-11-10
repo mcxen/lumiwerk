@@ -17,19 +17,19 @@ func isolatedTagStore(t *testing.T) {
 	t.Cleanup(func() { fileTagStore = &tagStore{} })
 }
 
-func TestTagStorePersistsRatingAndClears(t *testing.T) {
+func TestTagStorePersistsAndClears(t *testing.T) {
 	isolatedTagStore(t)
 	p := filepath.Join(t.TempDir(), "a.png")
-	if err := fileTagStore.set(p, setRatingTags(nil, 4)); err != nil {
+	if err := fileTagStore.set(p, []string{"红色"}); err != nil {
 		t.Fatal(err)
 	}
 	// A fresh store instance reads it back from disk.
 	fileTagStore = &tagStore{}
 	got := fileTagStore.get(p)
-	if ratingFor(&mediaItem{Tags: got}) != 4 {
-		t.Fatalf("rating = %v", got)
+	if !containsString(got, "红色") {
+		t.Fatalf("tags = %v", got)
 	}
-	if err := fileTagStore.set(p, setRatingTags(got, 0)); err != nil {
+	if err := fileTagStore.set(p, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := fileTagStore.get(p); len(got) != 0 {

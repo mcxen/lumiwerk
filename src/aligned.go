@@ -33,7 +33,6 @@ var (
 	dirIcon        = lucideFolder
 	imageIcon      = lucideImage
 	videoIcon      = lucideVideo
-	starIcon       = lucideStar
 	clockIcon      = lucideClock
 	arrowLeftIcon  = lucideChevronLeft
 	arrowRightIcon = lucideChevronRight
@@ -301,8 +300,9 @@ type appState struct {
 	playerPtrX      float32
 	playerPtrY      float32
 	playerPtrSeen   bool
-	playerInZone    bool   // pointer is in the bottom hot zone of the stage
-	barItemPath     string // item the control bar last revealed for
+	playerInZone    bool    // pointer is in the bottom hot zone of the stage
+	barItemPath     string  // item the control bar last revealed for
+	galleryLift     float32 // height of the gallery chrome the control bar must clear
 	playerTimelineW float32
 	playerMenu      bool
 	playerEndSeen   bool
@@ -1413,8 +1413,7 @@ func (a *appState) view(c *ui.Context) {
 
 func (a *appState) rootView(c *ui.Context) {
 	a.syncCaption()
-	t := c.Theme()
-	c.Root().Background(t.Background)
+	c.SetTheme(shellTheme(c, shellPaletteFor(c)))
 	a.tickAutomation(c)
 	a.beginFrame()
 	defer a.finishFrame()
@@ -1552,23 +1551,6 @@ func (a *appState) rootView(c *ui.Context) {
 					if len(paths) > 0 {
 						a.toggleTag(paths, names[i])
 					}
-				}
-			}
-		}
-	}
-	// Ctrl+1~5 sets rating, Ctrl+0 clears.
-	if !a.InLargeView && !a.modalOpen() {
-		for i := 0; i <= 5; i++ {
-			var key ui.Key
-			if i == 0 {
-				key = ui.Key0
-			} else {
-				key = ui.Key1 + ui.Key(i-1)
-			}
-			if c.Shortcut(ui.Ctrl, key) {
-				paths := a.operationPaths()
-				if len(paths) > 0 {
-					a.setRating(paths, i)
 				}
 			}
 		}
@@ -1749,8 +1731,13 @@ func (a *appState) rootView(c *ui.Context) {
 
 func (a *appState) sidebarView(c *ui.Context) {
 	t := c.Theme()
-	pane := ui.Column(c).Fill().Background(t.Surface).Gap(0)
+	pal := shellPaletteFor(c)
+	// The sidebar is written on the window's wash, with no surface of its own.
+	pane := ui.Column(c).Fill().Gap(0)
 	pane.Children(func() {
+		if ownControls {
+			ui.Box(c).Height(cardGap).FillWidth().DragWindow()
+		}
 		// TitleBarHiddenInset puts the traffic lights over the sidebar's
 		// top-left; keep a drag strip under them so "收藏夹" starts below.
 		if tb := c.TitleBar(); tb.Left > 0 {
@@ -1768,7 +1755,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 				}
 				row := ui.Row(c.Key(fav)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
 				if pathKey(a.Root) == pathKey(fav) {
-					row.Background(t.SurfacePressed)
+					row.Background(pal.rowCurrent)
 				}
 				row.Children(func() {
 					ui.Icon(c, dirIcon).FontSize(12)
@@ -1814,7 +1801,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 				hist := h
 				row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
 				if pathKey(hist) == pathKey(a.Root) {
-					row.Background(t.SurfacePressed)
+					row.Background(pal.rowCurrent)
 				}
 				row.Children(func() {
 					ui.Icon(c, dirIcon).FontSize(12)
@@ -1857,7 +1844,7 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 	row := ui.Row(c).Padding(4, 8).Gap(6).AlignItems(ui.Center).Radius(4)
 	selected := a.Root == path
 	if selected {
-		row.Background(t.SurfacePressed)
+		row.Background(shellPaletteFor(c).rowCurrent)
 	}
 	if a.folderInRecurseScope(path) {
 		row.BorderWidth(0, 0, 0, 2).BorderColor(t.Warning.Alpha(0.55))
@@ -2024,7 +2011,11 @@ func (a *appState) toolbarView(c *ui.Context) {
 			})
 			lucideMenuButton(c, "显示与浏览", a.viewMenu)
 		})
+		a.windowControls(c, shellPaletteFor(c))
 	}).Padding(6, 8).Gap(8).Background(t.Surface)
+	if ownControls {
+		bar.DragWindow()
+	}
 	// Under a hidden macOS title bar the top row drags the window. The
 	// traffic lights sit over the sidebar when it is open, otherwise over
 	// this toolbar — only then pad past them.
@@ -2033,7 +2024,7 @@ func (a *appState) toolbarView(c *ui.Context) {
 		if a.SidebarShown && !a.InLargeView {
 			bar.Padding(s).DragWindow()
 		} else {
-			bar.Padding(s, s, s, tb.Left+s).DragWindow()
+			bar.Padding(s, s, s, tb.Left-cardGap+s).DragWindow()
 		}
 	}
 }
@@ -2439,12 +2430,11 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 	return false
 }
 
-// mediaOverlay stacks Finder tag dots, rating stars and the info panel over the media.
+// mediaOverlay stacks Finder tag dots and the info panel over the media.
 func (a *appState) mediaOverlay(c *ui.Context, item *mediaItem) {
-	t := c.Theme()
 	dots := 0
 	for _, tag := range item.Tags {
-		if ratingFor(&mediaItem{Tags: []string{tag}}) > 0 {
+		if isRatingTag(tag) {
 			continue
 		}
 		dots++
@@ -2453,25 +2443,13 @@ func (a *appState) mediaOverlay(c *ui.Context, item *mediaItem) {
 		tags := ui.Row(c).Attach(ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(10, 10).Gap(4)
 		tags.Children(func() {
 			for _, tag := range item.Tags {
-				if ratingFor(&mediaItem{Tags: []string{tag}}) > 0 {
+				if isRatingTag(tag) {
 					continue
 				}
 				ui.Box(c).Width(10).Height(10).Radius(5).Background(tagColor(tag))
 			}
 		})
 	}
-	stars := ratingFor(item)
-	gold := *t
-	gold.Warning = ui.RGB(255, 199, 0)
-	panel := ui.Row(c).Absolute().Left(14).Bottom(mediaBarClearance).Padding(4, 8).Radius(6).Background(t.Surface)
-	panel.Children(func() {
-		ui.Themed(c, &gold).Children(func() {
-			r := ui.Rating(c.Key("large-rating"), &stars, 5).Label("评级")
-			if r.Changed() {
-				a.setRating([]string{item.Path}, stars)
-			}
-		})
-	})
 	a.infoOverlay(c, item)
 }
 
@@ -2503,7 +2481,7 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 		return
 	}
 	// 与视频控制栏共用 controlBar 和 bar* 组件，见 controlbar.go。
-	bar := controlBar(c, "image-bar", 0, func() {
+	bar := a.controlBar(c, "image-bar", 0, func() {
 		a.playerMenu = false
 		controlBarRow(c).Children(func() {
 			if barIconButton(c, "image-previous", "上一张", "上一张（←）", lucideChevronLeft).Clicked() {

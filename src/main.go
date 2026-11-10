@@ -83,6 +83,7 @@ func main() {
 	mygo.App.WhenReady(func() {
 		// The icon stays for the whole run, window visible or not, and is
 		// removed in OnWillQuit. macOS menu-bar apps keep the item resident.
+		followWindowButtons()
 		a.installTray()
 		a.ensureMainWindow()
 		a.syncTrayTip()

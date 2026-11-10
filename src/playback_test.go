@@ -351,9 +351,6 @@ func TestVideoLargeViewRendersController(t *testing.T) {
 	if te.HasText("另存视频…") {
 		t.Fatal("the save action belongs in the more menu, not on the bar")
 	}
-	if stars, ok := te.Find("评级"); ok && stars.Y+stars.H > progress.Y+progress.H/2-barHeight/2 {
-		t.Fatalf("rating %+v overlaps the control bar starting at %.0f", stars, progress.Y-barHeight/2)
-	}
 }
 
 func absf(v float32) float32 {
@@ -519,5 +516,29 @@ func TestTimeAndVolumeNormalization(t *testing.T) {
 	}
 	if got := playbackButtonLabel(true); got != "暂停" {
 		t.Fatalf("pause label=%q", got)
+	}
+}
+
+// In the gallery the progress bar and thumbnail strip hold the bottom edge,
+// so the video capsule has to ride above them instead of covering them.
+func TestVideoCapsuleClearsGalleryChrome(t *testing.T) {
+	backend := &fakePlaybackBackend{path: "/tmp/movie.mp4", duration: 120, position: 20, playing: true}
+	a := fakeVideoState(backend)
+	a.Items[0].InfoLoaded = true
+	a.Items[2].InfoLoaded = true
+	a.Gallery = true
+	a.galleryPeek = true // the strip is up
+	te := ui.NewTester(a.view, 1200, 800)
+	for i := 0; i < 12; i++ { // let the capsule glide up
+		te.Frame()
+	}
+	play, ok := te.Find("暂停")
+	if !ok {
+		t.Fatalf("no capsule in the gallery: %q", te.Texts())
+	}
+	bottom := play.Y + play.H/2 + barHeight/2
+	limit := float32(800 - galleryProgressH - galleryStripH)
+	if bottom > limit {
+		t.Fatalf("capsule bottom at %.0f covers the gallery strip, want it above %.0f", bottom, limit)
 	}
 }

@@ -34,11 +34,13 @@ type viewPreferences struct {
 	RecursiveFolders bool `json:"recursiveFolders"`
 	// RecurseDepth limits 递归浏览: 0 is every level, 1 is the child
 	// folders only, 2 includes one level below those.
-	RecurseDepth     int     `json:"recurseDepth,omitempty"`
-	MediaUnit        bool    `json:"mediaUnit"`
-	AutoPlaySelected bool    `json:"autoPlaySelected"`
-	InternalPlayer   bool    `json:"internalPlayer"`
-	Theme            string  `json:"theme"`
+	RecurseDepth     int    `json:"recurseDepth,omitempty"`
+	MediaUnit        bool   `json:"mediaUnit"`
+	AutoPlaySelected bool   `json:"autoPlaySelected"`
+	InternalPlayer   bool   `json:"internalPlayer"`
+	Theme            string `json:"theme"`
+	// Wash is the color washed under the window (look.go); "" is paper.
+	Wash             string  `json:"wash,omitempty"`
 	AutoScrollSpeed  float64 `json:"autoScrollSpeed"`
 	AutoPlayInterval float64 `json:"autoPlayInterval"`
 	NoCaption        bool    `json:"noCaption"`

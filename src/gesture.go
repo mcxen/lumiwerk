@@ -391,7 +391,7 @@ func (a *appState) anchorBrowse(oldThumb, newThumb float64, x, y float32, hasPoi
 		if width <= 0 {
 			width = box.W
 		}
-		cell := float32(int(newThumb + gridCellPad + 8))
+		cell := float32(int(newThumb + gridCellPad))
 		cols := gridColumnCount(width, cell, gap)
 		oldStride := box.Stride
 		if oldStride <= 0 {

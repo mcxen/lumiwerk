@@ -219,7 +219,7 @@ func (a *appState) videoControlsBar(c *ui.Context, item *mediaItem) {
 	// between the transport buttons and the trailing controls. The loading
 	// and buffering state is the badge on the stage, not part of the bar.
 	winW, _ := c.Size()
-	bar := controlBar(c, "player-bar", controlBarWidth(winW), func() {
+	bar := a.controlBar(c, "player-bar", controlBarWidth(winW), func() {
 		a.playerMenu = false
 		a.videoTransport(c, item, snapshot, pos, buffered, duration)
 	})

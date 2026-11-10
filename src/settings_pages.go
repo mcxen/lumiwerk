@@ -20,6 +20,26 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			a.setTheme(a.Profiles.View.Theme)
 		}
 		figureTheme(c, pal, a.Profiles.View.Theme)
+		before := a.Profiles.View.Wash
+		if before == "" {
+			before = defaultWash
+		}
+		wash := before
+		// Seven segments would crush the hint beside them; a popup leaves it room.
+		setRowHint(c, "背景色调", "窗口底色和侧栏的色彩，内容卡片保持中性", func() {
+			settingsPopup(c, "wash", &wash, washNames, func(n string) string {
+				for i, k := range washNames {
+					if k == n {
+						return washLabels[i]
+					}
+				}
+				return n
+			}, setCtrlW, pal)
+		})
+		if wash != before {
+			a.Profiles.View.Wash = wash
+			savePrefs(a.Profiles)
+		}
 	})
 	setGroup(c, "启动", func() {
 		if setToggleHint(c, "restore-session", "恢复上次会话", "重新打开上次的文件夹和标签页", &a.Profiles.RestoreSession) {

@@ -83,27 +83,6 @@ func clearFinderTags(paths []string) error {
 	return nil
 }
 
-func setRatingTags(tags []string, rating int) []string {
-	var next []string
-	for _, tag := range tags {
-		if isRatingTag(tag) {
-			continue
-		}
-		next = append(next, tag)
-	}
-	if name := ratingTagName(rating); name != "" {
-		next = append(next, name)
-	}
-	return next
-}
-
-func ratingTagName(rating int) string {
-	if rating < 1 || rating > 5 {
-		return ""
-	}
-	return "评分" + string(rune('0'+rating))
-}
-
 func isRatingTag(tag string) bool {
 	tag = strings.TrimSpace(tag)
 	if !strings.HasPrefix(tag, "评分") {
@@ -121,23 +100,6 @@ func withoutTag(tags []string, name string) []string {
 		}
 	}
 	return out
-}
-
-// writeRating writes Finder rating tags. Tests replace it so they never
-// touch real tags.
-var writeRating = applyRating
-
-func applyRating(paths []string, rating int) error {
-	for _, path := range paths {
-		tags, err := urlTags(path)
-		if err != nil {
-			return err
-		}
-		if err := setURLTags(path, setRatingTags(tags, rating)); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func refreshItemTags(items []mediaItem, paths []string) {

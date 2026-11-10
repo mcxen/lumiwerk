@@ -208,8 +208,6 @@ func menuEntries() []menuEntry {
 
 		{ID: "tags", Surfaces: surfFiles, Custom: func(a *appState, m *ui.Menu, s *menuScope) { a.tagMenu(m, s.Paths) },
 			Show: func(s *menuScope) bool { return tagsSupported && !s.None() }},
-		{ID: "rating", Surfaces: surfFiles, Custom: func(a *appState, m *ui.Menu, s *menuScope) { a.ratingMenu(m, s.Paths) },
-			Show: func(s *menuScope) bool { return !tagsSupported && !s.None() && s.Images == s.N() }},
 		{ID: "share", Surfaces: surfFiles, Custom: func(a *appState, m *ui.Menu, s *menuScope) { a.shareMenu(m, s.Paths) },
 			Show: func(s *menuScope) bool { return !s.None() }},
 		menuItem("favorite", surfFiles, "", "", func(a *appState, s *menuScope) { a.toggleFavorite(s.Paths[0]) }).

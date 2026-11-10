@@ -27,10 +27,6 @@ const (
 	// the window sides.
 	barMaxWidth   = 680
 	barSideMargin = 20
-
-	// mediaBarClearance keeps overlays such as rating stars above the bar:
-	// the bottom gap, the capsule and a little air.
-	mediaBarClearance = barBottom + barHeight + 12
 )
 
 // When the bar shows. The default follows the macOS player habit: it comes
@@ -79,10 +75,18 @@ func controlBarWidth(windowW float32) float32 {
 // a timeline needs. The row it floats in lets clicks through, so only the
 // capsule itself takes the pointer. It returns the capsule so callers can
 // read Hovered and fade it with Opacity.
-func controlBar(c *ui.Context, key string, width float32, content func()) ui.Element {
+func (a *appState) controlBar(c *ui.Context, key string, width float32, content func()) ui.Element {
 	var bar ui.Element
-	ui.Row(c.Key(key + "-dock")).Absolute().Left(0).Right(0).Bottom(barBottom).
-		Justify(ui.Center).PassThrough().Children(func() {
+	// Over the gallery the capsule rides above its progress bar and strip,
+	// and glides there when the strip comes up.
+	lift := float32(0)
+	if a.galleryActive() {
+		lift = a.galleryLift
+	}
+	dock := ui.Row(c.Key(key + "-dock")).Absolute().Left(0).Right(0).
+		Justify(ui.Center).PassThrough()
+	dock.Bottom(barBottom + dock.AnimateTo("lift", lift, ui.Animation{Duration: 160 * time.Millisecond}))
+	dock.Children(func() {
 		bar = ui.Row(c.Key(key)).Height(barHeight).Padding(0, 10).Gap(barGap).
 			AlignItems(ui.Center).Radius(barRadius).Background(barBackground).
 			Border(1, barBorder).Shrink(0)

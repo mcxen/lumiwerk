@@ -34,7 +34,8 @@ func hasColorNear(img *image.RGBA, r image.Rectangle, want [3]uint8, tol int) bo
 	return false
 }
 
-// TestLargeViewOverlays checks that tag dots and rating stars really draw.
+// TestLargeViewOverlays checks that tag dots draw and that rating tags,
+// which the app no longer shows, never become dots.
 func TestLargeViewOverlays(t *testing.T) {
 	a := &appState{Chosen: 0, LargeIndex: 0, Thumb: 128, InLargeView: true}
 	a.Root = "/tmp"
@@ -55,53 +56,7 @@ func TestLargeViewOverlays(t *testing.T) {
 	if !hasColorNear(img, image.Rect(900, 0, 1280, 120), [3]uint8{60, 180, 74}, 24) {
 		t.Error("green Finder tag dot not found in top-right overlay")
 	}
-	if !hasColorNear(img, image.Rect(0, 600, 400, 820), [3]uint8{255, 199, 0}, 24) {
-		t.Error("gold rating stars not found in bottom-left overlay")
-	}
-}
-
-func TestLargeViewRatingClickWritesTag(t *testing.T) {
-	a := &appState{Chosen: 0, LargeIndex: 0, Thumb: 128, InLargeView: true}
-	a.Items = []mediaItem{{
-		Path: "/tmp/a.png", Name: "a.png", Ext: "png",
-		InfoLoaded: true, Info: mediaInfo{Width: 100, Height: 100},
-		Tags: []string{"评分4"},
-	}}
-	a.Visible = []int{0}
-	orig := writeRating
-	t.Cleanup(func() { writeRating = orig })
-	var gotPaths []string
-	var gotRating int
-	writeRating = func(paths []string, rating int) error {
-		gotPaths = append([]string(nil), paths...)
-		gotRating = rating
-		return nil
-	}
-	te := ui.NewTester(func(c *ui.Context) {
-		ui.Box(c).Fill().Children(func() {
-			a.mediaOverlay(c, &a.Items[0])
-		})
-	}, 400, 200)
-	te.Frame()
-	r, ok := te.Find("评级")
-	if !ok {
-		t.Fatal("rating control not found")
-	}
-	te.ClickAt(r.X+8, r.Y+r.H/2)
-	te.Frame()
-	if len(gotPaths) != 1 || gotPaths[0] != "/tmp/a.png" {
-		t.Fatalf("setRating paths %v", gotPaths)
-	}
-	if gotRating < 0 || gotRating > 5 {
-		t.Fatalf("rating %d", gotRating)
-	}
-}
-
-func TestRatingFromTags(t *testing.T) {
-	if got := ratingFor(&mediaItem{Tags: []string{"红色", "评分4"}}); got != 4 {
-		t.Fatalf("rating = %d, want 4", got)
-	}
-	if got := ratingFor(&mediaItem{Tags: []string{"红色"}}); got != 0 {
-		t.Fatalf("rating = %d, want 0", got)
+	if te.HasText("评级") {
+		t.Error("the star rating control must be gone")
 	}
 }
