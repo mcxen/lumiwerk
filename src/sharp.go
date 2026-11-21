@@ -408,7 +408,7 @@ func sharpRegionJPEG(path string, at float64, region sharpRegion) ([]byte, error
 		vf += "," + region.Filter
 	}
 	vf += fmt.Sprintf(",scale=%d:%d:flags=lanczos", region.OutW, region.OutH)
-	args := []string{"-hide_banner", "-loglevel", "error"}
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
 	if at >= 0 {
 		args = append(args, "-ss", fmt.Sprintf("%.3f", at))
 	}

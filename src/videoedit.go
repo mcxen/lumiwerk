@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -55,8 +56,17 @@ func replaceWithTemp(original, temp string) error {
 	return nil
 }
 
+func ffmpegArgsWithNoStdin(args []string) []string {
+	if slices.Contains(args, "-nostdin") {
+		return args
+	}
+	out := make([]string, 0, len(args)+1)
+	out = append(out, "-nostdin")
+	return append(out, args...)
+}
+
 func runFFmpeg(args []string) error {
-	cmd := execCommand(toolPath("ffmpeg"), args...)
+	cmd := execCommand(toolPath("ffmpeg"), ffmpegArgsWithNoStdin(args)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

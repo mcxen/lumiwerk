@@ -1,16 +1,18 @@
 package main
 
 import (
-	"strings"
-
+	"context"
 	"errors"
 	"fmt"
-	"github.com/dhowden/tag"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"time"
+
+	"github.com/dhowden/tag"
 )
 
 // videoThumb is a video's cover for the thumbnail cache. Release builds
@@ -137,11 +139,16 @@ func findTool(tool string) string {
 }
 
 func ffmpegVideoThumb(bin, path string, edge int) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
-	cmd := execCommand(bin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path,
+	cmd := execCommandContext(ctx, bin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path,
 		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
 			return nil, fmt.Errorf("%w: %s", err, ee.Stderr)
 		}

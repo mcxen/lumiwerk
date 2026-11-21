@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"syscall"
 	"time"
 )
@@ -35,7 +34,7 @@ func runThumbTool(ctx context.Context, timeout time.Duration, name string, args 
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := execCommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {

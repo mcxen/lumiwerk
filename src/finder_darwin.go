@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"sync"
 )
@@ -91,6 +90,6 @@ func openerApps(path string) []openerApp {
 
 func openWithApp(app string, paths []string) error {
 	args := append([]string{"-a", app}, paths...)
-	_, err := exec.Command("open", args...).CombinedOutput()
+	_, err := execAppCommand("open", args...).CombinedOutput()
 	return err
 }

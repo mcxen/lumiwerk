@@ -831,7 +831,7 @@ func videoThumbAt(path string, at float64) (*ui.Bitmap, error) {
 	if at < 0 {
 		at = 0
 	}
-	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error",
+	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", path,
 		"-frames:v", "1", "-vf", "scale=160:90:force_original_aspect_ratio=increase,crop=160:90",
 		"-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "6", "-")

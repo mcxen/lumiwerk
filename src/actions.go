@@ -1119,7 +1119,7 @@ func writeVideoFrame(videoPath string, at float64, dest string) error {
 	if at < 0 {
 		at = 0
 	}
-	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
+	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", videoPath, "-frames:v", "1", dest)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

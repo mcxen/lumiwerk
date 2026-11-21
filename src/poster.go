@@ -16,7 +16,11 @@ func videoPosterPNG(path string) ([]byte, error) {
 	cmd := execCommandContext(ctx, toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-")
 	var out bytes.Buffer
 	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 	return out.Bytes(), nil

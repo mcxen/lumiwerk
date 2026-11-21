@@ -115,11 +115,11 @@ func createdAtString(info os.FileInfo) string {
 func openWithDefault(path string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return execWaitOrStart("open", path)
+		return execStartApp("open", path)
 	case "windows":
-		return execWaitOrStart("rundll32", "url.dll,FileProtocolHandler", path)
+		return execStartApp("rundll32", "url.dll,FileProtocolHandler", path)
 	default:
-		return execWaitOrStart("xdg-open", path)
+		return execStartApp("xdg-open", path)
 	}
 }
 
@@ -160,6 +160,14 @@ func openTerminalAt(dir string) error {
 
 func execWaitOrStart(name string, args ...string) error {
 	cmd := execCommand(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func execStartApp(name string, args ...string) error {
+	cmd := execAppCommand(name, args...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

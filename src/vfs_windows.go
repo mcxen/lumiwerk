@@ -36,6 +36,14 @@ func fileHidden(info os.FileInfo) bool {
 	return st.FileAttributes&0x2 != 0 // FILE_ATTRIBUTE_HIDDEN
 }
 
+// windowsTrashScript builds the PowerShell command to move abs to the Windows
+// Recycle Bin (ShellSpecialFolderConstants.ssfBITBUCKET = 0x0a = 10).
+func windowsTrashScript(abs string) string {
+	return fmt.Sprintf(
+		`(New-Object -ComObject Shell.Application).NameSpace(10).MoveHere('%s')`,
+		strings.ReplaceAll(abs, "'", "''"))
+}
+
 // platformTrash moves one path to the Windows Recycle Bin through PowerShell's
 // Shell.Application verb, which needs no external tool.
 func platformTrash(path string) (string, error) {
@@ -43,10 +51,8 @@ func platformTrash(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	script := fmt.Sprintf(
-		`(New-Object -ComObject Shell.Application).NameSpace(0).MoveHere('%s')`,
-		strings.ReplaceAll(abs, "'", "''"))
-	out, err := execCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	script := windowsTrashScript(abs)
+	out, err := execCommand("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}

@@ -23,7 +23,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -220,7 +219,7 @@ func listWithBsdtar(archive string) ([]archiveEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("/usr/bin/bsdtar", "-tf", archive)
+	cmd := execCommand("/usr/bin/bsdtar", "-tf", archive)
 	cmd.Stdin = bytes.NewReader(nil)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -496,7 +495,7 @@ func extractWithTool(archive, inner, dest string) error {
 	tries := append([]string{""}, archivePasswords()...)
 	last := errNeedZipPassword
 	for _, pass := range tries {
-		cmd := exec.Command("/usr/bin/bsdtar", bsdtarArgs(pass, "-xOf", archive, "--", inner)...)
+		cmd := execCommand("/usr/bin/bsdtar", bsdtarArgs(pass, "-xOf", archive, "--", inner)...)
 		cmd.Stdin = bytes.NewReader(nil)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -539,7 +538,7 @@ func bsdtarExtractAll(archive, dir string) error {
 	tries := append([]string{""}, archivePasswords()...)
 	var last error
 	for _, pass := range tries {
-		cmd := exec.Command("/usr/bin/bsdtar", bsdtarArgs(pass, "-xf", archive, "-C", dir)...)
+		cmd := execCommand("/usr/bin/bsdtar", bsdtarArgs(pass, "-xf", archive, "-C", dir)...)
 		cmd.Stdin = bytes.NewReader(nil)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr

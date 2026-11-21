@@ -16,3 +16,10 @@ func prepareExec(cmd *exec.Cmd) *exec.Cmd {
 	}
 	return cmd
 }
+
+func prepareAppExec(cmd *exec.Cmd) *exec.Cmd {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NO_WINDOW,
+	}
+	return cmd
+}

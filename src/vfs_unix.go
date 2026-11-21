@@ -26,7 +26,7 @@ func fileHidden(info os.FileInfo) bool {
 // present. The returned path lets undo move the file back.
 func platformTrash(path string) (string, error) {
 	if _, lookErr := exec.LookPath("gio"); lookErr == nil {
-		if out, err := exec.Command("gio", "trash", path).CombinedOutput(); err != nil {
+		if out, err := execCommand("gio", "trash", path).CombinedOutput(); err != nil {
 			return "", fmt.Errorf("%v: %s", err, out)
 		}
 		return "", nil

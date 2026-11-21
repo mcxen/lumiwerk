@@ -47,5 +47,5 @@ func openWithApp(app string, paths []string) error {
 	if app == "" {
 		return errors.New("未指定应用")
 	}
-	return execCommand(app, paths...).Start()
+	return execAppCommand(app, paths...).Start()
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -94,7 +93,7 @@ func mediaThumbJPEG(path string, video bool, edge int) ([]byte, error) {
 	if edge >= 768 {
 		quality = "82"
 	}
-	cmd := exec.Command("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
+	cmd := execCommand("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
 	}
@@ -128,7 +127,7 @@ func platformVideoThumb(path string, edge int) ([]byte, error) {
 
 // platformTags reads Finder tags through the xattr metadata.
 func platformTags(path string) ([]string, error) {
-	out, err := exec.Command("xattr", "-px", finderTagXattr, path).Output()
+	out, err := execCommand("xattr", "-px", finderTagXattr, path).Output()
 	if err != nil || len(out) == 0 {
 		return mdlsTags(path), nil
 	}
@@ -136,7 +135,7 @@ func platformTags(path string) ([]string, error) {
 	if err != nil || len(raw) == 0 {
 		return mdlsTags(path), nil
 	}
-	cmd := exec.Command("plutil", "-convert", "xml1", "-o", "-", "-")
+	cmd := execCommand("plutil", "-convert", "xml1", "-o", "-", "-")
 	cmd.Stdin = strings.NewReader(string(raw))
 	xmlOut, err := cmd.Output()
 	if err != nil {
@@ -155,7 +154,7 @@ func platformTags(path string) ([]string, error) {
 
 // mdlsTags asks Spotlight when the xattr read fails.
 func mdlsTags(path string) []string {
-	out, err := exec.Command("/usr/bin/mdls", "-name", "kMDItemUserTags", "-raw", path).Output()
+	out, err := execCommand("/usr/bin/mdls", "-name", "kMDItemUserTags", "-raw", path).Output()
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -185,7 +184,7 @@ func platformSetTags(path string, tags []string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("xattr", "-w", "-x", finderTagXattr, hexEncode(data), path)
+	cmd := execCommand("xattr", "-w", "-x", finderTagXattr, hexEncode(data), path)
 	_, err = cmd.CombinedOutput()
 	return err
 }
@@ -201,7 +200,7 @@ func binaryPlistStrings(tags []string) ([]byte, error) {
 		b.WriteString("</string>")
 	}
 	b.WriteString(`</array></plist>`)
-	cmd := exec.Command("plutil", "-convert", "binary1", "-o", "-", "-")
+	cmd := execCommand("plutil", "-convert", "binary1", "-o", "-", "-")
 	cmd.Stdin = strings.NewReader(b.String())
 	return cmd.Output()
 }
@@ -295,7 +294,7 @@ func imageResampleJPEG(path string, edge int, quality string) ([]byte, error) {
 	name := file.Name()
 	_ = file.Close()
 	defer os.Remove(name)
-	cmd := exec.Command("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
+	cmd := execCommand("sips", "-Z", strconv.Itoa(edge), "-s", "format", "jpeg", "-s", "formatOptions", quality, path, "--out", name)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))
 	}

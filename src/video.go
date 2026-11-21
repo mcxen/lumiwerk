@@ -162,7 +162,7 @@ func playbackArgs(path string, startAt float64, frameDur time.Duration, plain bo
 	if edge <= 0 {
 		edge = playbackEdge(1)
 	}
-	args := []string{"-hide_banner", "-loglevel", "error", "-threads", "0"}
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "0"}
 	if !plain {
 		args = append(args, "-hwaccel", "videotoolbox")
 	}
@@ -275,7 +275,7 @@ func grabVideoStill(path string, at float64) (image.Image, error) {
 	if at < 0 {
 		at = 0
 	}
-	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error",
+	cmd := execCommand(toolPath("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", path,
 		"-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
 	out, err := cmd.Output()
@@ -516,7 +516,7 @@ func (d *ffmpegDecoder) runPump(frames chan<- timedFrame) {
 
 // soundtrackArgs extracts float32 stereo from the same timestamp as the picture.
 func soundtrackArgs(path string, at float64) []string {
-	args := []string{"-hide_banner", "-loglevel", "error"}
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
 	if at > 0.05 {
 		args = append(args, "-ss", fmt.Sprintf("%.3f", at))
 	}
