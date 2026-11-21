@@ -7,7 +7,6 @@ import (
 	"image"
 	"io"
 	"math"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -1190,7 +1189,7 @@ func markPlaybackTrack(tracks []playbackTrack, selected int) []playbackTrack {
 }
 
 func probePlaybackTracks(path string) (audio, video []playbackTrack) {
-	out, err := exec.Command(toolPath("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", path).Output()
+	out, err := execCommand(toolPath("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", path).Output()
 	if err != nil || len(out) == 0 {
 		return nil, nil
 	}

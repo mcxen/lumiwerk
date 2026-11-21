@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -325,7 +324,7 @@ func runTool(name string, args []string, dir string) error {
 	if _, err := os.Stat(name); err != nil {
 		return fmt.Errorf("找不到 %s", filepath.Base(name))
 	}
-	cmd := exec.Command(name, args...)
+	cmd := execCommand(name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = bytes.NewReader(nil)
 	out, err := cmd.CombinedOutput()

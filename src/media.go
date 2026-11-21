@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,7 +54,7 @@ func probeVideo(path string) mediaInfo {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, toolPath("ffprobe"), "-v", "error", "-select_streams", "v:0",
+	cmd := execCommandContext(ctx, toolPath("ffprobe"), "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=width,height,codec_name,avg_frame_rate,bit_rate:format=duration,bit_rate",
 		"-of", "default=noprint_wrappers=1", path)
 	out, err := cmd.Output()

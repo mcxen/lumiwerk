@@ -138,7 +138,7 @@ func findTool(tool string) string {
 
 func ffmpegVideoThumb(bin, path string, edge int) ([]byte, error) {
 	scale := fmt.Sprintf("scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", edge, edge)
-	cmd := execCommand(bin, "-hide_banner", "-loglevel", "error", "-i", path,
+	cmd := execCommand(bin, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", path,
 		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-")
 	out, err := cmd.Output()
 	if err != nil {

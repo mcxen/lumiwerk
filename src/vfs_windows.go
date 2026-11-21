@@ -6,20 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 )
-
-func execCommand(name string, args ...string) *exec.Cmd {
-	// Hide the console window Windows would open for each child process.
-	cmd := exec.Command(name, args...)
-	cmd.SysProcAttr = hideConsoleAttr
-	return cmd
-}
 
 // fileCreated reports a file's creation time, which NTFS keeps for real.
 func fileCreated(info os.FileInfo) (time.Time, bool) {
@@ -116,12 +107,3 @@ func sameDevice(a, b string) bool {
 	// Both plain relative or both UNC (\servershare...).
 	return (len(a) >= 2 && a[:2] == `\`) == (len(b) >= 2 && b[:2] == `\`)
 }
-
-// hideConsoleAttr hides the console window child processes would open.
-var hideConsoleAttr *syscall.SysProcAttr
-
-func init() {
-	hideConsoleAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
-}
-
-var _ = unsafe.Sizeof(0) // keep unsafe imported for the attr plumbing

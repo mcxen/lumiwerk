@@ -18,10 +18,6 @@ import (
 // quickLookBin is the QuickLook command-line tool; tests point it at a stub.
 var quickLookBin = "/usr/bin/qlmanage"
 
-func execCommand(name string, args ...string) *exec.Cmd {
-	return exec.Command(name, args...)
-}
-
 func init() {
 	finderTagsFallback = mdlsTags
 }

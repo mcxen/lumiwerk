@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -414,7 +413,7 @@ func sharpRegionJPEG(path string, at float64, region sharpRegion) ([]byte, error
 		args = append(args, "-ss", fmt.Sprintf("%.3f", at))
 	}
 	args = append(args, "-i", path, "-vf", vf, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-")
-	cmd := exec.Command(toolPath("ffmpeg"), args...)
+	cmd := execCommand(toolPath("ffmpeg"), args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -440,7 +439,7 @@ func sharpRegionSips(path string, region sharpRegion) ([]byte, error) {
 	}
 	defer os.RemoveAll(dir)
 	cropped := dir + "/crop.png"
-	cmd := exec.Command("sips",
+	cmd := execCommand("sips",
 		"--cropOffset", strconv.Itoa(region.SrcY), strconv.Itoa(region.SrcX),
 		"--cropToHeightWidth", strconv.Itoa(region.SrcH), strconv.Itoa(region.SrcW),
 		"-s", "format", "png", path, "--out", cropped)
@@ -450,7 +449,7 @@ func sharpRegionSips(path string, region sharpRegion) ([]byte, error) {
 	scaled := cropped
 	if region.OutW != region.SrcW || region.OutH != region.SrcH {
 		scaled = dir + "/out.jpg"
-		cmd = exec.Command("sips", "-z", strconv.Itoa(region.OutH), strconv.Itoa(region.OutW),
+		cmd = execCommand("sips", "-z", strconv.Itoa(region.OutH), strconv.Itoa(region.OutW),
 			"-s", "format", "jpeg", "-s", "formatOptions", "92", cropped, "--out", scaled)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("%v %s", err, strings.TrimSpace(string(out)))

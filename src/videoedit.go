@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -57,7 +56,7 @@ func replaceWithTemp(original, temp string) error {
 }
 
 func runFFmpeg(args []string) error {
-	cmd := exec.Command(toolPath("ffmpeg"), args...)
+	cmd := execCommand(toolPath("ffmpeg"), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

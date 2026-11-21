@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-func execCommand(name string, args ...string) *exec.Cmd {
-	return exec.Command(name, args...)
-}
-
 // fileCreated: most Linux filesystems keep no birth time in stat.
 func fileCreated(info os.FileInfo) (time.Time, bool) {
 	return time.Time{}, false
