@@ -54,14 +54,18 @@ func normalizeBarMode(mode string) string {
 }
 
 var (
-	barBackground = ui.RGBA(28, 28, 32, 0.78)
-	barBorder     = ui.RGBA(255, 255, 255, 0.12)
-	barShadow     = ui.RGBA(0, 0, 0, 0.38)
-	barFG         = ui.RGB(245, 245, 247)
-	barFGDim      = ui.RGB(180, 180, 185)
-	barAccent     = ui.RGB(10, 132, 255)
-	barPrimaryBG  = ui.RGBA(255, 255, 255, 0.16)
-	barSepColor   = ui.RGBA(255, 255, 255, 0.18)
+	barBackground       = ui.RGBA(28, 28, 32, 0.78)
+	barBorder           = ui.RGBA(255, 255, 255, 0.12)
+	barShadow           = ui.RGBA(0, 0, 0, 0.38)
+	barFG               = ui.RGB(245, 245, 247)
+	barFGDim            = ui.RGB(180, 180, 185)
+	barAccent           = ui.RGB(10, 132, 255)
+	barHoverBG          = ui.RGBA(255, 255, 255, 0.14)
+	barPressedBG        = ui.RGBA(255, 255, 255, 0.24)
+	barPrimaryBG        = ui.RGBA(255, 255, 255, 0.16)
+	barPrimaryHoverBG   = ui.RGBA(255, 255, 255, 0.24)
+	barPrimaryPressedBG = ui.RGBA(255, 255, 255, 0.32)
+	barSepColor         = ui.RGBA(255, 255, 255, 0.18)
 )
 
 // controlBarWidth is the video capsule width for a window of windowW points.
@@ -118,10 +122,25 @@ func barText(c *ui.Context, text string, dim bool) {
 	ui.Text(c, text).FontSize(barFontSize).TextColor(color).SingleLine()
 }
 
+// applyBarButtonState applies pointer cursor and hover/press fills to a bar button.
+func applyBarButtonState(btn ui.Element, restBG, hoverBG, pressedBG ui.Color) ui.Element {
+	btn = btn.Cursor(ui.CursorPointer)
+	switch {
+	case btn.Pressed():
+		return btn.Background(pressedBG)
+	case btn.Hovered():
+		return btn.Background(hoverBG)
+	case restBG != ui.Transparent:
+		return btn.Background(restBG)
+	}
+	return btn
+}
+
 // barIconButton is the standard 32pt icon button.
 func barIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG) ui.Element {
-	return ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).Size(barBtnSize, barBtnSize).
-		Padding(7).Radius(barBtnRadius).TextColor(barFG).Children(func() {
+	btn := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).Size(barBtnSize, barBtnSize).
+		Padding(7).Radius(barBtnRadius).TextColor(barFG)
+	return applyBarButtonState(btn, ui.Transparent, barHoverBG, barPressedBG).Children(func() {
 		ui.Icon(c, icon).Size(barIconSize, barIconSize)
 	})
 }
@@ -133,7 +152,7 @@ func barToggleButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, on
 	if on {
 		btn = btn.TextColor(barAccent)
 	}
-	return btn.Children(func() {
+	return applyBarButtonState(btn, ui.Transparent, barHoverBG, barPressedBG).Children(func() {
 		ui.Icon(c, icon).Size(barIconSize, barIconSize)
 	})
 }
@@ -141,8 +160,9 @@ func barToggleButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, on
 // barPrimaryButton is the single main action of a bar, drawn on a light
 // fill. Put it first in the row.
 func barPrimaryButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG) ui.Element {
-	return ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).Size(barBtnSize, barBtnSize).
-		Padding(7).Radius(barBtnRadius).Background(barPrimaryBG).TextColor(barFG).Children(func() {
+	btn := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).Size(barBtnSize, barBtnSize).
+		Padding(7).Radius(barBtnRadius).TextColor(barFG)
+	return applyBarButtonState(btn, barPrimaryBG, barPrimaryHoverBG, barPrimaryPressedBG).Children(func() {
 		ui.Icon(c, icon).Size(barIconSize, barIconSize)
 	})
 }
@@ -150,18 +170,20 @@ func barPrimaryButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG) u
 // barChip is a compact text button for a value such as speed or fit mode.
 // label is the accessible name; text is what is drawn.
 func barChip(c *ui.Context, key, label, tooltip, text string) ui.Element {
-	return ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).
-		Padding(4, 10).Radius(barChipRad).TextColor(barFG).Children(func() {
+	btn := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(tooltip).
+		Padding(4, 10).Radius(barChipRad).TextColor(barFG)
+	return applyBarButtonState(btn, ui.Transparent, barHoverBG, barPressedBG).Children(func() {
 		ui.Text(c, text).FontSize(barFontSize).TextColor(barFG)
 	})
 }
 
-// notePlayerPointer is fed the pointer position inside the stage (h is the
-// stage height). It records whether the pointer is in the bottom hot zone,
-// and in auto mode restarts the idle clock when the pointer really moves. A
-// still pointer, including the first sample, does not count.
-func (a *appState) notePlayerPointer(x, y, h float32) {
+// notePlayerPointer is fed the pointer position inside the stage (w, h are the
+// stage dimensions). It records whether the pointer is in the bottom hot zone or
+// near the left/right navigation arrows, and in auto mode restarts the idle
+// clock when the pointer really moves.
+func (a *appState) notePlayerPointer(x, y, w, h float32) {
 	a.playerInZone = h > 0 && y >= h-barHotZone
+	a.playerNearSide = w > 0 && (x <= 96 || x >= w-96)
 	if !a.playerPtrSeen {
 		a.playerPtrSeen = true
 		a.playerPtrX, a.playerPtrY = x, y
@@ -182,6 +204,7 @@ func (a *appState) revealControlBar() {
 	a.playerMoved = time.Now()
 	a.playerPtrSeen = false
 	a.playerInZone = false
+	a.playerNearSide = false
 }
 
 // controlBarShown decides whether the bar is up.

@@ -98,28 +98,58 @@ func (a *appState) tabsBar(c *ui.Context) {
 		return
 	}
 	t := c.Theme()
-	bar := ui.Row(c).Gap(4).Padding(4, 6).Background(t.Surface)
-	if tb := c.TitleBar(); tb.Left > 0 {
-		if a.SidebarShown && !a.InLargeView {
-			bar.Padding(4, 6).DragWindow()
-		} else {
-			bar.Padding(4, 6, 4, tb.Left+6).DragWindow()
+	leftPad := float32(10)
+	if tb := c.TitleBar(); tb.Left > 0 && (!a.SidebarShown || a.InLargeView) {
+		if pad := tb.Left - cardGap + 8; pad > leftPad {
+			leftPad = pad
 		}
 	}
+	rightPad := float32(10)
+	if a.showWindowControls() {
+		rightPad = float32(controlsWidth - cardGap + 8)
+	}
+	bar := ui.ScrollHorizontal(c.Key("tabs-bar")).FillWidth().Height(34).Gap(4).
+		Padding(4, rightPad, 4, leftPad).Background(t.Background).AlignItems(ui.Center).DragWindow()
 	bar.Children(func() {
 		for i, tb := range a.Tabs.Tabs {
 			i := i
-			tab := ui.Row(c).Gap(4).Padding(4, 10).Radius(4)
-			if i == a.Tabs.Active {
-				tab.Background(t.Accent).TextColor(t.AccentText)
+			active := i == a.Tabs.Active
+			tab := ui.Row(c.Key(fmt.Sprintf("tab-%d", i))).Height(26).Gap(6).Padding(0, 6, 0, 10).Radius(6).
+				AlignItems(ui.Center).Shrink(0).Cursor(ui.CursorPointer).Tooltip(tb.Root)
+			if active {
+				tab.Background(t.Accent.Alpha(0.14)).TextColor(t.Accent)
+			} else if tab.Hovered() {
+				tab.Background(t.SurfaceHover)
 			}
+			closed := false
 			tab.Children(func() {
-				ui.Text(c, tb.Name).FontSize(11).MaxLines(1)
-				if lucideIconButton(c, fmt.Sprintf("tab-close-%d", i), "关闭标签页", lucideClose).Clicked() {
+				txt := ui.Text(c, tb.Name).FontSize(11.5).SingleLine().MaxLines(1).MaxWidth(160).Ellipsis("…")
+				if active {
+					txt.Bold().TextColor(t.Accent)
+				}
+				closeBtn := ui.ButtonBase(c.Key(fmt.Sprintf("tab-close-%d", i))).Size(18, 18).Radius(4).Center().
+					Cursor(ui.CursorPointer).Label("关闭标签页").Tooltip("关闭标签页")
+				if active {
+					closeBtn.TextColor(t.Accent)
+					if closeBtn.Hovered() || closeBtn.Pressed() {
+						closeBtn.Background(t.Accent.Alpha(0.16))
+					}
+				} else {
+					closeBtn.TextColor(t.TextMuted)
+					if closeBtn.Hovered() || closeBtn.Pressed() {
+						closeBtn.Background(t.SurfacePressed).TextColor(t.Text)
+					}
+				}
+				closeBtn.Children(func() { ui.Icon(c, lucideClose).Size(11, 11) })
+				if closeBtn.Clicked() {
+					closed = true
 					a.closeTab(i)
 				}
 			})
-			tab.OnClick(func() { a.switchTab(i) })
+			if !closed {
+				tab.OnClick(func() { a.switchTab(i) })
+			}
 		}
 	})
+	ui.Divider(c)
 }

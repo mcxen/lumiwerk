@@ -33,15 +33,14 @@ func (a *appState) settingsWindow() {
 	}
 	a.openSettings()
 	w := mygo.NewWindow(mygo.WindowOptions{
-		Title:       "设置",
-		Width:       780,
-		Height:      600,
-		MinWidth:    680,
-		MinHeight:   460,
-		StateKey:    "settings",
-		Content:     ui.View(a.settingsView),
-		AlwaysOnTop: true,
-		Hidden:      true,
+		Title:     "设置",
+		Width:     780,
+		Height:    600,
+		MinWidth:  680,
+		MinHeight: 460,
+		StateKey:  "settings",
+		Content:   ui.View(a.settingsView),
+		Hidden:    true,
 	})
 	w.OnReadyToShow(w.Show)
 	a.Settings.Window = w
@@ -65,6 +64,9 @@ func (a *appState) settingsPageID() string {
 func (a *appState) setPage(id string) {
 	for i, p := range settingsPages {
 		if p.id == id {
+			if a.Settings.Pane != i {
+				keyCapture.id, keyCapture.conflict = "", ""
+			}
 			a.Settings.Pane = i
 			return
 		}

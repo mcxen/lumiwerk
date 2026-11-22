@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -349,7 +350,7 @@ func (a *appState) zipDialog(c *ui.Context) {
 	m := ui.Modal(c, &a.ZipAsk, func() {
 		ui.Text(c, title).Bold().FontSize(14)
 		ui.Text(c, detail).FontSize(12).TextColor(c.Theme().TextMuted)
-		field := ui.TextInput(c, &a.ZipPass).Width(280).Password()
+		field := ui.TextInput(c.Key("zip-pass"), &a.ZipPass).AutoFocus().Width(280).Password()
 		if field.Submitted() {
 			a.commitZipPrompt()
 		}
@@ -358,7 +359,7 @@ func (a *appState) zipDialog(c *ui.Context) {
 				a.ZipAsk = false
 				a.ZipPass = ""
 			}
-			if ui.Button(c.Key("zip-ok"), "确定").Clicked() {
+			if ui.PrimaryButton(c.Key("zip-ok"), "确定").Clicked() {
 				a.commitZipPrompt()
 			}
 		})
@@ -375,7 +376,7 @@ func (a *appState) renameDialog(c *ui.Context) {
 	}
 	ui.Modal(c, &a.Renaming, func() {
 		ui.Text(c, "重命名").Bold().FontSize(14)
-		field := ui.TextInput(c, &a.RenameVal).Width(280)
+		field := ui.TextInput(c.Key("rename-val"), &a.RenameVal).AutoFocus().Width(280)
 		if field.Submitted() {
 			a.commitRename()
 		}
@@ -383,7 +384,7 @@ func (a *appState) renameDialog(c *ui.Context) {
 			if ui.Button(c.Key("rename-cancel"), "取消").Clicked() {
 				a.Renaming = false
 			}
-			if ui.Button(c.Key("rename-ok"), "确定").Clicked() {
+			if ui.PrimaryButton(c.Key("rename-ok"), "确定").Clicked() {
 				a.commitRename()
 			}
 		})
@@ -423,17 +424,34 @@ func (a *appState) infoOverlay(c *ui.Context, item *mediaItem) {
 	}
 	if a.Info.File {
 		lines = append(lines, "路径: "+item.Path)
-		lines = append(lines, fmt.Sprintf("大小: %.1f MB", float64(item.Size)/(1024*1024)))
+		lines = append(lines, "大小: "+formatBytes(item.Size))
 		lines = append(lines, "修改: "+time.Unix(item.ModTime, 0).Format("2006-01-02 15:04:05"))
 	}
 	if len(lines) == 0 {
 		return
 	}
-	panel := ui.Column(c).Attach(ui.AnchorTopRight, ui.AnchorTopRight).Width(320).Padding(12).Gap(4).
-		Background(t.Surface).Border(1, t.Border).Radius(8)
+	bg, border, fg, muted := t.Surface, t.Border, t.Text, t.TextMuted
+	if a.galleryActive() {
+		bg, border, fg, muted = barBackground, barBorder, barFG, barFGDim
+	}
+	panel := ui.Column(c.Key("info-overlay")).Attach(ui.AnchorTopRight, ui.AnchorTopRight).
+		Margin(32, 12, 12, 12).Width(320).Padding(10, 12).Gap(4).
+		Background(bg).Border(1, border).Radius(8).Shadow(0, 6, 18, 0, ui.RGBA(0, 0, 0, 0.22))
 	panel.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, "媒体信息").FontSize(11).Bold().TextColor(muted).Grow(1)
+			closeBtn := ui.ButtonBase(c.Key("info-overlay-close")).Size(18, 18).Radius(4).Center().
+				Cursor(ui.CursorPointer).TextColor(muted).Label("关闭信息").Tooltip("关闭")
+			if closeBtn.Hovered() || closeBtn.Pressed() {
+				closeBtn.Background(ui.RGBA(128, 128, 128, 0.2)).TextColor(fg)
+			}
+			closeBtn.Children(func() { ui.Icon(c, lucideClose).Size(11, 11) })
+			if closeBtn.Clicked() {
+				a.Info.EXIF, a.Info.File = false, false
+			}
+		})
 		for _, line := range lines {
-			ui.Text(c, line).FontSize(11).MaxLines(1).SingleLine()
+			ui.Text(c, line).FontSize(11).TextColor(fg).MaxLines(1).SingleLine().Ellipsis("…").MinWidth(0).FillWidth()
 		}
 	})
 }
@@ -484,40 +502,51 @@ func (a *appState) batchDialog(c *ui.Context) {
 	m := ui.Modal(c, &a.Batch.Open, func() {
 		ui.Text(c, "批量重命名").Bold().FontSize(16)
 		ui.Text(c, "顺序：替换、格式、前缀、后缀。默认保留扩展名。").FontSize(11).TextColor(c.Theme().TextMuted)
-		if ui.TextInput(c, &a.Batch.Rule.Prefix).Label("前缀").Width(480).Changed() {
+		if ui.TextInput(c.Key("batch-prefix"), &a.Batch.Rule.Prefix).AutoFocus().Label("前缀").Width(480).Changed() {
 			a.updateBatchPreview()
 		}
-		if ui.TextInput(c, &a.Batch.Rule.Suffix).Label("后缀").Width(480).Changed() {
+		if ui.TextInput(c.Key("batch-suffix"), &a.Batch.Rule.Suffix).Label("后缀").Width(480).Changed() {
 			a.updateBatchPreview()
 		}
-		if ui.TextInput(c, &a.Batch.Rule.Find).Label("查找").Width(230).Changed() {
-			a.updateBatchPreview()
-		}
-		if ui.TextInput(c, &a.Batch.Rule.Replace).Label("替换为").Width(230).Changed() {
-			a.updateBatchPreview()
-		}
-		if ui.TextInput(c, &a.Batch.Rule.Pattern).Label("格式").Width(480).Changed() {
+		ui.Row(c).Gap(12).Children(func() {
+			if ui.TextInput(c.Key("batch-find"), &a.Batch.Rule.Find).Label("查找").Width(234).Changed() {
+				a.updateBatchPreview()
+			}
+			if ui.TextInput(c.Key("batch-replace"), &a.Batch.Rule.Replace).Label("替换为").Width(234).Changed() {
+				a.updateBatchPreview()
+			}
+		})
+		if ui.TextInput(c.Key("batch-pattern"), &a.Batch.Rule.Pattern).Label("格式").Width(480).Changed() {
 			a.updateBatchPreview()
 		}
 		ui.Text(c, "{name} {folder} {ext} {index} {index:03} {date} {time}").FontSize(11).TextColor(c.Theme().TextMuted)
 		ui.Divider(c)
-		ui.Text(c, "预览").Bold().FontSize(12)
-		for _, src := range a.selectedPaths() {
-			dst := a.Batch.Preview[src]
-			if dst == "" {
-				continue
+		selected := a.selectedPaths()
+		changed := 0
+		for _, src := range selected {
+			if dst := a.Batch.Preview[src]; dst != "" && dst != src {
+				changed++
 			}
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, filepath.Base(src)).FontSize(11).TextColor(c.Theme().TextMuted).MaxLines(1)
-				ui.Text(c, "→").FontSize(11)
-				ui.Text(c, filepath.Base(dst)).FontSize(11).MaxLines(1)
-			})
 		}
+		ui.Text(c, fmt.Sprintf("预览（共 %d 项，将修改 %d 项）", len(selected), changed)).Bold().FontSize(12)
+		ui.Scroll(c.Key("batch-preview")).MaxHeight(220).Width(480).Gap(3).Children(func() {
+			for _, src := range selected {
+				dst := a.Batch.Preview[src]
+				if dst == "" {
+					continue
+				}
+				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, filepath.Base(src)).FontSize(11).TextColor(c.Theme().TextMuted).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
+					ui.Text(c, "→").FontSize(11).Shrink(0)
+					ui.Text(c, filepath.Base(dst)).FontSize(11).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
+				})
+			}
+		})
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c.Key("batch-cancel"), "取消").Clicked() {
 				a.Batch.Open = false
 			}
-			if ui.Button(c.Key("batch-ok"), "执行").Clicked() {
+			if ui.PrimaryButton(c.Key("batch-ok"), "执行").Clicked() {
 				a.commitBatchRename()
 			}
 		})
@@ -849,7 +878,7 @@ func (a *appState) folderDialog(c *ui.Context) {
 			title = "用所选项目新建文件夹"
 		}
 		ui.Text(c, title).Bold().FontSize(14)
-		field := ui.TextInput(c, &a.FolderName).Width(280)
+		field := ui.TextInput(c.Key("folder-name"), &a.FolderName).AutoFocus().Width(280)
 		if field.Submitted() {
 			a.commitFolder()
 		}
@@ -858,7 +887,7 @@ func (a *appState) folderDialog(c *ui.Context) {
 				a.NewFolder = false
 				a.FolderTake = nil
 			}
-			if ui.Button(c.Key("folder-ok"), "确定").Clicked() {
+			if ui.PrimaryButton(c.Key("folder-ok"), "确定").Clicked() {
 				a.commitFolder()
 			}
 		})
@@ -993,6 +1022,20 @@ func (a *appState) historyContextMenu(m *ui.Menu, path string) {
 	}
 }
 
+func (a *appState) favoriteContextMenu(m *ui.Menu, path string) {
+	idx := favoriteIndex(a.Profiles.Favorites, path)
+	if idx > 0 || (idx >= 0 && idx < len(a.Profiles.Favorites)-1) {
+		if idx > 0 && m.Item("上移").Chosen() {
+			a.moveFavorite(path, -1)
+		}
+		if idx >= 0 && idx < len(a.Profiles.Favorites)-1 && m.Item("下移").Chosen() {
+			a.moveFavorite(path, 1)
+		}
+		m.Separator()
+	}
+	a.folderContextMenu(m, path)
+}
+
 // bindFolderRow makes a sidebar folder a drag source, a drop target, and
 // a file-operation menu. Drag moves or copies the folder; a drop on it
 // files the dragged items there.
@@ -1088,13 +1131,17 @@ func toggleFavoriteList(list []string, path string) []string {
 	return append([]string{path}, list...)
 }
 
-func favoriteContains(list []string, path string) bool {
-	for _, item := range list {
+func favoriteIndex(list []string, path string) int {
+	for i, item := range list {
 		if pathKey(item) == pathKey(path) {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
+}
+
+func favoriteContains(list []string, path string) bool {
+	return favoriteIndex(list, path) >= 0
 }
 
 func (a *appState) toggleFavorite(path string) {
@@ -1102,7 +1149,58 @@ func (a *appState) toggleFavorite(path string) {
 	if path == "" || !isDir(path) {
 		return
 	}
+	a.Profiles.FavoritesCustom = true
 	a.Profiles.Favorites = toggleFavoriteList(a.Profiles.Favorites, path)
+	savePrefs(a.Profiles)
+}
+
+func (a *appState) moveFavorite(path string, delta int) {
+	idx := favoriteIndex(a.Profiles.Favorites, path)
+	if idx < 0 {
+		return
+	}
+	next := idx + delta
+	if next < 0 || next >= len(a.Profiles.Favorites) {
+		return
+	}
+	list := append([]string{}, a.Profiles.Favorites...)
+	list[idx], list[next] = list[next], list[idx]
+	a.Profiles.Favorites = list
+	a.Profiles.FavoritesCustom = true
+	savePrefs(a.Profiles)
+}
+
+func defaultFavoriteFolders() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	names := []string{"Desktop", "Downloads", "Pictures", "Movies"}
+	if runtime.GOOS != "darwin" {
+		names = append(names, "Videos")
+	}
+	var out []string
+	for _, name := range names {
+		p := filepath.Join(home, name)
+		if isDir(p) && !favoriteContains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (a *appState) seedDefaultFavorites() {
+	if a.Profiles.FavoritesCustom || len(a.Profiles.Favorites) > 0 {
+		return
+	}
+	if defaults := defaultFavoriteFolders(); len(defaults) > 0 {
+		a.Profiles.Favorites = defaults
+	}
+}
+
+func (a *appState) restoreDefaultFavorites() {
+	a.Profiles.Favorites = defaultFavoriteFolders()
+	a.Profiles.FavoritesCustom = false
 	savePrefs(a.Profiles)
 }
 
@@ -1480,18 +1578,26 @@ func (a *appState) cropDialog(c *ui.Context) {
 		ui.Text(c, "裁剪视频尺寸").Bold().FontSize(14)
 		ui.Text(c, "替换原文件。留空起点则居中，否则按左上角像素裁剪。").FontSize(12).TextColor(c.Theme().TextMuted)
 		ui.Row(c).Gap(8).Children(func() {
-			ui.TextInput(c, &a.CropW).Label("宽").Width(120)
-			ui.TextInput(c, &a.CropH).Label("高").Width(120)
+			if ui.TextInput(c.Key("crop-w"), &a.CropW).AutoFocus().Label("宽").Width(120).Submitted() {
+				a.commitCrop()
+			}
+			if ui.TextInput(c.Key("crop-h"), &a.CropH).Label("高").Width(120).Submitted() {
+				a.commitCrop()
+			}
 		})
 		ui.Row(c).Gap(8).Children(func() {
-			ui.TextInput(c, &a.CropX).Label("X").Width(120)
-			ui.TextInput(c, &a.CropY).Label("Y").Width(120)
+			if ui.TextInput(c.Key("crop-x"), &a.CropX).Label("X").Width(120).Submitted() {
+				a.commitCrop()
+			}
+			if ui.TextInput(c.Key("crop-y"), &a.CropY).Label("Y").Width(120).Submitted() {
+				a.commitCrop()
+			}
 		})
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c.Key("crop-cancel"), "取消").Clicked() {
 				a.CropAsk = false
 			}
-			if ui.Button(c.Key("crop-ok"), "裁剪并替换").Clicked() {
+			if ui.PrimaryButton(c.Key("crop-ok"), "裁剪并替换").Clicked() {
 				a.commitCrop()
 			}
 		})
@@ -1519,7 +1625,7 @@ func (a *appState) trimRangeSliders(c *ui.Context) {
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, "入点").FontSize(11)
-		if ui.Slider(c, &start, 0, duration).Width(200).Changed() {
+		if ui.Slider(c.Key("trim-in"), &start, 0, duration).Width(200).Changed() {
 			if start > end-0.05 {
 				start = max(0, end-0.05)
 			}
@@ -1529,7 +1635,7 @@ func (a *appState) trimRangeSliders(c *ui.Context) {
 	})
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, "出点").FontSize(11)
-		if ui.Slider(c, &end, 0, duration).Width(200).Changed() {
+		if ui.Slider(c.Key("trim-out"), &end, 0, duration).Width(200).Changed() {
 			if end < start+0.05 {
 				end = min(duration, start+0.05)
 			}
@@ -1548,14 +1654,18 @@ func (a *appState) trimDialog(c *ui.Context) {
 		ui.Text(c, "拖动范围会跳到对应画面，导出不重新编码，原视频保持不变。").FontSize(12).TextColor(c.Theme().TextMuted)
 		a.trimRangeSliders(c)
 		ui.Row(c).Gap(8).Children(func() {
-			ui.TextInput(c, &a.TrimStart).Label("开始").Width(120)
-			ui.TextInput(c, &a.TrimEnd).Label("结束").Width(120)
+			if ui.TextInput(c.Key("trim-start"), &a.TrimStart).AutoFocus().Label("开始").Width(120).Submitted() {
+				a.commitTrim()
+			}
+			if ui.TextInput(c.Key("trim-end"), &a.TrimEnd).Label("结束").Width(120).Submitted() {
+				a.commitTrim()
+			}
 		})
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c.Key("trim-cancel"), "取消").Clicked() {
 				a.TrimAsk = false
 			}
-			if ui.Button(c.Key("trim-ok"), "导出").Clicked() {
+			if ui.PrimaryButton(c.Key("trim-ok"), "导出").Clicked() {
 				a.commitTrim()
 			}
 		})
@@ -1697,13 +1807,15 @@ func (a *appState) infoDialog(c *ui.Context) {
 			title = "统计"
 		}
 		ui.Text(c, title).Bold().FontSize(14)
-		ui.Text(c, a.InfoText).FontSize(12)
+		ui.Scroll(c.Key("info-scroll")).MaxHeight(360).MaxWidth(460).Children(func() {
+			ui.Text(c, a.InfoText).FontSize(12)
+		})
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c.Key("info-copy"), "复制").Clicked() {
 				mygo.Clipboard.WriteText(a.InfoText)
 				a.toast("已复制简介")
 			}
-			if ui.Button(c.Key("info-close"), "关闭").Clicked() {
+			if ui.PrimaryButton(c.Key("info-close"), "关闭").Clicked() {
 				a.InfoAsk = false
 			}
 		})

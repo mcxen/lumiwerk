@@ -169,15 +169,32 @@ func formatClock(secs float64) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
-// recurseControls is the toolbar switch and the depth next to it.
+// recurseControls is the toolbar capsule toggle and the depth menu next to it.
 func (a *appState) recurseControls(c *ui.Context) {
-	row := ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0)
+	t := c.Theme()
+	pal := shellPaletteFor(c)
+	row := ui.Row(c).Gap(4).AlignItems(ui.Center).Shrink(0)
 	row.Children(func() {
-		sw := ui.Switch(c.Key("recurse-switch"), &a.Recursive).Label("递归")
-		if sw.Changed() {
-			a.setRecursive(a.Recursive)
+		sw := ui.ButtonBase(c.Key("recurse-switch")).Height(26).Padding(0, 8).Radius(6).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("递归").Tooltip("递归浏览子文件夹")
+		if a.Recursive {
+			sw.Background(t.Warning.Alpha(0.15)).Border(1, t.Warning.Alpha(0.42)).TextColor(t.Warning)
+		} else if sw.Pressed() {
+			sw.Background(pal.pressed).TextColor(pal.text)
+		} else if sw.Hovered() {
+			sw.Background(pal.hover).TextColor(pal.text)
+		} else {
+			sw.Background(pal.surface).TextColor(pal.textMuted)
 		}
-		ui.Text(c, "递归").FontSize(12).SingleLine()
+		sw.Children(func() {
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, lucideLayers).Size(13, 13)
+				ui.Text(c, "递归").FontSize(11.5).SingleLine()
+			})
+		})
+		if sw.Clicked() {
+			a.setRecursive(!a.Recursive)
+		}
 		if !a.Recursive || a.toolbarCompact {
 			// Depth and folders mean nothing until recursion is on; in a
 			// narrow window they move into the 显示与浏览 menu.

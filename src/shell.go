@@ -72,35 +72,51 @@ func (a *appState) browserLayout(c *ui.Context) {
 		a.SidebarWidth = sidebarDefaultWidth
 	}
 	pal := shellPaletteFor(c)
-	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
-	a.paintBackdrop(c, row)
-	row.Children(func() {
-		if !a.SidebarShown {
-			a.contentCard(c, pal)
-			return
-		}
-		// The large view hides the sidebar by folding its pane to zero inside
-		// the same Split instead of dropping the Split: rebuilding the tree on
-		// Esc made browserShell a new element whose first frame had no layout
-		// width, so the grid laid out narrow for a frame or two, then jumped
-		// back. A throwaway size keeps the user's sidebar width untouched.
-		size := &a.SidebarWidth
-		if a.InLargeView {
-			a.largeSidebarFold = 0
-			size = &a.largeSidebarFold
-		}
-		ui.Split(c, size, func() {
-			if !a.InLargeView {
-				a.sidebarView(c)
+	ui.Box(c).Fill().Children(func() {
+		row := ui.Row(c).Fill().AlignItems(ui.Stretch)
+		a.paintBackdrop(c, row)
+		row.Children(func() {
+			if !a.SidebarShown {
+				a.contentCard(c, pal)
+				return
 			}
-		}, func() { a.contentCard(c, pal) }).Fill()
+			// The large view hides the sidebar by folding its pane to zero inside
+			// the same Split instead of dropping the Split: rebuilding the tree on
+			// Esc made browserShell a new element whose first frame had no layout
+			// width, so the grid laid out narrow for a frame or two, then jumped
+			// back. A throwaway size keeps the user's sidebar width untouched.
+			size := &a.SidebarWidth
+			if a.InLargeView {
+				a.largeSidebarFold = 0
+				size = &a.largeSidebarFold
+			}
+			ui.Split(c, size, func() {
+				if !a.InLargeView {
+					a.sidebarView(c)
+				}
+			}, func() { a.contentCard(c, pal) }).Fill()
+		})
+		a.windowControlsOverlay(c, pal)
 	})
 }
 
 // contentCard floats the browser in one rounded card over the wash. The gap
-// around it moves the window like the bars do.
+// around it moves the window like the bars do. Immersive gallery and fullscreen
+// modes drop the outer frame so the stage reaches the window edges.
 func (a *appState) contentCard(c *ui.Context, pal *shellPalette) {
-	ui.Column(c).Fill().Padding(cardGap).DragWindow().Children(func() {
+	if a.galleryActive() || (a.Window != nil && a.Window.IsFullScreen()) {
+		ui.Column(c).Fill().Children(func() {
+			a.browserShell(c)
+		})
+		return
+	}
+	wrap := ui.Column(c).Fill().DragWindow()
+	if a.SidebarShown && !a.InLargeView {
+		wrap.Padding(cardGap, cardGap, cardGap, 0)
+	} else {
+		wrap.Padding(cardGap)
+	}
+	wrap.Children(func() {
 		cardSurface(ui.Column(c).Grow(1).MinHeight(0).MinWidth(0), pal).Children(func() {
 			a.browserShell(c)
 		})

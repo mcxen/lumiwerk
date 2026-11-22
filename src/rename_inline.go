@@ -17,16 +17,13 @@ import (
 const renameSlowClick = 600 * time.Millisecond
 
 // inlineRenameIndex is the visible index the rename of path edits in
-// place, or -1 where the layout shows no name to edit (large view, 无字,
-// waterfall/justified): those keep the dialog.
+// place, or -1 where the layout shows no name to edit (large view, 无字):
+// those keep the dialog.
 func (a *appState) inlineRenameIndex(path string) int {
 	if a.InLargeView || a.galleryActive() || a.Root == "" {
 		return -1
 	}
-	switch {
-	case a.LayoutMode == 1:
-	case a.LayoutMode == 0 && flowLabel > 0:
-	default:
+	if a.LayoutMode != 1 && flowLabel <= 0 {
 		return -1
 	}
 	if i := a.Chosen; i >= 0 {
@@ -188,10 +185,10 @@ func (a *appState) menuKey(b keyBinding) (ui.Modifiers, ui.Key) {
 }
 
 // syncMenuKeys turns off the app menu's items whose accelerator is a bare
-// key (T, 5…) while a name is typed in place, as the menu would take
-// those letters before the field, and back on after.
+// key (T, 5…) while a name or search query is typed in place, as the menu
+// would take those letters before the field, and back on after.
 func (a *appState) syncMenuKeys() {
-	typing := a.Renaming && a.RenameInline
+	typing := (a.Renaming && a.RenameInline) || (a.SearchOpen && a.searchFocused)
 	switch {
 	case typing && a.menuKeysOff == nil && a.appMenu != nil:
 		a.menuKeysOff = []*mygo.MenuItem{}

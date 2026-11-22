@@ -67,36 +67,46 @@ func TestMediaCardsShareChromeAcrossLayouts(t *testing.T) {
 	}
 }
 
-// TestOnlyGridCardArmsSlowRename checks the grid-only rename option does not
-// leak into the justified card: a click on the chosen card's name arms a
-// slow rename only in the grid (the justified layout renames by dialog).
-func TestOnlyGridCardArmsSlowRename(t *testing.T) {
+// TestSharedLayoutsArmSlowRename checks that Grid, Waterfall, and Justified
+// cards arm slow-click rename when captions are shown, and do not arm it in
+// 无字模式.
+func TestSharedLayoutsArmSlowRename(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	prevFlow := flowLabel
+	t.Cleanup(func() { flowLabel = prevFlow })
 	for _, tc := range []struct {
-		name   string
-		layout int
-		grid   bool
+		name      string
+		layout    int
+		noCaption bool
+		want      bool
 	}{
-		{"grid", 0, true},
-		{"justified", 3, false},
+		{"grid", 0, false, true},
+		{"waterfall", 2, false, true},
+		{"justified", 3, false, true},
+		{"justified-nocaption", 3, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := mediaCardState(tc.layout)
+			a.Profiles.View.NoCaption = tc.noCaption
 			a.Chosen = 0
 			a.Selected.Add("/probe/a.jpg")
 			te := ui.NewTester(a.view, 1000, 700)
 			te.Frame()
 			te.Frame()
+			if tc.noCaption {
+				if flowLabel != 0 || te.HasText("b.mp4") {
+					t.Fatalf("caption shown in 无字模式 (flowLabel=%v): %v", flowLabel, te.Texts())
+				}
+				return
+			}
 			r, ok := te.Find("a.jpg")
 			if !ok {
 				t.Fatalf("name not shown: %v", te.Texts())
 			}
-			// Find may return the whole grid card (its tooltip has the
-			// name); the label sits along the card's bottom edge.
 			te.ClickAt(r.X+r.W/2, r.Y+r.H-6)
 			te.Frame()
-			if armed := a.renameArm == "/probe/a.jpg"; armed != tc.grid {
-				t.Fatalf("slow rename armed = %v (%q), want %v", armed, a.renameArm, tc.grid)
+			if armed := a.renameArm == "/probe/a.jpg"; armed != tc.want {
+				t.Fatalf("slow rename armed = %v (%q), want %v", armed, a.renameArm, tc.want)
 			}
 		})
 	}

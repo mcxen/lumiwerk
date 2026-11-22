@@ -30,7 +30,7 @@ func renameState(t *testing.T, layout int) (*appState, string) {
 }
 
 func TestInlineRenameCommitsAndCancels(t *testing.T) {
-	for _, layout := range []int{0, 1} {
+	for _, layout := range []int{0, 1, 2, 3} {
 		t.Run(fmt.Sprintf("layout-%d", layout), func(t *testing.T) {
 			a, dir := renameState(t, layout)
 			te := ui.NewTester(a.view, 1100, 760)
@@ -112,11 +112,15 @@ func TestInlineRenameValidates(t *testing.T) {
 }
 
 func TestRenameFallsBackToDialog(t *testing.T) {
-	a, _ := renameState(t, 2) // waterfall shows no name
+	a, _ := renameState(t, 0)
+	prevFlow := flowLabel
+	t.Cleanup(func() { flowLabel = prevFlow })
+	flowLabel = 0 // 无字模式 shows no caption
 	a.startRename()
 	if !a.Renaming || a.RenameInline {
-		t.Fatalf("waterfall inline=%v", a.RenameInline)
+		t.Fatalf("no-caption inline=%v", a.RenameInline)
 	}
+	flowLabel = prevFlow
 	a, _ = renameState(t, 1)
 	a.InLargeView = true
 	a.startRename()

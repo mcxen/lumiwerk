@@ -51,6 +51,7 @@ type editorState struct {
 	Playhead       float64
 	CropOn         bool
 	Crop           normRect
+	Aspect         string
 	Drag           editorDrag
 	ViewW, ViewH   float32
 	TimelineW      float32
@@ -96,6 +97,11 @@ func (a *appState) openVideoEditor(mode, path string) bool {
 		return false
 	}
 	a.editorSeq++
+	cropOn := mode == "crop" && item.Info.Width > 1 && item.Info.Height > 1
+	aspect := "不裁剪"
+	if cropOn {
+		aspect = "自由"
+	}
 	a.Editor = editorState{
 		Open:     true,
 		Mode:     mode,
@@ -104,8 +110,9 @@ func (a *appState) openVideoEditor(mode, path string) bool {
 		FrameW:   item.Info.Width,
 		FrameH:   item.Info.Height,
 		Segments: []editSegment{{End: duration}},
-		CropOn:   mode == "crop" && item.Info.Width > 1 && item.Info.Height > 1,
+		CropOn:   cropOn,
 		Crop:     normRect{W: 1, H: 1},
+		Aspect:   aspect,
 		Token:    a.editorSeq,
 	}
 	a.holdVideo(false)
@@ -172,8 +179,14 @@ func (a *appState) editorCropChrome(c *ui.Context) {
 			Radius(5).Background(ui.RGB(255, 255, 255)).Border(1, ui.RGB(0, 0, 0))
 	}
 	pw, ph := cropPixels(a.Editor.FrameW, a.Editor.FrameH, a.Editor.Crop)
+	labelTop := crop.Y + crop.H + 6
+	labelLeft := crop.X
+	if labelTop+24 > a.Editor.ViewH {
+		labelTop = max(crop.Y+6, crop.Y+crop.H-26)
+		labelLeft = crop.X + 6
+	}
 	label := ui.Row(c).PassThrough().Attach(ui.AnchorTopLeft, ui.AnchorTopLeft).
-		Left(crop.X).Top(crop.Y+crop.H+6).Padding(3, 8).Radius(6).Background(ui.RGB(0, 0, 0).Alpha(0.78))
+		Left(labelLeft).Top(labelTop).Padding(3, 8).Radius(6).Background(ui.RGB(0, 0, 0).Alpha(0.78))
 	label.Children(func() {
 		ui.Textf(c, "%d×%d", pw, ph).FontSize(11).TextColor(ui.RGB(255, 255, 255))
 	})
@@ -257,7 +270,7 @@ func (a *appState) editorBar(c *ui.Context, t *ui.Theme) {
 		if ui.Button(c.Key("editor-cancel"), "取消").Clicked() {
 			a.closeEditor()
 		}
-		if ui.Button(c.Key("editor-export"), "导出").Clicked() {
+		if ui.PrimaryButton(c.Key("editor-export"), "导出").Clicked() {
 			a.exportEditor()
 		}
 	})
@@ -276,16 +289,32 @@ func (a *appState) editorAspects(c *ui.Context) {
 		{label: "1:1", ratio: 1},
 		{label: "9:16", ratio: 9.0 / 16},
 	}
+	active := a.Editor.Aspect
+	if active == "" {
+		if !a.Editor.CropOn {
+			active = "不裁剪"
+		} else {
+			active = "自由"
+		}
+	}
+	t := c.Theme()
 	for _, option := range options {
 		option := option
-		button := ui.Button(c.Key("aspect-"+option.label), option.label)
+		var button ui.Element
+		if active == option.label {
+			button = ui.PrimaryButton(c.Key("aspect-"+option.label), option.label)
+		} else {
+			button = ui.Button(c.Key("aspect-"+option.label), option.label).TextColor(t.Text)
+		}
 		if button.Clicked() {
 			if option.off || a.Editor.FrameW < 2 || a.Editor.FrameH < 2 {
 				a.Editor.CropOn = false
 				a.Editor.Crop = normRect{W: 1, H: 1}
+				a.Editor.Aspect = "不裁剪"
 				continue
 			}
 			a.Editor.CropOn = true
+			a.Editor.Aspect = option.label
 			if option.ratio == 0 {
 				a.Editor.Crop = normRect{W: 1, H: 1}
 				continue
@@ -321,9 +350,13 @@ func (a *appState) editorPreviewInput(ev ui.InputEvent) bool {
 		}
 		if drag.Kind == "create" {
 			a.Editor.Crop = cropFromPoints(drag.OriginX, drag.OriginY, ev.X, ev.Y, canvas)
+			a.Editor.Aspect = "自由"
 			return true
 		}
 		a.Editor.Crop = applyCropDrag(drag.Crop, drag.Kind, ev.X-drag.OriginX, ev.Y-drag.OriginY, canvas.W, canvas.H)
+		if drag.Kind != "move" {
+			a.Editor.Aspect = "自由"
+		}
 		return true
 	case ui.InputPointerUp:
 		if !a.Editor.Drag.Active {

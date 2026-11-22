@@ -215,7 +215,7 @@ func waterfallFrames(aspects []float32, viewW, thumb float32) []flowBox {
 }
 
 // justifiedFrames is the card geometry justifiedView paints. Rows are packed
-// by aspect, then each row is a fixed thumb+label strip with equal cards.
+// by aspect, then each row fills the width proportionally via justifiedWidths.
 func justifiedFrames(aspects []float32, viewW, thumb float32) []flowBox {
 	raw := make([]float64, len(aspects))
 	for i, ar := range aspects {
@@ -224,27 +224,29 @@ func justifiedFrames(aspects []float32, viewW, thumb float32) []flowBox {
 			raw[i] = 1
 		}
 	}
-	rows := justifiedRows(raw, float64(viewW)-float64(flowPad*2), float64(thumb), float64(flowGap))
+	inner := viewW - flowPad*2
+	rows := justifiedRows(raw, float64(inner), float64(thumb), float64(flowGap))
 	boxes := make([]flowBox, len(aspects))
 	rowH := thumb + flowLabel
 	cardH := rowH - flowMargin*2
 	if cardH < 1 {
 		cardH = 1
 	}
-	inner := viewW - flowPad*2
 	y := flowPad
 	for _, row := range rows {
 		n := len(row)
 		if n == 0 {
 			continue
 		}
-		cardW := (inner - flowGap*float32(n-1) - flowMargin*2*float32(n)) / float32(n)
-		if cardW < 1 {
-			cardW = 1
-		}
-		for i, idx := range row {
-			x := flowPad + flowMargin + float32(i)*(cardW+flowMargin*2+flowGap)
-			boxes[idx] = flowBox{Index: idx, X: x, Y: y + flowMargin, W: cardW, H: cardH}
+		widths := justifiedWidths(aspects, row, float64(inner), float64(thumb), float64(flowGap), row[n-1] == len(aspects)-1)
+		x := flowPad + flowMargin
+		for k, idx := range row {
+			w := widths[k] - flowMargin*2
+			if w < 1 {
+				w = 1
+			}
+			boxes[idx] = flowBox{Index: idx, X: x, Y: y + flowMargin, W: w, H: cardH}
+			x += widths[k] + flowGap
 		}
 		y += rowH + flowGap
 	}
@@ -295,12 +297,16 @@ var thumbCardProbe = func() {}
 // not shift when the selection moves.
 const selectionPlate = 4
 
-// selectionThumb draws the plate behind a selected thumbnail.
+// selectionThumb draws the plate behind a selected thumbnail, and adds an
+// accent border in 无字模式 where the filename pill is hidden.
 func selectionThumb(c *ui.Context, thumb ui.Element, on bool) {
 	if !on {
 		return
 	}
 	thumb.Shadow(0, 0, 0, selectionPlate, c.Theme().SurfacePressed)
+	if flowLabel == 0 {
+		thumb.Border(2, c.Theme().Accent)
+	}
 }
 
 // selectionName turns a selected card's name into the accent pill.
@@ -458,7 +464,15 @@ func justifiedWidths(aspects []float32, row []int, viewW, rowH, gap float64, las
 }
 
 func (a *appState) thumbCardWidth(c *ui.Context, root string, i int, height, width float32) {
-	a.mediaCard(c, root, i, mediaCardOptions{width: width, height: height, fit: ui.Cover, waterfallBadges: a.LayoutMode == 2})
+	a.mediaCard(c, root, i, mediaCardOptions{
+		width:           width,
+		height:          height,
+		fit:             ui.Cover,
+		waterfallBadges: a.LayoutMode == 2,
+		tagDots:         true,
+		inlineRename:    true,
+		tooltip:         true,
+	})
 }
 
 // mediaCardOptions holds what differs between the grid card and the
@@ -501,7 +515,11 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 	wasChosen := a.Chosen == i && a.Selected.Len() <= 1
 	card.Children(func() {
 		thumb := ui.Box(c).Grow(1).Background(t.Background).Clip().Justify(ui.Center).AlignItems(ui.Center)
-		selectionThumb(c, thumb, picked)
+		if picked {
+			selectionThumb(c, thumb, true)
+		} else if card.Hovered() {
+			thumb.Shadow(0, 0, 0, 2, t.SurfaceHover)
+		}
 		a.thumbHero(thumb, item.Path)
 		thumb.Children(func() {
 			if opts.tagDots {
@@ -521,15 +539,24 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 			if opts.inlineRename && a.renamingInline(i) {
 				a.inlineRenameField(c, 11, true)
 			} else {
-				name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).TextAlign(ui.Center)
-				selectionName(c, name, picked)
+				ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
+					name = ui.Text(c, item.Name).FontSize(11).MaxLines(2).Ellipsis("…").TextAlign(ui.Center).Shrink(1).MinWidth(0)
+					selectionName(c, name, picked)
+				})
 			}
 		}
 	})
 	if opts.tooltip {
-		card.Tooltip(fmt.Sprintf("%s\n%.1f MB", item.Name, float64(item.Size)/(1024*1024)))
+		if item.IsDir {
+			card.Tooltip(item.Name)
+		} else {
+			card.Tooltip(fmt.Sprintf("%s\n%s", item.Name, formatBytes(item.Size)))
+		}
 	}
 	a.fileDragSource(card, item.Path)
+	if item.IsDir {
+		a.folderDropTarget(c, card, item.Path)
+	}
 	a.cardPointer(card, i)
 	a.noteCardRect(i, card)
 	if opts.inlineRename && wasChosen && name != (ui.Element{}) && pointerOver(card, name) && card.Clicked() && !card.DoubleClicked() {

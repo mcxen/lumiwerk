@@ -61,9 +61,10 @@
 
 `mediaCard` 是网格、瀑布、紧凑共用的卡片:缩略图区 + 名称。
 
-- 选中:`selectionChrome` 用 `SurfacePressed` 填充,圆角 8。
+- 选中:`selectionThumb` 在缩略图下铺 4pt 的 `SurfacePressed` 扩散底板,`selectionName` 把文件名贴字宽居中显示为 `Accent` 圆角胶囊(圆角 5);「无字模式」下(`flowLabel` = 0)额外为选中缩略图绘制 2pt `Accent` 边框。
+- 悬停:未选中卡片在悬停时铺 2pt `SurfaceHover` 扩散阴影;详情列表按整行同步高亮 `SurfaceHover`。
 - 被剪切的项目整体不透明度 0.4。
-- 网格卡片额外有标签点、行内重命名、悬停提示(名称与大小);紧凑 / 瀑布没有。
+- 网格、瀑布、紧凑共用标签点(`tagDots`)、行内重命名(`inlineRename`,「无字模式」下回落弹窗)、悬停提示(`tooltip`,文件用 `formatBytes` 格式化大小,文件夹只显示名称)以及文件夹拖放目标(`folderDropTarget`)。
 - 瀑布卡片在左上角显示来源文件夹,其他布局不显示。
 - 文件夹有封面时用叠放图(`Contain`),没有时用文件夹图标。
 
@@ -73,4 +74,4 @@ UI 改动按 `AGENTS.md` 用 `ui.NewTester` 覆盖。与本文相关的测试:
 
 - `thumb_sync_test.go`:缓存命中的缩略图随卡片同帧上屏;文字区固定、缩放系数随滑块;占位图标尺寸。
 - `waterfall_virt_test.go`:瀑布只构建可见窗口。
-- `mediacard_test.go`、`typeicon_test.go`:共用卡片与图标。
+- `mediacard_test.go`、`typeicon_test.go`、`ui_polish_test.go`:共用卡片、图标、交互与排版回归。

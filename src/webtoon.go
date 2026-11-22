@@ -142,6 +142,17 @@ func (a *appState) webtoonView(c *ui.Context) {
 		vw, vh = b.W, b.H
 		a.StageW, a.StageH = b.W, b.H
 	}
+	if x, y, over := scroll.PointerPosition(); over {
+		a.notePlayerPointer(x, y, vw, vh)
+	} else {
+		a.playerInZone = false
+		a.playerNearSide = false
+	}
+	scroll.ContextMenu(func(m *ui.Menu) {
+		if it := a.currentItem(); it != nil {
+			a.largeContextMenu(m, it)
+		}
+	})
 	width := min(vw, webtoonMaxWidth)
 	left := (vw - width) / 2
 
@@ -164,6 +175,10 @@ func (a *appState) webtoonView(c *ui.Context) {
 	y := a.webtoonScroll.Y
 	if p := webtoonPageAt(ys, hs, y+vh*webtoonReadLine); p >= 0 && pages[p].visible != a.LargeIndex {
 		a.LargeIndex = pages[p].visible
+		a.Chosen = pages[p].visible
+		a.keyPivot = pages[p].visible
+		a.Selected.Clear()
+		a.Selected.Add(a.Items[pages[p].item].Path)
 		a.Zoom, a.Rotation, a.Mirror = 1, 0, false
 		a.setTitle(fmt.Sprintf("%s (%d/%d)", a.Items[pages[p].item].Name, p+1, len(pages)))
 	}

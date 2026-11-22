@@ -224,7 +224,8 @@ func TestVideoControlsNativeInteraction(t *testing.T) {
 	if a.VideoVolume != 0 || backend.volume != 0 {
 		t.Fatalf("mute volume=%v backend=%v", a.VideoVolume, backend.volume)
 	}
-	if err := te.Click("静音"); err != nil {
+	te.Frame()
+	if err := te.Click("取消静音"); err != nil {
 		t.Fatal(err)
 	}
 	if a.VideoVolume != 0.7 || backend.volume != 0.7 {
@@ -241,8 +242,12 @@ func TestVideoControlsNativeInteraction(t *testing.T) {
 	if err := te.Click("更多播放操作"); err != nil {
 		t.Fatal(err)
 	}
-	if !te.HasText("倍速 2×") || !te.HasText("上一帧") || !te.HasText("实际大小") {
+	if !te.HasText("播放速度") || !te.HasText("上一帧") || !te.HasText("实际大小") {
 		t.Fatalf("more menu is incomplete: %q", te.Texts())
+	}
+	te.CloseMenu()
+	if err := te.Click("倍速"); err != nil {
+		t.Fatal(err)
 	}
 	if err := te.Click("倍速 2×"); err != nil {
 		t.Fatal(err)

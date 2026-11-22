@@ -55,25 +55,28 @@ func defaultViewPreferences() viewPreferences {
 }
 
 type prefsFile struct {
-	Active            int                   `json:"active"`
-	Profiles          []profile             `json:"profiles"`
-	QuickRename       string                `json:"quickRename,omitempty"`
-	Shortcuts         map[string]keyBinding `json:"shortcuts,omitempty"`
-	ZipPassword       string                `json:"zipPassword,omitempty"`
-	ZipPasswords      []string              `json:"zipPasswords,omitempty"`
-	ZipUsePassword    bool                  `json:"zipUsePassword,omitempty"`
-	Webtoon           bool                  `json:"webtoon,omitempty"`
-	Favorites         []string              `json:"favorites,omitempty"`
-	View              viewPreferences       `json:"view"`
-	ViewSet           bool                  `json:"viewSet"`
-	ImageDestination  string                `json:"imageDestination,omitempty"`
-	VideoDestination  string                `json:"videoDestination,omitempty"`
-	UpdateSource      string                `json:"updateSource,omitempty"`
-	ImageCopyShortcut string                `json:"imageCopyShortcut,omitempty"`
-	VideoCopyShortcut string                `json:"videoCopyShortcut,omitempty"`
-	EnterOpens        bool                  `json:"enterOpens,omitempty"`
-	VideoShiftArrow   bool                  `json:"videoShiftArrow"`
-	PlaybackEnd       string                `json:"playbackEnd,omitempty"`
+	Active               int                   `json:"active"`
+	Profiles             []profile             `json:"profiles"`
+	QuickRename          string                `json:"quickRename,omitempty"`
+	Shortcuts            map[string]keyBinding `json:"shortcuts,omitempty"`
+	ZipPassword          string                `json:"zipPassword,omitempty"`
+	ZipPasswords         []string              `json:"zipPasswords,omitempty"`
+	ZipUsePassword       bool                  `json:"zipUsePassword,omitempty"`
+	Webtoon              bool                  `json:"webtoon,omitempty"`
+	Favorites            []string              `json:"favorites,omitempty"`
+	FavoritesCustom      bool                  `json:"favoritesCustom,omitempty"`
+	View                 viewPreferences       `json:"view"`
+	ViewSet              bool                  `json:"viewSet"`
+	ImageDestination     string                `json:"imageDestination,omitempty"`
+	VideoDestination     string                `json:"videoDestination,omitempty"`
+	UpdateSource         string                `json:"updateSource,omitempty"`
+	ImageCopyShortcut    string                `json:"imageCopyShortcut,omitempty"`
+	ImageCopyShortcutOff bool                  `json:"imageCopyShortcutOff,omitempty"`
+	VideoCopyShortcut    string                `json:"videoCopyShortcut,omitempty"`
+	VideoCopyShortcutOff bool                  `json:"videoCopyShortcutOff,omitempty"`
+	EnterOpens           bool                  `json:"enterOpens,omitempty"`
+	VideoShiftArrow      bool                  `json:"videoShiftArrow"`
+	PlaybackEnd          string                `json:"playbackEnd,omitempty"`
 	// ViewerBar is when the floating control bar of the image and video
 	// viewer shows: barAuto, barHover or barAlways (see controlbar.go).
 	ViewerBar      string  `json:"viewerBar,omitempty"`
@@ -234,10 +237,10 @@ func normalizePrefs(p *prefsFile) {
 	if p.View.RecurseDepth < 0 || p.View.RecurseDepth > 2 {
 		p.View.RecurseDepth = 0
 	}
-	if p.ImageCopyShortcut == "" {
+	if p.ImageCopyShortcut == "" && !p.ImageCopyShortcutOff {
 		p.ImageCopyShortcut = "N"
 	}
-	if p.VideoCopyShortcut == "" {
+	if p.VideoCopyShortcut == "" && !p.VideoCopyShortcutOff {
 		p.VideoCopyShortcut = "]"
 	}
 	if p.Volume < 0 || p.Volume > 2 {

@@ -33,7 +33,11 @@ type settingsState struct {
 }
 
 func (a *appState) openSettings() {
+	prevWindow := a.Settings.Window
+	prevPane := a.Settings.Pane
 	a.Settings = settingsState{
+		Window:         prevWindow,
+		Pane:           prevPane,
 		Dest:           firstNonEmpty(a.Profiles.ImageDestination, a.currentDestination()),
 		VideoDest:      a.Profiles.VideoDestination,
 		ImageShortcut:  a.Profiles.ImageCopyShortcut,
@@ -94,6 +98,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 var shortcutChoices = []string{
+	"",
 	"A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "N", "O", "P", "V", "Y",
 	"0", "6", "7", "8", "9", "=", "-", ",", ".", "[", "]",
 	"F1", "F4", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
@@ -127,7 +132,9 @@ func (a *appState) applyActionSettings() {
 	a.Profiles.EnterOpens = a.Settings.EnterOpens
 	a.Profiles.PlaybackEnd = normalizePlaybackEnd(a.Settings.PlaybackEnd)
 	a.Profiles.ImageCopyShortcut = a.Settings.ImageShortcut
+	a.Profiles.ImageCopyShortcutOff = a.Settings.ImageShortcut == ""
 	a.Profiles.VideoCopyShortcut = a.Settings.VideoShortcut
+	a.Profiles.VideoCopyShortcutOff = a.Settings.VideoShortcut == ""
 	a.Profiles.ImageDestination = strings.TrimSpace(a.Settings.Dest)
 	a.Profiles.VideoDestination = strings.TrimSpace(a.Settings.VideoDest)
 	a.Profiles.ZipPassword = a.Settings.ZipPassword

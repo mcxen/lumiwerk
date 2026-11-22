@@ -14,7 +14,9 @@ func (a *appState) settingsFilesPage(c *ui.Context, pal *settingsPalette) {
 	// soon as one differs.
 	defer func() {
 		p := a.Profiles
-		if a.Settings.ZipPassword != p.ZipPassword || a.Settings.ZipUsePassword != p.ZipUsePassword ||
+		if strings.TrimSpace(a.Settings.Dest) != p.ImageDestination ||
+			strings.TrimSpace(a.Settings.VideoDest) != p.VideoDestination ||
+			a.Settings.ZipPassword != p.ZipPassword || a.Settings.ZipUsePassword != p.ZipUsePassword ||
 			strings.Join(mergePasswords(splitLines(a.Settings.ZipBook)), "\n") != strings.Join(p.ZipPasswords, "\n") {
 			a.applyActionSettings()
 		}

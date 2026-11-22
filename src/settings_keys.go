@@ -40,7 +40,7 @@ func (a *appState) settingsKeysPage(c *ui.Context, pal *settingsPalette) {
 					}
 					text := bindingLabel(a.binding(s.id))
 					if keyCapture.id == s.id {
-						text = "按下新快捷键…"
+						text = "按下新快捷键（Esc 取消）"
 					}
 					if ui.Button(c.Key("key-"+s.id), text).MinWidth(120).Clicked() {
 						keyCapture.id, keyCapture.conflict = s.id, ""

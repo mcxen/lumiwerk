@@ -46,8 +46,11 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 			a.Profiles.RestoreOff = !a.Profiles.RestoreSession
 			savePrefs(a.Profiles)
 		}
+		beforeStart := a.Settings.StartFolder
 		if setTextHint(c, "start-folder", "启动目录", "不恢复会话时打开这里", &a.Settings.StartFolder, "上次浏览的目录", "选择…", false) {
 			safeGo("dialog.pickStartFolder", a.pickStartFolder)
+		} else if a.Settings.StartFolder != beforeStart {
+			a.setStartFolder(strings.TrimSpace(a.Settings.StartFolder))
 		}
 	})
 	setGroup(c, "窗口", func() {

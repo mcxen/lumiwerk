@@ -74,6 +74,8 @@ func (a *appState) detailView(c *ui.Context) {
 	base := c.Theme()
 	t := a.denseTheme(base)
 	padV, padH := t.Space(1.5), t.Space(2.5)
+	prevHover := a.detailHoverPath
+	a.detailHoverPath = ""
 	ui.Themed(c, t).Background(ui.Transparent).Grow(1).Children(func() {
 		table := ui.Table(c, list, detailColumns, len(a.Visible), func(i, col int) {
 			item := a.visibleItem(i)
@@ -87,8 +89,14 @@ func (a *appState) detailView(c *ui.Context) {
 			if detailColumns[col].Align == ui.End {
 				cell.Justify(ui.End)
 			}
-			if a.Chosen == i || a.Selected.Has(item.Path) || a.impliedPicked(item.Path) {
+			picked := a.Chosen == i || a.Selected.Has(item.Path) || a.impliedPicked(item.Path)
+			if picked {
 				cell.Background(base.SurfacePressed)
+			} else if prevHover == item.Path {
+				cell.Background(base.SurfaceHover)
+			}
+			if cell.Hovered() {
+				a.detailHoverPath = item.Path
 			}
 			var name ui.Element
 			wasChosen := a.Chosen == i && a.Selected.Len() <= 1

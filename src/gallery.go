@@ -33,7 +33,7 @@ func (a *appState) toggleGallery() {
 }
 
 const (
-	galleryProgressH = 14     // the thin progress row at the bottom edge
+	galleryProgressH = 20     // the bottom progress row and its comfortable hit target
 	galleryStripH    = 56 + 8 // strip thumbnails plus their padding
 )
 
@@ -41,7 +41,7 @@ func (a *appState) galleryView(c *ui.Context) {
 	box := ui.Box(c).Fill().Background(ui.RGB(0, 0, 0))
 	show := a.galleryPeek
 	if b := box.LayoutBounds(); b.H > 1 {
-		if _, y, over := box.PointerPosition(); over && y > b.Y+b.H-110 {
+		if _, y, over := box.PointerPosition(); over && y >= b.H-110 {
 			show = true
 		}
 	}
@@ -62,8 +62,30 @@ func (a *appState) galleryView(c *ui.Context) {
 	})
 }
 
+// nearestMediaIndex returns i when it is a file, otherwise the closest file
+// index in a.Visible, or -1 if none exists.
+func (a *appState) nearestMediaIndex(i int) int {
+	n := len(a.Visible)
+	if n == 0 {
+		return -1
+	}
+	i = min(n-1, max(0, i))
+	if it := a.visibleItem(i); it != nil && !it.IsDir {
+		return i
+	}
+	for d := 1; i+d < n || i-d >= 0; d++ {
+		if it := a.visibleItem(i + d); it != nil && !it.IsDir {
+			return i + d
+		}
+		if it := a.visibleItem(i - d); it != nil && !it.IsDir {
+			return i - d
+		}
+	}
+	return -1
+}
+
 // galleryProgress is a thin bar of the position in the folder; click or
-// drag along it to jump. The count shows only while the strip is up.
+// drag along its 20pt hit row to jump. The count shows only while the strip is up.
 func (a *appState) galleryProgress(c *ui.Context, label bool) {
 	t := c.Theme()
 	n := len(a.Visible)
@@ -71,20 +93,26 @@ func (a *appState) galleryProgress(c *ui.Context, label bool) {
 		return
 	}
 	frac := float32(a.LargeIndex+1) / float32(n)
-	row := ui.Row(c).FillWidth().Height(14).AlignItems(ui.Center).Gap(8).Padding(0, 8)
+	row := ui.Row(c).FillWidth().Height(galleryProgressH).AlignItems(ui.Center).Gap(8).Padding(0, 8)
 	row.Children(func() {
-		track := ui.Row(c).Grow(1).Height(3).Clip().Radius(2).Background(ui.RGBA(255, 255, 255, 0.18))
-		if b := track.LayoutBounds(); b.W > 1 && track.Pressed() {
-			if x, _, _ := track.PointerPosition(); true {
-				i := min(n-1, max(0, int((x-b.X)/b.W*float32(n))))
-				if i != a.LargeIndex && !a.Items[a.Visible[i]].IsDir {
-					a.openLargeImage(i)
-				}
+		hit := ui.Row(c.Key("gallery-progress-hit")).Grow(1).Height(galleryProgressH).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		if b := hit.LayoutBounds(); b.W > 1 && hit.Pressed() {
+			x, _, _ := hit.PointerPosition()
+			i := min(n-1, max(0, int(clampFloat32(x/b.W, 0, 1)*float32(n))))
+			if target := a.nearestMediaIndex(i); target >= 0 && target != a.LargeIndex {
+				a.openLargeImage(target)
 			}
 		}
-		track.Children(func() {
-			ui.Box(c).Width(0).FillHeight().Radius(2).Background(t.Accent).Grow(frac).Shrink(0)
-			ui.Box(c).Grow(1 - frac)
+		trackH := float32(3)
+		if hit.Hovered() || hit.Pressed() {
+			trackH = 4
+		}
+		hit.Children(func() {
+			track := ui.Row(c).FillWidth().Height(trackH).Clip().Radius(2).Background(ui.RGBA(255, 255, 255, 0.18))
+			track.Children(func() {
+				ui.Box(c).Width(0).FillHeight().Radius(2).Background(t.Accent).Grow(frac).Shrink(0)
+				ui.Box(c).Grow(1 - frac)
+			})
 		})
 		if label {
 			ui.Text(c, fmt.Sprintf("%d / %d", a.LargeIndex+1, n)).FontSize(10).TextColor(ui.RGBA(255, 255, 255, 0.7)).SingleLine()
@@ -113,12 +141,15 @@ func (a *appState) galleryStrip(c *ui.Context, size float32) {
 			if item == nil {
 				continue
 			}
-			cell := ui.Box(c).Key(a.itemKey(i)).Width(size).Height(size).Shrink(0).Clip().Radius(6).
-				Background(t.Surface).Justify(ui.Center).AlignItems(ui.Center)
-			if i == a.LargeIndex {
+			cell := ui.Box(c.Key(a.itemKey(i))).Width(size).Height(size).Shrink(0).Clip().Radius(6).
+				Background(t.Surface).Justify(ui.Center).AlignItems(ui.Center).Cursor(ui.CursorPointer).Tooltip(item.Name)
+			switch {
+			case i == a.LargeIndex:
 				cell.Border(2, t.Accent)
-			} else {
-				cell.Opacity(0.7)
+			case cell.Hovered():
+				cell.Opacity(0.95)
+			default:
+				cell.Opacity(0.68)
 			}
 			cell.Children(func() {
 				paintMediaThumb(c, item, size, ui.Cover, size)

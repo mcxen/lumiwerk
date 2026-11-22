@@ -208,7 +208,6 @@ func (a *appState) viewMenu(m *ui.Menu) {
 	})
 	m.Separator()
 	if m.Item("设置…").Shortcut(a.menuKey(a.binding("settings"))).Chosen() {
-		a.openSettings()
 		a.settingsWindow()
 	}
 }
@@ -316,7 +315,7 @@ func (a *appState) autoConfigDialog(c *ui.Context) {
 	}
 	m := ui.Modal(c, &open, func() {
 		ui.Text(c, title).Bold().FontSize(14)
-		field := ui.TextInput(c, &a.AutoValue).Label(label).Width(300)
+		field := ui.TextInput(c.Key("auto-value"), &a.AutoValue).AutoFocus().Label(label).Width(300)
 		if field.Submitted() {
 			a.commitAutoConfig()
 		}
@@ -324,7 +323,7 @@ func (a *appState) autoConfigDialog(c *ui.Context) {
 			if ui.Button(c.Key("auto-cancel"), "取消").Clicked() {
 				a.AutoConfig, a.AutoValue = "", ""
 			}
-			if ui.Button(c.Key("auto-ok"), "开始").Clicked() {
+			if ui.PrimaryButton(c.Key("auto-ok"), "开始").Clicked() {
 				a.commitAutoConfig()
 			}
 		})

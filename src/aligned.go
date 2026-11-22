@@ -160,16 +160,20 @@ type appState struct {
 	SidebarShown    bool
 	Breadcrumb      int
 
-	Query         string
-	Sort          string
-	FolderFirst   bool
-	FullPathSort  bool
-	sortSalt      int64
-	LayoutMode    int
-	Thumb         float64
-	thumbSizeOpen bool
-	thumbDue      time.Time
-	browseScroll  ui.ScrollState
+	Query           string
+	SearchOpen      bool
+	searchFocused   bool
+	searchFocusPend int
+	detailHoverPath string
+	Sort            string
+	FolderFirst     bool
+	FullPathSort    bool
+	sortSalt        int64
+	LayoutMode      int
+	Thumb           float64
+	thumbSizeOpen   bool
+	thumbDue        time.Time
+	browseScroll    ui.ScrollState
 
 	// Vertical continuous reading and archive stepping; see webtoon.go.
 	webtoonScroll   ui.ScrollState
@@ -301,6 +305,8 @@ type appState struct {
 	playerPtrY      float32
 	playerPtrSeen   bool
 	playerInZone    bool    // pointer is in the bottom hot zone of the stage
+	playerNearSide  bool    // pointer is near the left/right edge arrows
+	lastBarShown    bool    // whether the control bar is currently shown
 	barItemPath     string  // item the control bar last revealed for
 	galleryLift     float32 // height of the gallery chrome the control bar must clear
 	playerTimelineW float32
@@ -338,7 +344,7 @@ func newAppMenu(a *appState) *mygo.Menu {
 			mygo.Separator(),
 			{Label: "设置复制目录…", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { safeGo("dialog.setCopyDestination", a.setCopyDestination) }},
 			{Label: "设置…", Accelerator: a.accel("settings"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) {
-				a.update(func() { a.openSettings(); a.settingsWindow() })
+				a.update(func() { a.settingsWindow() })
 			}},
 			{Label: "复制到目标", Accelerator: a.accel("copycfg"), Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.copyToConfigured() }) }},
 			{Label: "复制到下载", Click: func(_ *mygo.MenuItem, _ *mygo.Window) { a.update(func() { a.transferToDownloads(opCopy) }) }},
@@ -495,6 +501,9 @@ func (a *appState) openFolder(path string) {
 		a.MediaUnitRoot = ""
 	}
 	a.Query = ""
+	a.SearchOpen = false
+	a.searchFocused = false
+	a.searchFocusPend = 0
 	a.Items = nil
 	a.Visible = nil
 	a.Chosen = -1
@@ -752,26 +761,56 @@ type iconChoice struct {
 }
 
 func iconSegmented(c *ui.Context, selected *int, items []iconChoice) bool {
-	t := c.Theme()
+	pal := shellPaletteFor(c)
 	seg := ui.SegmentedBase(c, selected, len(items))
-	seg.Track.AlignItems(ui.Stretch).Padding(2).Gap(2).Radius(6).Background(t.Surface).Children(func() {
+	seg.Track.AlignItems(ui.Stretch).Padding(2).Gap(1).Radius(7).Background(pal.surface).Children(func() {
 		for i, item := range items {
 			active := *selected == i
-			s := seg.Segment(i).Justify(ui.Center).AlignItems(ui.Center).Padding(3, 6).Radius(4)
+			s := seg.Segment(i).Size(26, 22).Justify(ui.Center).AlignItems(ui.Center).Radius(5).Cursor(ui.CursorPointer)
 			if active {
-				s.Background(t.Accent)
+				if pal.dark {
+					s.Background(ui.RGBA(255, 255, 255, 0.14))
+				} else {
+					s.Background(pal.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.08))
+				}
+			} else if s.Hovered() {
+				s.Background(pal.hover)
 			}
 			s.Tooltip(item.label).Label(item.label)
 			s.Children(func() {
-				color := t.Text
+				color := pal.textMuted
 				if active {
-					color = t.AccentText
+					color = pal.text
 				}
-				ui.Icon(c, item.icon).FontSize(13).TextColor(color)
+				ui.Icon(c, item.icon).Size(14, 14).TextColor(color)
 			})
 		}
 	})
 	return seg.Track.Changed()
+}
+
+func toolbarIconBtn(c *ui.Context, key, label string, icon *ui.SVG, active bool) ui.Element {
+	t := c.Theme()
+	pal := shellPaletteFor(c)
+	b := ui.ButtonBase(c.Key(key)).Size(28, 28).Radius(6).Center().
+		Cursor(ui.CursorPointer).Label(label).Tooltip(label)
+	if active {
+		bg := t.Accent.Alpha(0.14)
+		if pal.dark {
+			bg = t.Accent.Alpha(0.22)
+		}
+		b.Background(bg).TextColor(t.Accent)
+	} else if b.Pressed() {
+		b.Background(pal.pressed).TextColor(pal.text)
+	} else if b.Hovered() {
+		b.Background(pal.hover).TextColor(pal.text)
+	} else {
+		b.TextColor(pal.textMuted)
+	}
+	b.Children(func() {
+		ui.Icon(c, icon).Size(15, 15)
+	})
+	return b
 }
 
 // layoutSwitcher draws Finder's view control: four icon segments that pick
@@ -793,13 +832,8 @@ func (a *appState) filterSwitcher(c *ui.Context) {
 	if a.FilterMode < filterAll || a.FilterMode > filterMedia {
 		a.FilterMode = filterAll
 	}
-	t := c.Theme()
 	on := a.FilterMode != filterAll
-	mode := lucideIconButton(c, "media-mode", "媒体模式：只看图片和视频", allTypesIcon)
-	if on {
-		mode.Background(t.Accent).TextColor(t.AccentText)
-	}
-	if mode.Clicked() {
+	if toolbarIconBtn(c, "media-mode", "媒体模式：只看图片和视频", allTypesIcon, on).Clicked() {
 		a.setFilterMode(map[bool]int{true: filterAll, false: filterMedia}[on])
 	}
 	if !on || a.toolbarCompact {
@@ -807,17 +841,11 @@ func (a *appState) filterSwitcher(c *ui.Context) {
 	}
 	images := a.FilterMode == filterImages || a.FilterMode == filterMedia
 	videos := a.FilterMode == filterVideos || a.FilterMode == filterMedia
-	img := lucideIconButton(c, "media-images", "图片", imageIcon)
-	if images {
-		img.Background(t.Accent).TextColor(t.AccentText)
-	}
+	img := toolbarIconBtn(c, "media-images", "图片", imageIcon, images)
 	if img.Clicked() && !(images && !videos) {
 		a.setFilterMode(toFilterMode(!images, videos))
 	}
-	vid := lucideIconButton(c, "media-videos", "视频", videoIcon)
-	if videos {
-		vid.Background(t.Accent).TextColor(t.AccentText)
-	}
+	vid := toolbarIconBtn(c, "media-videos", "视频", videoIcon, videos)
 	if vid.Clicked() && !(videos && !images) {
 		a.setFilterMode(toFilterMode(images, !videos))
 	}
@@ -1423,10 +1451,35 @@ func (a *appState) rootView(c *ui.Context) {
 		a.sweepThumbs(c)
 	}
 
-	// A name typed in place takes every key: the bare-key shortcuts below
-	// would take its letters, digits and Space first.
+	// A name or search query typed in place takes every key: the bare-key
+	// shortcuts below would take its letters, digits and Space first.
 	a.syncMenuKeys()
 	if a.Renaming && a.RenameInline {
+		a.browserLayout(c)
+		return
+	}
+	if !a.InLargeView && !a.modalOpen() && !a.Renaming && !a.NewFolder && !a.Batch.Open && a.Root != "" &&
+		c.Shortcut(ui.Cmd, ui.KeyF) {
+		a.SearchOpen = true
+		a.searchFocused = true
+		a.searchFocusPend = 2
+	}
+	if a.SearchOpen && a.searchFocused && !a.InLargeView && !a.modalOpen() {
+		if c.Shortcut(0, ui.KeyEscape) {
+			a.closeSearch()
+		}
+		if c.Shortcut(ui.Cmd, ui.KeyO) {
+			safeGo("dialog.pickFolder", a.pickFolder)
+		}
+		if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyD) {
+			a.showDiagnostics()
+		}
+		if c.Shortcut(ui.Cmd, ui.KeyB) {
+			a.SidebarShown = !a.SidebarShown
+		}
+		if c.Shortcut(ui.Alt, ui.KeyEnter) && a.Window != nil {
+			a.Window.ToggleFullScreen()
+		}
 		a.browserLayout(c)
 		return
 	}
@@ -1504,11 +1557,37 @@ func (a *appState) rootView(c *ui.Context) {
 	}
 	// Large-view single-key shortcuts matching FlowVision.
 	if a.InLargeView && !a.Editor.Open && !a.modalOpen() {
-		if c.Shortcut(0, ui.KeyZ) {
-			a.zoom100()
-		}
-		if c.Shortcut(0, ui.KeyX) {
-			a.resetZoom()
+		if !a.webtoon() {
+			if c.Shortcut(0, ui.KeyZ) {
+				a.zoom100()
+			}
+			if c.Shortcut(0, ui.KeyX) {
+				a.resetZoom()
+			}
+			if c.Shortcut(0, ui.KeyEqual) {
+				a.zoomStep(1.25)
+			}
+			if c.Shortcut(0, ui.KeyMinus) {
+				a.zoomStep(1 / 1.25)
+			}
+			if !a.videoLargeView() && c.Shortcut(0, ui.Key0) {
+				a.resetZoom()
+			}
+			if c.Shortcut(0, ui.KeyE) {
+				a.Rotation += 90
+			}
+			if c.Shortcut(0, ui.KeyQ) {
+				a.Rotation -= 90
+			}
+			if !a.videoLargeView() && c.Shortcut(0, ui.KeyF) {
+				a.Mirror = !a.Mirror
+			}
+			if a.videoLargeView() && c.Shortcut(0, ui.KeyW) {
+				a.zoomStep(1.25)
+			}
+			if a.videoLargeView() && c.Shortcut(0, ui.KeyS) {
+				a.zoomStep(1 / 1.25)
+			}
 		}
 		if !a.videoLargeView() && c.Shortcut(0, ui.KeyM) {
 			a.transferToDownloads(opMove)
@@ -1518,12 +1597,6 @@ func (a *appState) rootView(c *ui.Context) {
 		}
 		if !a.videoLargeView() && c.Shortcut(0, ui.KeyEnd) {
 			a.openLargeImage(len(a.Visible) - 1)
-		}
-		if c.Shortcut(0, ui.KeyW) {
-			a.zoomStep(1.25)
-		}
-		if c.Shortcut(0, ui.KeyS) {
-			a.zoomStep(1 / 1.25)
 		}
 	}
 	// F5 = refresh.
@@ -1587,7 +1660,7 @@ func (a *appState) rootView(c *ui.Context) {
 			a.zoomBrowse(1/1.15, 0, 0, false)
 		case c.Shortcut(0, ui.Key0):
 			if a.Thumb > 0 {
-				a.zoomBrowse(float32(128/a.Thumb), 0, 0, false)
+				a.zoomBrowse(float32(defaultThumb/a.Thumb), 0, 0, false)
 			}
 		}
 	}
@@ -1619,6 +1692,8 @@ func (a *appState) rootView(c *ui.Context) {
 			a.TrimAsk = false
 			a.InfoAsk = false
 			a.closeEditor()
+		case a.SearchOpen && !a.InLargeView:
+			a.closeSearch()
 		case a.InLargeView:
 			if a.videoLargeView() && a.Window != nil && a.Window.IsFullScreen() {
 				a.Window.ToggleFullScreen()
@@ -1735,35 +1810,135 @@ func (a *appState) sidebarView(c *ui.Context) {
 	// The sidebar is written on the window's wash, with no surface of its own.
 	pane := ui.Column(c).Fill().Gap(0)
 	pane.Children(func() {
-		if ownControls {
-			ui.Box(c).Height(cardGap).FillWidth().DragWindow()
+		// Top header band matches cardGap + 44px toolbar height (52px) so
+		// macOS traffic lights sit on the same centerline as the card toolbar,
+		// and sidebar toggle stays anchored at the top-left when expanded.
+		hdrH := float32(cardGap + 44)
+		if tb := c.TitleBar(); tb.Height+cardGap > hdrH {
+			hdrH = tb.Height + cardGap
 		}
-		// TitleBarHiddenInset puts the traffic lights over the sidebar's
-		// top-left; keep a drag strip under them so "收藏夹" starts below.
-		if tb := c.TitleBar(); tb.Left > 0 {
-			h := tb.Height
-			if h < 28 {
-				h = 28
+		ui.Row(c.Key("sidebar-header")).Height(hdrH).FillWidth().Padding(cardGap, 10, 0, 12).Gap(6).
+			AlignItems(ui.Center).DragWindow().Children(func() {
+			if tb := c.TitleBar(); tb.Left > 0 {
+				if w := tb.Left - 12; w > 0 {
+					ui.Box(c).Width(w).Shrink(0).DragWindow()
+				}
 			}
-			ui.Box(c).Height(h).FillWidth().DragWindow()
+			if toolbarIconBtn(c, "sidebar", "显示/隐藏侧栏", sidebarIcon, false).Tooltip("隐藏侧栏 (⌘B)").Clicked() {
+				a.SidebarShown = false
+			}
+			ui.Box(c).Grow(1).DragWindow()
+		})
+		var favAction *sidebarAction
+		if a.Root != "" {
+			pinned := favoriteContains(a.Profiles.Favorites, a.Root)
+			if pinned {
+				favAction = &sidebarAction{
+					key:     "fav-toggle",
+					icon:    lucideStar,
+					label:   "取消收藏当前目录",
+					tooltip: "已收藏，点击取消",
+					active:  true,
+					onClick: func() { a.toggleFavorite(a.Root) },
+				}
+			} else {
+				favAction = &sidebarAction{
+					key:     "fav-toggle",
+					icon:    lucidePlus,
+					label:   "收藏当前目录",
+					tooltip: "收藏当前目录",
+					onClick: func() { a.toggleFavorite(a.Root) },
+				}
+			}
 		}
-		a.sidebarSection(c, "收藏夹", &a.Profiles.FavoritesClosed, nil, func() {
+		a.sidebarSection(c, "收藏夹", &a.Profiles.FavoritesClosed, favAction, func() {
+			var present []string
 			for _, fav := range a.Profiles.Favorites {
-				fav := fav
-				if !a.folderPresent(fav) {
-					continue
+				if a.folderPresent(fav) {
+					present = append(present, fav)
 				}
-				row := ui.Row(c.Key(fav)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-				if pathKey(a.Root) == pathKey(fav) {
-					row.Background(pal.rowCurrent)
-				}
-				row.Children(func() {
-					ui.Icon(c, dirIcon).FontSize(12)
-					ui.Text(c, pathName(fav)).FontSize(11).SingleLine().MaxLines(1)
-				})
-				a.bindFolderRow(c, row, fav, func(m *ui.Menu) { a.folderContextMenu(m, fav) })
-				row.OnClick(func() { a.openFolder(fav) })
 			}
+			if len(present) == 0 {
+				ui.Column(c).Gap(2).Padding(4, 8).FillWidth().Children(func() {
+					if a.Root != "" {
+						pin := ui.Row(c.Key("fav-pin-current")).Padding(4, 6).Gap(6).AlignItems(ui.Center).Radius(5).
+							Cursor(ui.CursorPointer).Label("收藏当前目录").Tooltip("添加到收藏夹")
+						if pin.Hovered() {
+							pin.Background(pal.rowHover)
+						}
+						pin.Children(func() {
+							ui.Icon(c, lucidePlus).Size(12, 12).TextColor(t.Accent).Shrink(0)
+							ui.Text(c, fmt.Sprintf("收藏 %s", pathName(a.Root))).FontSize(11).TextColor(t.Accent).SingleLine().Ellipsis("…").MinWidth(0)
+						})
+						if pin.Clicked() {
+							a.toggleFavorite(a.Root)
+						}
+					}
+					ui.Text(c, "右键文件夹也可添加到收藏").FontSize(10.5).TextColor(t.TextMuted).Padding(2, 6)
+					restore := ui.Box(c.Key("fav-restore-defaults")).Padding(3, 6).Radius(4).Cursor(ui.CursorPointer).
+						Label("恢复常用目录").Tooltip("添加桌面、下载、图片、影片等常用目录")
+					if restore.Hovered() {
+						restore.Background(pal.rowHover)
+					}
+					restore.Children(func() {
+						ui.Text(c, "恢复常用目录").FontSize(10.5).TextColor(t.TextMuted)
+					})
+					if restore.Clicked() {
+						a.restoreDefaultFavorites()
+					}
+				})
+				return
+			}
+			homeDir, _ := os.UserHomeDir()
+			dupParents := favoriteDisambiguation(present)
+			ui.Scroll(c.Key("fav-scroll")).MaxHeight(180).FillWidth().Children(func() {
+				for _, fav := range present {
+					fav := fav
+					active := pathKey(a.Root) == pathKey(fav)
+					row := ui.Row(c.Key("fav-"+fav)).Padding(4, 6, 4, 10).Gap(6).AlignItems(ui.Center).Radius(5).
+						Cursor(ui.CursorPointer).Tooltip(fav)
+					if active {
+						row.Background(pal.rowCurrent)
+					} else if row.Hovered() {
+						row.Background(pal.rowHover)
+					}
+					removed := false
+					row.Children(func() {
+						icColor := t.TextMuted
+						if active {
+							icColor = t.Accent
+						}
+						ui.Icon(c, favoriteIcon(fav, homeDir)).Size(13, 13).TextColor(icColor).Shrink(0)
+						name := ui.Text(c, pathName(fav)).FontSize(11.5).SingleLine().MaxLines(1).Ellipsis("…").Grow(1).MinWidth(0)
+						if active {
+							name.Bold()
+						}
+						if sub := dupParents[fav]; sub != "" {
+							ui.Text(c, sub).FontSize(10).TextColor(t.TextMuted).SingleLine().MaxLines(1).MaxWidth(64).Ellipsis("…").Shrink(0)
+						}
+						if row.Hovered() {
+							rm := ui.ButtonBase(c.Key("fav-rm-"+fav)).Size(18, 18).Radius(4).Center().
+								Cursor(ui.CursorPointer).Label("取消收藏").Tooltip("取消收藏")
+							if rm.Pressed() {
+								rm.Background(pal.pressed).TextColor(pal.text)
+							} else if rm.Hovered() {
+								rm.Background(pal.hover).TextColor(pal.text)
+							} else {
+								rm.TextColor(t.TextMuted)
+							}
+							rm.Children(func() { ui.Icon(c, lucideClose).Size(10, 10) })
+							if rm.Clicked() {
+								removed = true
+								a.toggleFavorite(fav)
+							}
+						}
+					})
+					a.bindFolderRow(c, row, fav, func(m *ui.Menu) { a.favoriteContextMenu(m, fav) })
+					if !removed {
+						row.OnClick(func() { a.openFolder(fav) })
+					}
+				}
+			})
 		})
 		ui.Divider(c)
 		if a.Root == "" {
@@ -1792,44 +1967,116 @@ func (a *appState) sidebarView(c *ui.Context) {
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
 		// History section: recent folders visited, newest first.
-		var clear func()
+		var histAction *sidebarAction
 		if len(a.Recent) > 0 {
-			clear = a.clearHistory
-		}
-		a.sidebarSection(c, "历史", &a.Profiles.HistoryClosed, clear, func() {
-			for _, h := range a.Recent {
-				hist := h
-				row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4)
-				if pathKey(hist) == pathKey(a.Root) {
-					row.Background(pal.rowCurrent)
-				}
-				row.Children(func() {
-					ui.Icon(c, dirIcon).FontSize(12)
-					ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Grow(1).MinWidth(0)
-					if at := a.Visited[hist]; at > 0 {
-						ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
-					}
-				})
-				a.bindFolderRow(c, row, hist, func(m *ui.Menu) { a.historyContextMenu(m, hist) })
-				row.OnClick(func() { a.openFolder(hist) })
+			histAction = &sidebarAction{
+				key:     "clear",
+				icon:    lucideClose,
+				label:   "清除历史记录",
+				tooltip: "清除历史记录",
+				onClick: a.clearHistory,
 			}
+		}
+		a.sidebarSection(c, "历史", &a.Profiles.HistoryClosed, histAction, func() {
+			if len(a.Recent) == 0 {
+				ui.Text(c, "暂无浏览记录").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
+				return
+			}
+			ui.Scroll(c.Key("hist-scroll")).MaxHeight(180).FillWidth().Children(func() {
+				for _, h := range a.Recent {
+					hist := h
+					row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4).
+						Cursor(ui.CursorPointer).Tooltip(hist)
+					if pathKey(hist) == pathKey(a.Root) {
+						row.Background(pal.rowCurrent)
+					} else if row.Hovered() {
+						row.Background(pal.rowHover)
+					}
+					row.Children(func() {
+						ui.Icon(c, dirIcon).FontSize(12).Shrink(0)
+						ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Ellipsis("…").Grow(1).MinWidth(0)
+						if at := a.Visited[hist]; at > 0 {
+							ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
+						}
+					})
+					a.bindFolderRow(c, row, hist, func(m *ui.Menu) { a.historyContextMenu(m, hist) })
+					row.OnClick(func() { a.openFolder(hist) })
+				}
+			})
 		})
 	})
 }
 
+type sidebarAction struct {
+	key     string
+	icon    *ui.SVG
+	label   string
+	tooltip string
+	active  bool
+	onClick func()
+}
+
+func favoriteIcon(path, homeDir string) *ui.SVG {
+	k := pathKey(path)
+	if homeDir != "" {
+		switch k {
+		case pathKey(homeDir):
+			return lucideHome
+		case pathKey(filepath.Join(homeDir, "Desktop")):
+			return lucideMonitor
+		case pathKey(filepath.Join(homeDir, "Downloads")):
+			return lucideDownload
+		case pathKey(filepath.Join(homeDir, "Pictures")):
+			return lucideImage
+		case pathKey(filepath.Join(homeDir, "Movies")), pathKey(filepath.Join(homeDir, "Videos")):
+			return lucideVideo
+		}
+	}
+	return dirIcon
+}
+
+func favoriteDisambiguation(paths []string) map[string]string {
+	counts := make(map[string]int, len(paths))
+	for _, p := range paths {
+		counts[pathName(p)]++
+	}
+	out := make(map[string]string)
+	for _, p := range paths {
+		if counts[pathName(p)] > 1 {
+			if parent := pathName(filepath.Dir(p)); parent != "" && parent != "." {
+				out[p] = parent
+			}
+		}
+	}
+	return out
+}
+
 // sidebarSection is a mygo SidebarSection whose folded state is the
-// preference *closed, saved when a click on its title changes it. clear,
-// when set, puts a small clear button at the title's end.
-func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, clear func(), fn func()) {
+// preference *closed, saved when a click on its title changes it. action,
+// when set, puts a compact icon button at the title's end.
+func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, action *sidebarAction, fn func()) {
 	t := c.Theme()
+	pal := shellPaletteFor(c)
 	open := !*closed
 	ui.Box(c.Key("section-"+title)).Padding(0, 4).Shrink(0).Children(func() {
 		ui.SidebarSection(c, title, &open, fn)
-		if clear != nil {
-			x := ui.Box(c.Key("clear")).Absolute().Top(5).Right(30).Padding(2).Radius(3).Tooltip("清除历史记录")
-			x.Children(func() { ui.Icon(c, lucideClose).FontSize(10).TextColor(t.TextMuted) })
-			if x.Clicked() {
-				clear()
+		if action != nil {
+			b := ui.ButtonBase(c.Key(action.key)).Size(18, 18).Absolute().Top(4).Right(28).Radius(4).
+				Center().Cursor(ui.CursorPointer).Label(action.label).Tooltip(action.tooltip)
+			if action.active {
+				b.TextColor(t.Accent)
+				if b.Hovered() || b.Pressed() {
+					b.Background(t.Accent.Alpha(0.14))
+				}
+			} else {
+				b.TextColor(t.TextMuted)
+				if b.Hovered() || b.Pressed() {
+					b.Background(pal.rowHover).TextColor(pal.text)
+				}
+			}
+			b.Children(func() { ui.Icon(c, action.icon).Size(11, 11) })
+			if b.Clicked() {
+				action.onClick()
 			}
 		}
 	})
@@ -1841,17 +2088,21 @@ func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, cle
 
 func (a *appState) treeRow(c *ui.Context, path string) {
 	t := c.Theme()
-	row := ui.Row(c).Padding(4, 8).Gap(6).AlignItems(ui.Center).Radius(4)
+	pal := shellPaletteFor(c)
+	row := ui.Row(c).Padding(4, 8).Gap(6).AlignItems(ui.Center).Radius(4).
+		Cursor(ui.CursorPointer).Tooltip(path)
 	selected := a.Root == path
 	if selected {
-		row.Background(shellPaletteFor(c).rowCurrent)
+		row.Background(pal.rowCurrent)
+	} else if row.Hovered() {
+		row.Background(pal.rowHover)
 	}
 	if a.folderInRecurseScope(path) {
 		row.BorderWidth(0, 0, 0, 2).BorderColor(t.Warning.Alpha(0.55))
 	}
 	row.Children(func() {
-		ui.Icon(c, dirIcon).FontSize(14)
-		ui.Text(c, pathName(path)).FontSize(12).SingleLine()
+		ui.Icon(c, dirIcon).FontSize(14).Shrink(0)
+		ui.Text(c, pathName(path)).FontSize(12).SingleLine().Ellipsis("…").MinWidth(0)
 	})
 	a.bindFolderRow(c, row, path, func(m *ui.Menu) { a.folderContextMenu(m, path) })
 	row.OnClick(func() { a.openFolder(path) })
@@ -1879,6 +2130,9 @@ func (a *appState) mainView(c *ui.Context) {
 			a.tabsBar(c)
 			a.toolbarView(c)
 			ui.Divider(c)
+			if !a.InLargeView && a.SearchOpen {
+				a.searchBar(c)
+			}
 		}
 		if a.galleryActive() {
 			a.galleryView(c)
@@ -1910,11 +2164,51 @@ func (a *appState) mainView(c *ui.Context) {
 	})
 }
 
-// toolbarCluster is one inset rounded group on the toolbar. A growing
-// cluster takes the spare width; the others keep their own size.
-func toolbarCluster(c *ui.Context, grow bool, fn func()) {
+func (a *appState) closeSearch() {
+	a.SearchOpen = false
+	a.searchFocused = false
+	a.searchFocusPend = 0
+	if a.Query != "" {
+		a.Query = ""
+		a.applyFilter()
+	}
+}
+
+func (a *appState) searchBar(c *ui.Context) {
 	t := c.Theme()
-	row := ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 6).Radius(8).Background(t.Background)
+	bar := ui.Row(c.Key("browse-search-bar")).FillWidth().Padding(6, 12).Gap(8).AlignItems(ui.Center).Background(t.Surface)
+	bar.Children(func() {
+		ui.Icon(c, lucideSearch).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
+		in := ui.TextInput(c.Key("browse-search"), &a.Query).AutoFocus().Placeholder("筛选文件名或拼音…").Grow(1).MinWidth(120)
+		if a.searchFocusPend > 0 {
+			in.Focus()
+			a.searchFocusPend--
+			a.searchFocused = true
+		} else {
+			a.searchFocused = in.Focused()
+		}
+		if in.Changed() {
+			a.applyFilter()
+		}
+		if a.Query != "" {
+			ui.Text(c, fmt.Sprintf("%d / %d", len(a.Visible), len(a.Items))).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(0)
+		}
+		closeBtn := ui.ButtonBase(c.Key("browse-search-close")).Size(22, 22).Radius(5).Center().
+			Cursor(ui.CursorPointer).TextColor(t.TextMuted).Label("关闭搜索").Tooltip("关闭搜索（Esc）")
+		if closeBtn.Hovered() || closeBtn.Pressed() {
+			closeBtn.Background(t.SurfaceHover).TextColor(t.Text)
+		}
+		closeBtn.Children(func() { ui.Icon(c, lucideClose).Size(13, 13) })
+		if closeBtn.Clicked() {
+			a.closeSearch()
+		}
+	})
+	ui.Divider(c)
+}
+
+// toolbarGroup is one borderless logical group on the unified card header.
+func toolbarGroup(c *ui.Context, grow bool, fn func()) {
+	row := ui.Row(c).Gap(3).AlignItems(ui.Center)
 	if grow {
 		row.Grow(1).Shrink(1).MinWidth(0)
 	} else {
@@ -1935,98 +2229,106 @@ func (a *appState) toolbarView(c *ui.Context) {
 		avail -= float32(a.SidebarWidth)
 	}
 	a.toolbarCompact = avail < toolbarFullWidth
+	leftPad := float32(10)
+	if tb := c.TitleBar(); tb.Left > 0 && len(a.Tabs.Tabs) == 0 && (!a.SidebarShown || a.InLargeView) {
+		if pad := tb.Left - cardGap + 8; pad > leftPad {
+			leftPad = pad
+		}
+	}
+	rightPad := float32(10)
+	if a.showWindowControls() && len(a.Tabs.Tabs) == 0 {
+		rightPad = float32(controlsWidth - cardGap + 8)
+	}
 	bar := ui.Toolbar(c, func() {
-		// 左块：侧栏、前进后退、面包屑。块宽随窗口伸缩，路径先收缩。
-		toolbarCluster(c, true, func() {
-			if lucideIconButton(c, "sidebar", "显示/隐藏侧栏", sidebarIcon).Clicked() {
-				a.SidebarShown = !a.SidebarShown
+		// 左块：侧栏（收起或大图时显示）、前进后退、面包屑。块宽随窗口伸缩，路径先收缩。
+		toolbarGroup(c, true, func() {
+			if !a.SidebarShown || a.InLargeView {
+				if toolbarIconBtn(c, "sidebar", "显示/隐藏侧栏", sidebarIcon, false).Tooltip("显示侧栏 (⌘B)").Clicked() {
+					a.SidebarShown = !a.SidebarShown
+				}
 			}
-			if lucideIconButton(c, "back", "后退", arrowLeftIcon).Disabled(!a.canGoBack()).Clicked() {
+			if toolbarIconBtn(c, "back", "后退", arrowLeftIcon, false).Disabled(!a.canGoBack()).Clicked() {
 				a.goBack()
 			}
-			if lucideIconButton(c, "forward", "前进", arrowRightIcon).Disabled(!a.canGoForward()).Clicked() {
+			if toolbarIconBtn(c, "forward", "前进", arrowRightIcon, false).Disabled(!a.canGoForward()).Clicked() {
 				a.goForward()
 			}
-			if a.InLargeView {
-				item := a.currentItem()
-				title := "无媒体"
-				if item != nil {
-					title = fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible))
+			ui.Row(c).Width(0).Grow(1).MinWidth(0).AlignItems(ui.Center).Clip().Children(func() {
+				if a.InLargeView {
+					item := a.currentItem()
+					title := "无媒体"
+					if item != nil {
+						title = fmt.Sprintf("%s (%d/%d)", item.Name, a.LargeIndex+1, len(a.Visible))
+					}
+					ui.Text(c, title).FontSize(12).Bold().Grow(1).Shrink(1).MinWidth(0).MaxLines(1).Ellipsis("…")
+					return
 				}
-				ui.Text(c, title).FontSize(12).Bold().Grow(1).Shrink(1).MinWidth(0).MaxLines(1)
-				return
-			}
-			items := strings.Split(a.breadcrumbPath(), " › ")
-			chosen := len(items) - 1
-			bc := ui.Breadcrumbs(c, items, &chosen).Label("路径").Grow(1).Shrink(1).MinWidth(0)
-			if bc.Changed() {
-				a.openBreadcrumb(chosen)
-			}
+				items := strings.Split(a.breadcrumbPath(), " › ")
+				chosen := len(items) - 1
+				bc := ui.Breadcrumbs(c, items, &chosen).Label("路径").FillWidth().MinWidth(0)
+				if bc.Changed() {
+					a.openBreadcrumb(chosen)
+				}
+			})
 		})
 		if a.InLargeView {
-			toolbarCluster(c, false, func() {
+			toolbarGroup(c, false, func() {
 				lucideMenuButton(c, "显示与浏览", a.viewMenu)
 			})
 			return
 		}
-		// 中块：显示格式。递归开关，以及全部 / 图片 / 视频图标。
-		toolbarCluster(c, false, func() {
+		// 中块：递归胶囊与媒体筛选图标。
+		toolbarGroup(c, false, func() {
 			a.recurseControls(c)
 			a.filterSwitcher(c)
 		})
-		// 右块：显示样式都是图标，排序和更多也是。
-		toolbarCluster(c, false, func() {
+		// 右块：分段布局、显示模式与菜单。
+		toolbarGroup(c, false, func() {
 			a.layoutSwitcher(c)
-			nc := lucideIconButton(c, "nocaption", "无字模式 (⇧⌘H)", captionIcon)
-			if a.Profiles.View.NoCaption {
-				nc.Background(t.Accent)
-			}
-			if nc.Clicked() {
+			if toolbarIconBtn(c, "nocaption", "无字模式 (⇧⌘H)", captionIcon, a.Profiles.View.NoCaption).Clicked() {
 				a.toggleCaption()
 			}
-			g := lucideIconButton(c, "gallery", "画廊 (G)", galleryIcon)
-			if a.Gallery {
-				g.Background(t.Accent)
-			}
-			if g.Clicked() {
+			if toolbarIconBtn(c, "gallery", "画廊 (G)", galleryIcon, a.Gallery).Clicked() {
 				a.toggleGallery()
 			}
-			size := lucideIconButton(c, "thumbsize", "缩略图大小", thumbSizeIcon)
-			if a.thumbSizeOpen {
-				size.Background(t.Accent)
+			sb := toolbarIconBtn(c, "search-toggle", "搜索 (⌘F)", lucideSearch, a.SearchOpen).Disabled(a.Root == "")
+			if sb.Clicked() {
+				if a.SearchOpen {
+					a.closeSearch()
+				} else {
+					a.SearchOpen = true
+					a.searchFocused = true
+					a.searchFocusPend = 2
+				}
 			}
-			if size.Clicked() {
-				a.thumbSizeOpen = !a.thumbSizeOpen
-			}
-			ui.Popover(c, size, &a.thumbSizeOpen, func() {
-				ui.Row(c).Padding(6, 8).AlignItems(ui.Center).Children(func() {
-					oldThumb := a.Thumb
-					if ui.Slider(c.Key("thumb-size"), &a.Thumb, 64, 512).Width(140).Label("缩略图大小").Changed() {
-						a.setThumb(oldThumb, a.Thumb)
-					}
+			if a.LayoutMode == 1 {
+				a.thumbSizeOpen = false
+				toolbarIconBtn(c, "thumbsize", "缩略图大小（详情视图不适用）", thumbSizeIcon, false).Disabled(true)
+			} else {
+				size := toolbarIconBtn(c, "thumbsize", "缩略图大小", thumbSizeIcon, a.thumbSizeOpen)
+				if size.Clicked() {
+					a.thumbSizeOpen = !a.thumbSizeOpen
+				}
+				ui.Popover(c, size, &a.thumbSizeOpen, func() {
+					ui.Row(c).Padding(6, 10).Gap(8).AlignItems(ui.Center).Children(func() {
+						oldThumb := a.Thumb
+						if ui.Slider(c.Key("thumb-size"), &a.Thumb, 64, 512).Width(140).Label("缩略图大小").Changed() {
+							a.setThumb(oldThumb, a.Thumb)
+						}
+						ui.Text(c, fmt.Sprintf("%dpx", int(a.Thumb+0.5))).FontSize(11).TextColor(t.TextMuted).Width(38).TextAlign(ui.End).SingleLine()
+						if ui.Button(c.Key("thumb-reset"), "重置").Disabled(int(a.Thumb+0.5) == defaultThumb).Clicked() {
+							a.setThumb(a.Thumb, defaultThumb)
+						}
+					})
 				})
-			})
+			}
 			ui.MenuButton(c, "", a.finderSortMenu).Label("排序").Tooltip("排序").Children(func() {
-				ui.Icon(c, sortIcon).FontSize(16)
+				ui.Icon(c, sortIcon).FontSize(15)
 			})
 			lucideMenuButton(c, "显示与浏览", a.viewMenu)
 		})
-		a.windowControls(c, shellPaletteFor(c))
-	}).Padding(6, 8).Gap(8).Background(t.Surface)
-	if ownControls {
-		bar.DragWindow()
-	}
-	// Under a hidden macOS title bar the top row drags the window. The
-	// traffic lights sit over the sidebar when it is open, otherwise over
-	// this toolbar — only then pad past them.
-	if tb := c.TitleBar(); tb.Left > 0 && len(a.Tabs.Tabs) == 0 {
-		s := t.Space(1)
-		if a.SidebarShown && !a.InLargeView {
-			bar.Padding(s).DragWindow()
-		} else {
-			bar.Padding(s, s, s, tb.Left-cardGap+s).DragWindow()
-		}
-	}
+	}).Height(44).Padding(6, rightPad, 6, leftPad).Gap(8).Background(t.Background).DragWindow()
+	_ = bar
 }
 
 func (a *appState) breadcrumbPath() string {
@@ -2105,16 +2407,41 @@ func (a *appState) emptyView(c *ui.Context) {
 	zone.Children(func() {
 		ui.Icon(c, imageIcon).FontSize(48).TextColor(t.TextMuted)
 		ui.Text(c, "拖入目录开始浏览").FontSize(16).Bold()
-		ui.Text(c, "或 文件 → 打开目录… (⌘O)").TextColor(t.TextMuted)
+		ui.Text(c, "或使用快捷键 ⌘O 选择文件夹").TextColor(t.TextMuted)
+		if ui.PrimaryButton(c.Key("empty-open"), "打开目录…").Clicked() {
+			safeGo("dialog.pickFolder", a.pickFolder)
+		}
 	})
 }
 
 func (a *appState) emptyFolderView(c *ui.Context) {
-	zone := ui.Column(c).Fill().Center().AlignItems(ui.Center).Gap(6)
+	t := c.Theme()
+	zone := ui.Column(c).Fill().Center().AlignItems(ui.Center).Gap(8)
 	zone.ContextMenu(func(m *ui.Menu) { a.fileContextMenu(m) })
 	zone.Children(func() {
-		ui.Text(c, "没有媒体文件").FontSize(16).Bold()
-		ui.Text(c, "打开其他目录或启用递归浏览").TextColor(c.Theme().TextMuted)
+		switch {
+		case strings.TrimSpace(a.Query) != "":
+			ui.Text(c, "没有匹配的项目").FontSize(16).Bold()
+			ui.Text(c, "当前搜索条件没有匹配到文件或文件夹").TextColor(t.TextMuted)
+			if ui.Button(c.Key("empty-clear-query"), "清除搜索").Clicked() {
+				a.closeSearch()
+			}
+		case a.FilterMode != filterAll:
+			ui.Text(c, "当前过滤条件下没有媒体文件").FontSize(16).Bold()
+			ui.Text(c, "可以切回显示全部文件或切换其他目录").TextColor(t.TextMuted)
+			if ui.Button(c.Key("empty-clear-filter"), "显示全部文件").Clicked() {
+				a.setFilterMode(filterAll)
+			}
+		case !a.Recursive:
+			ui.Text(c, "没有媒体文件").FontSize(16).Bold()
+			ui.Text(c, "打开其他目录或启用递归浏览").TextColor(t.TextMuted)
+			if ui.Button(c.Key("empty-recurse"), "启用递归浏览").Clicked() {
+				a.setRecursive(true)
+			}
+		default:
+			ui.Text(c, "没有媒体文件").FontSize(16).Bold()
+			ui.Text(c, "当前目录及子目录中没有符合条件的文件").TextColor(t.TextMuted)
+		}
 	})
 }
 
@@ -2148,24 +2475,29 @@ func (a *appState) gridView(c *ui.Context) {
 
 func (a *appState) statusBar(c *ui.Context) {
 	t := c.Theme()
-	bar := ui.Row(c).Padding(4, 12).Background(t.Surface).AlignItems(ui.Center)
+	bar := ui.Row(c).Padding(4, 12).Gap(8).Background(t.Surface).AlignItems(ui.Center)
 	bar.Children(func() {
 		// 左侧：选中项信息
 		ui.Text(c, a.statusText()).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		if mode := a.viewStatus(); mode != "" {
+			ui.Text(c, mode).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(0)
+		}
 		if note := a.recurseNotice(); note != "" {
 			ui.Text(c, note).FontSize(11).TextColor(t.TextMuted).SingleLine().Shrink(0)
 		}
 		a.workIndicator(c)
 
-		// 右侧：性能指标（可选）
+		// 右侧：可见数量与当前位置
 		if len(a.Visible) > 0 {
 			ui.Box(c).Width(1).Height(14).Background(t.Border)
-			ui.Box(c).Width(8) // 间距
 			info := fmt.Sprintf("%d 可见", len(a.Visible))
-			if a.Chosen >= 0 {
-				info += fmt.Sprintf(" · %d 选中", a.Chosen+1)
+			switch {
+			case a.InLargeView && a.LargeIndex >= 0 && a.LargeIndex < len(a.Visible):
+				info = fmt.Sprintf("第 %d / %d 项", a.LargeIndex+1, len(a.Visible))
+			case a.Chosen >= 0 && a.Chosen < len(a.Visible):
+				info = fmt.Sprintf("第 %d / %d 项", a.Chosen+1, len(a.Visible))
 			}
-			ui.Text(c, info).FontSize(10).TextColor(t.TextMuted).SingleLine()
+			ui.Text(c, info).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
 		}
 	})
 }
@@ -2193,8 +2525,14 @@ func (a *appState) largeImageView(c *ui.Context) {
 	box := ui.Box(c).Fill().Background(bg)
 	a.tickLongPress(c, item)
 	box.Children(func() {
+		if a.barItemPath != item.Path {
+			// A new picture or clip: show the bar briefly.
+			a.barItemPath = item.Path
+			a.revealControlBar()
+		}
 		if a.webtoon() && !item.IsVideo {
 			a.webtoonView(c)
+			a.mediaOverlay(c, item)
 			a.zoomHUD(c)
 			if !a.galleryActive() {
 				a.largeControls(c, item)
@@ -2203,7 +2541,8 @@ func (a *appState) largeImageView(c *ui.Context) {
 		}
 		// The gesture surface sits behind the controls so buttons still receive clicks.
 		stage := ui.Box(c).Fill().Justify(ui.Center).AlignItems(ui.Center).Clip()
-		if bounds := stage.LayoutBounds(); bounds.W > 1 && bounds.H > 1 {
+		bounds := stage.LayoutBounds()
+		if bounds.W > 1 && bounds.H > 1 {
 			a.StageW, a.StageH = bounds.W, bounds.H
 		}
 		if !item.IsVideo {
@@ -2211,15 +2550,11 @@ func (a *appState) largeImageView(c *ui.Context) {
 		}
 		showSharp := a.prepareSharp(c, item)
 		stage.HandleInput(func(ev ui.InputEvent) bool { return a.largeInput(ev, item) })
-		if a.barItemPath != item.Path {
-			// A new picture or clip: show the bar briefly.
-			a.barItemPath = item.Path
-			a.revealControlBar()
-		}
 		if x, y, over := stage.PointerPosition(); over {
-			a.notePlayerPointer(x, y, stage.LayoutBounds().H)
+			a.notePlayerPointer(x, y, bounds.W, bounds.H)
 		} else {
 			a.playerInZone = false
+			a.playerNearSide = false
 		}
 		stage.ContextMenu(func(m *ui.Menu) { a.largeContextMenu(m, item) })
 		stage.Children(func() {
@@ -2259,10 +2594,12 @@ func (a *appState) largeImageView(c *ui.Context) {
 		})
 		a.mediaOverlay(c, item)
 		a.zoomHUD(c)
-		a.edgeArrows(c)
 		if !a.galleryActive() || item.IsVideo {
 			a.largeControls(c, item)
+		} else {
+			a.lastBarShown = a.controlBarShown(c, false, false, false, false)
 		}
+		a.edgeArrows(c)
 	})
 }
 
@@ -2389,42 +2726,9 @@ func (a *appState) largeInput(ev ui.InputEvent, item *mediaItem) bool {
 		}
 		return false
 	case ui.InputKeyDown:
-		if ev.Key == ui.KeyUnknown {
-			return false
-		}
 		if ev.Key == ui.KeyEscape && a.LargeDrag.active {
 			a.cancelLargeDrag(item)
 			return true
-		}
-		switch ev.Key {
-		case ui.KeyEqual, ui.KeyMinus, ui.Key0:
-			switch ev.Key {
-			case ui.KeyEqual:
-				a.zoomStep(1.25)
-			case ui.KeyMinus:
-				a.zoomStep(1 / 1.25)
-			case ui.Key0:
-				a.resetZoom()
-			}
-			return true
-		case ui.KeyE:
-			a.Rotation += 90
-			return true
-		case ui.KeyQ:
-			a.Rotation -= 90
-			return true
-		case ui.KeyF:
-			if item.IsVideo {
-				a.toggleFullscreen()
-				return true
-			}
-			a.Mirror = !a.Mirror
-			return true
-		case ui.KeySpace:
-			if item.IsVideo {
-				a.toggleVideoPlayback()
-				return true
-			}
 		}
 	}
 	return false
@@ -2497,12 +2801,14 @@ func (a *appState) largeControls(c *ui.Context, item *mediaItem) {
 				a.imageZoomControls(c, item)
 			}
 			barSeparator(c)
-			if barIconButton(c, "image-fullscreen", "全屏", "全屏（F）", lucideExpand).Clicked() {
+			if barIconButton(c, "image-fullscreen", "全屏", "全屏（⌥Enter）", lucideExpand).Clicked() {
 				a.toggleFullscreen()
 			}
 		})
 	})
-	fadeControlBar(bar, "image-fade", a.controlBarShown(c, bar.Hovered(), bar.FocusWithin(), false, false))
+	shown := a.controlBarShown(c, bar.Hovered(), bar.FocusWithin(), false, false)
+	a.lastBarShown = shown
+	fadeControlBar(bar, "image-fade", shown)
 }
 
 // imageZoomControls are the zoom, rotate and mirror buttons of the image bar;
@@ -2511,26 +2817,26 @@ func (a *appState) imageZoomControls(c *ui.Context, item *mediaItem) {
 	barSeparator(c)
 	barText(c, fmt.Sprintf("%d%%", a.zoomPercent(item)), true)
 	barSeparator(c)
-	if barIconButton(c, "zoom-out", "缩小", "缩小", lucideMinus).Clicked() {
+	if barIconButton(c, "zoom-out", "缩小", "缩小（-）", lucideMinus).Clicked() {
 		a.zoomStep(1 / 1.25)
 	}
-	if barIconButton(c, "zoom-in", "放大", "放大", lucidePlus).Clicked() {
+	if barIconButton(c, "zoom-in", "放大", "放大（=）", lucidePlus).Clicked() {
 		a.zoomStep(1.25)
 	}
-	if barChip(c, "fit", "适应", "适应窗口", "适应").Clicked() {
+	if barChip(c, "fit", "适应", "适应窗口（X）", "适应").Clicked() {
 		a.resetZoom()
 	}
-	if barChip(c, "zoom-100", "1:1", "实际大小", "1:1").Clicked() {
+	if barChip(c, "zoom-100", "1:1", "实际大小（Z）", "1:1").Clicked() {
 		a.zoom100()
 	}
 	barSeparator(c)
-	if barIconButton(c, "rotate", "顺时针旋转", "顺时针旋转", lucideRotateCW).Clicked() {
+	if barIconButton(c, "rotate", "顺时针旋转", "顺时针旋转（E）", lucideRotateCW).Clicked() {
 		a.Rotation += 90
 	}
-	if barIconButton(c, "rotate-ccw", "逆时针旋转", "逆时针旋转", lucideRotateCCW).Clicked() {
+	if barIconButton(c, "rotate-ccw", "逆时针旋转", "逆时针旋转（Q）", lucideRotateCCW).Clicked() {
 		a.Rotation -= 90
 	}
-	if barToggleButton(c, "mirror", "镜像", "镜像", lucideMirror, a.Mirror).Clicked() {
+	if barToggleButton(c, "mirror", "镜像", "镜像（F）", lucideMirror, a.Mirror).Clicked() {
 		a.Mirror = !a.Mirror
 	}
 }
@@ -2564,22 +2870,56 @@ func (a *appState) setVideoVolume(volume float64) {
 	savePrefs(a.Profiles)
 }
 
+func (a *appState) hasPrevMedia() bool {
+	for i := a.LargeIndex - 1; i >= 0; i-- {
+		if it := a.visibleItem(i); it != nil && !it.IsDir {
+			return true
+		}
+	}
+	_, _, inArchive := archiveLocation(a.Root)
+	return inArchive
+}
+
+func (a *appState) hasNextMedia() bool {
+	for i := a.LargeIndex + 1; i < len(a.Visible); i++ {
+		if it := a.visibleItem(i); it != nil && !it.IsDir {
+			return true
+		}
+	}
+	_, _, inArchive := archiveLocation(a.Root)
+	return inArchive
+}
+
 // edgeArrows mirrors FlowVision's left/right media switching hints.
 func (a *appState) edgeArrows(c *ui.Context) {
-	t := c.Theme()
-	left := ui.Row(c).Attach(ui.AnchorLeft, ui.AnchorLeft).Margin(12, 0).Padding(8, 10).Radius(20).Background(t.Surface)
-	left.Children(func() {
-		ui.Icon(c, arrowLeftIcon).FontSize(22).TextColor(t.TextMuted)
-	})
-	if left.Clicked() {
-		a.prevImage()
+	hoverBG := ui.RGBA(48, 48, 54, 0.88)
+	pressedBG := ui.RGBA(64, 64, 72, 0.92)
+	baseShown := a.lastBarShown || a.playerNearSide || normalizeBarMode(a.Profiles.ViewerBar) == barAlways || a.playerMoved.IsZero()
+	if a.hasPrevMedia() {
+		left := ui.ButtonBase(c.Key("edge-prev")).Attach(ui.AnchorLeft, ui.AnchorLeft).
+			Margin(0, 12).Size(36, 36).Radius(18).Center().
+			Border(1, barBorder).Label("上一项").Tooltip("上一项（←）")
+		applyBarButtonState(left, barBackground, hoverBG, pressedBG)
+		left.Children(func() {
+			ui.Icon(c, arrowLeftIcon).Size(20, 20).TextColor(barFG)
+		})
+		if left.Clicked() {
+			a.prevImage()
+		}
+		fadeControlBar(left, "edge-left-fade", baseShown || left.Hovered())
 	}
-	right := ui.Row(c).Attach(ui.AnchorRight, ui.AnchorRight).Margin(12, 0).Padding(8, 10).Radius(20).Background(t.Surface)
-	right.Children(func() {
-		ui.Icon(c, arrowRightIcon).FontSize(22).TextColor(t.TextMuted)
-	})
-	if right.Clicked() {
-		a.nextImage()
+	if a.hasNextMedia() {
+		right := ui.ButtonBase(c.Key("edge-next")).Attach(ui.AnchorRight, ui.AnchorRight).
+			Margin(0, 12).Size(36, 36).Radius(18).Center().
+			Border(1, barBorder).Label("下一项").Tooltip("下一项（→）")
+		applyBarButtonState(right, barBackground, hoverBG, pressedBG)
+		right.Children(func() {
+			ui.Icon(c, arrowRightIcon).Size(20, 20).TextColor(barFG)
+		})
+		if right.Clicked() {
+			a.nextImage()
+		}
+		fadeControlBar(right, "edge-right-fade", baseShown || right.Hovered())
 	}
 }
 
@@ -2859,6 +3199,10 @@ func (a *appState) openLargeImage(index int) {
 	a.PanX, a.PanY = 0, 0
 	a.HUD, a.HUDUntil = "", time.Time{}
 	item := &a.Items[a.Visible[index]]
+	a.Chosen = index
+	a.keyPivot = index
+	a.Selected.Clear()
+	a.Selected.Add(item.Path)
 	// Keep the libmpv/FFmpeg backend across switches: park on image, reuse
 	// on the next video. Full teardown only happens when leaving large view.
 	if item.IsVideo {
@@ -2955,6 +3299,11 @@ func (a *appState) closeLargeImage() {
 	a.clearSharp()
 	if item := a.currentItem(); a.InLargeView && item != nil {
 		a.heroBeginClose(item.Path)
+		a.Chosen = a.LargeIndex
+		a.keyPivot = a.LargeIndex
+		a.Selected.Clear()
+		a.Selected.Add(item.Path)
+		a.revealFrames = 2
 	}
 	a.InLargeView = false
 	a.LargeIndex = -1

@@ -254,7 +254,6 @@ func (a *appState) trayShowWindow() {
 
 func (a *appState) trayOpenSettings() {
 	a.dismissTrayPanel()
-	a.openSettings()
 	a.settingsWindow()
 }
 
