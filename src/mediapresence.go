@@ -140,7 +140,8 @@ func matchesPresenceName(name string, kind mediaKind) bool {
 	}
 }
 
-func presenceCachePath() string {
+// presenceCachePath locates the persistent media-presence archive. Tests override it.
+var presenceCachePath = func() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		dir = os.TempDir()
@@ -390,14 +391,26 @@ type presenceNode struct {
 	depth int
 }
 
-// scanFolderHasMedia walks path looking for a file matching kind.
-// complete is false when visit/depth budgets stop the walk before the
-// tree is exhausted; callers must not treat that as a conclusive "no".
-func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceResult, bool) {
+func markPresenceKind(img, vid, arc, inst *bool, kind mediaKind) {
+	switch kind {
+	case mediaKindImage:
+		*img = true
+	case mediaKindVideo:
+		*vid = true
+	case mediaKindArchive:
+		*arc = true
+	case mediaKindInstaller:
+		*inst = true
+	default:
+		*img = true
+	}
+}
+
+func scanFolderKinds(root string, target mediaKind, allKinds, showHidden bool, stop func() bool) (img, vid, arc, inst, complete bool) {
 	root = filepath.Clean(root)
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
-		return presenceNo, true
+		return false, false, false, false, true
 	}
 
 	seen := map[string]bool{root: true}
@@ -405,23 +418,29 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 	visits := 0
 
 	for len(queue) > 0 {
+		if stop != nil && stop() {
+			return img, vid, arc, inst, false
+		}
 		cur := queue[0]
 		queue = queue[1:]
 		if cur.depth > presenceMaxDepth {
-			return presenceUnknown, false
+			return img, vid, arc, inst, false
 		}
 		entries, err := os.ReadDir(cur.path)
 		if err != nil {
 			if cur.path == root {
-				return presenceNo, true
+				return false, false, false, false, true
 			}
 			continue
 		}
 		var subs []string
 		for _, entry := range entries {
+			if stop != nil && stop() {
+				return img, vid, arc, inst, false
+			}
 			visits++
 			if visits > presenceMaxVisits {
-				return presenceUnknown, false
+				return img, vid, arc, inst, false
 			}
 			name := entry.Name()
 			if !showHidden && strings.HasPrefix(name, ".") {
@@ -438,8 +457,19 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 			}
 			if entry.IsDir() {
 				if isInstallerBundle(name) {
-					if matchesPresenceName(name, kind) {
-						return presenceYes, true
+					if allKinds {
+						if matchesPresenceName(name, mediaKindInstaller) {
+							inst = true
+						}
+						if matchesPresenceName(name, mediaKindArchive) {
+							arc = true
+						}
+						if img && vid && arc && inst {
+							return true, true, true, true, true
+						}
+					} else if matchesPresenceName(name, target) {
+						markPresenceKind(&img, &vid, &arc, &inst, target)
+						return img, vid, arc, inst, true
 					}
 					continue
 				}
@@ -449,8 +479,25 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 				subs = append(subs, path)
 				continue
 			}
-			if matchesPresenceName(name, kind) {
-				return presenceYes, true
+			if allKinds {
+				if matchesPresenceName(name, mediaKindImage) {
+					img = true
+				}
+				if matchesPresenceName(name, mediaKindVideo) {
+					vid = true
+				}
+				if matchesPresenceName(name, mediaKindArchive) {
+					arc = true
+				}
+				if matchesPresenceName(name, mediaKindInstaller) {
+					inst = true
+				}
+				if img && vid && arc && inst {
+					return true, true, true, true, true
+				}
+			} else if matchesPresenceName(name, target) {
+				markPresenceKind(&img, &vid, &arc, &inst, target)
+				return img, vid, arc, inst, true
 			}
 		}
 		for _, sub := range subs {
@@ -462,7 +509,40 @@ func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceR
 			queue = append(queue, presenceNode{clean, cur.depth + 1})
 		}
 	}
+	return img, vid, arc, inst, true
+}
+
+// scanFolderHasMedia walks path looking for a file matching kind.
+// complete is false when visit/depth budgets stop the walk before the
+// tree is exhausted; callers must not treat that as a conclusive "no".
+func scanFolderHasMedia(root string, kind mediaKind, showHidden bool) (presenceResult, bool) {
+	img, vid, arc, inst, complete := scanFolderKinds(root, kind, false, showHidden, nil)
+	has := false
+	switch kind {
+	case mediaKindImage:
+		has = img
+	case mediaKindVideo:
+		has = vid
+	case mediaKindArchive:
+		has = arc
+	case mediaKindInstaller:
+		has = inst
+	default:
+		has = img || vid
+	}
+	if has {
+		return presenceYes, true
+	}
+	if !complete {
+		return presenceUnknown, false
+	}
 	return presenceNo, true
+}
+
+// scanFolderAllKinds walks path once to compute all four presence flags while
+// honoring stop cancellation and the shared depth/visit budgets.
+func scanFolderAllKinds(root string, showHidden bool, stop func() bool) (img, vid, arc, inst, complete bool) {
+	return scanFolderKinds(root, mediaKindAny, true, showHidden, stop)
 }
 
 // resetPresenceCacheForTest clears memory and disk maps; tests only.

@@ -104,7 +104,7 @@ func (a *appState) scheduleLaunchFolder() {
 	}
 	if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
 		if p := a.Profiles.Profiles[active]; p.Root != "" && isDir(p.Root) {
-			a.update(func() { a.openFolder(p.Root) })
+			a.update(func() { a.openRootFolder(p.Root) })
 			return
 		}
 	}
@@ -113,7 +113,7 @@ func (a *appState) scheduleLaunchFolder() {
 	}
 	last := (historyFile{History: a.History, Cursor: a.Cursor}).CursorPath()
 	if last != "" && isDir(last) {
-		a.update(func() { a.openFolder(last) })
+		a.update(func() { a.openRootFolder(last) })
 	}
 }
 

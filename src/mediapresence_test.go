@@ -95,8 +95,7 @@ func TestScanFolderHasMediaSkipsSymlinkDirs(t *testing.T) {
 }
 
 func TestPresenceCacheMtimeInvalidation(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
@@ -134,8 +133,7 @@ func TestPresenceCacheMtimeInvalidation(t *testing.T) {
 }
 
 func TestApplyFilterHidesFoldersWithoutMatchingMedia(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	withImg := filepath.Join(root, "photos")

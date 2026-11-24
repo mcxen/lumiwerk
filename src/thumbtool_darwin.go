@@ -35,12 +35,16 @@ func runThumbTool(ctx context.Context, timeout time.Duration, name string, args 
 		defer cancel()
 	}
 	cmd := execCommandContext(ctx, name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Keep Setsid: true from prepareExec so the child detaches any controlling
+	// TTY and also becomes its own process group leader (pgid == pid).
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
 		}
-		// Setpgid made the child the group leader, so its pid is the pgid.
+		// Setsid made the child the session and process group leader, so its pid is the pgid.
 		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return cmd.Process.Kill()
 		}

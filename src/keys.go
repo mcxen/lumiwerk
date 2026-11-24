@@ -122,7 +122,7 @@ func (a *appState) flowColumnNeighbor(at, dir int) (int, bool) {
 	if a.LayoutMode == 2 {
 		boxes = a.cachedWaterfall(w)
 	} else {
-		boxes = justifiedFrames(a.visibleAspects(), w, float32(a.Thumb))
+		boxes = a.cachedJustified(w)
 	}
 	if at < 0 || at >= len(boxes) {
 		return 0, false

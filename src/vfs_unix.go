@@ -21,6 +21,16 @@ func fileHidden(info os.FileInfo) bool {
 	return false
 }
 
+const supportsTrashUntrash = false
+
+func platformTrashBatch(paths []string) ([]pathPair, error) {
+	return trashPathsEach(paths)
+}
+
+func platformUntrash(path string) error {
+	return errors.New("unsupported")
+}
+
 // platformTrash follows the XDG trash spec: it writes the original path to
 // a .trashinfo record so file managers can restore it. gio is preferred when
 // present. The returned path lets undo move the file back.

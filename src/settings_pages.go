@@ -144,6 +144,16 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 		if setToggleHint(c, "autoplay-selected", "选中即播", "在浏览器里选中视频就开始预览", &a.Profiles.View.AutoPlaySelected) {
 			savePrefs(a.Profiles)
 		}
+		a.Profiles.SidebarTreeRoot = normalizeSidebarTreeRoot(a.Profiles.SidebarTreeRoot)
+		if setChoiceHint(c, "sidebar-tree-root", "侧边栏目录树", "打开文件夹后目录树的起始位置", &a.Profiles.SidebarTreeRoot,
+			[]string{treeRootCurrent, treeRootSystem}, []string{"当前文件夹", rootName}) {
+			a.treeOpenRoot = ""
+			a.treeRecurseOpen = ""
+			a.treeBaseRoot = ""
+			savePrefs(a.Profiles)
+			a.update(func() {})
+		}
+		figureSidebarTree(c, pal, a.Profiles.SidebarTreeRoot)
 	})
 	setGroup(c, "查看器控制栏", func() {
 		a.Profiles.ViewerBar = normalizeBarMode(a.Profiles.ViewerBar)

@@ -22,7 +22,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.25"
+	appVersion                  = "0.3.26"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -154,6 +154,7 @@ type appState struct {
 	menuPath string
 
 	Outline         ui.OutlineState[string]
+	treeBaseRoot    string
 	treeOpenRoot    string
 	treeRecurseOpen string
 	SidebarWidth    float32
@@ -241,19 +242,34 @@ type appState struct {
 	// RenameInline edits the name in place (rename_inline.go) rather
 	// than in the dialog; renameFresh counts frames until the field,
 	// focused, selects the name before its extension.
-	RenameInline  bool
-	renameFresh   int
-	renameArm     string
-	renameArmAt   time.Time
-	appMenu       *mygo.Menu
-	menuKeysOff   []*mygo.MenuItem
-	Clip          []string
-	Cut           map[string]bool
-	PendingSelect []string
-	layoutGen     uint64
-	flowCache     flowLayoutCache
-	opBusy        bool
-	work          workState
+	RenameInline       bool
+	renameFresh        int
+	renameArm          string
+	renameArmAt        time.Time
+	appMenu            *mygo.Menu
+	menuKeysOff        []*mygo.MenuItem
+	Clip               []string
+	Cut                map[string]bool
+	PendingSelect      []string
+	layoutGen          uint64
+	flowCache          flowLayoutCache
+	heroMatchGen       uint64
+	heroPrevLayout     int
+	heroPrevThumb      float64
+	heroPrevGridCols   int
+	heroPrevRoot       string
+	visibleMediaCount  int
+	visibleStatsGen    uint64
+	visibleStatsN      int
+	recurseSummary     string
+	recurseSummaryGen  uint64
+	recurseSummaryRoot string
+	recurseSummaryN    int
+	infoMu             sync.Mutex
+	infoPending        []infoResult
+	infoFlushScheduled bool
+	opBusy             bool
+	work               workState
 	// tableSort is the detail table's header sort, mirroring Sort.
 	tableSort     ui.SortOrder
 	columnsLoaded bool
@@ -481,6 +497,19 @@ func (a *appState) noteRecentFolder(path string) {
 	}
 }
 
+// openRootFolder opens path and anchors the sidebar directory tree at path
+// when the tree starts from the opened folder.
+func (a *appState) openRootFolder(path string) {
+	clean := filepath.Clean(path)
+	if clean != "" && (isDir(clean) || isArchiveDir(clean)) {
+		if pathKey(a.treeBaseRoot) != pathKey(clean) {
+			a.treeBaseRoot = clean
+			a.treeOpenRoot = ""
+		}
+	}
+	a.openFolder(path)
+}
+
 func (a *appState) openFolder(path string) {
 	path = filepath.Clean(path)
 	if path == "" || !(isDir(path) || isArchiveDir(path)) || path == a.Root {
@@ -626,13 +655,13 @@ func (a *appState) scanFolder(root string, seq int) {
 			a.noteSelectionAnchorLocked()
 			carryItemState(a.Items, files)
 			a.Items = files
-			a.applyFilterLocked()
+			a.applyFilterForceLocked(true)
 			a.restorePendingSelection()
 			if a.InLargeView && (a.LargeIndex < 0 || a.LargeIndex >= len(a.Visible)) {
 				a.closeLargeImage()
 			}
-			safeGo("loadTags", a.loadTags)
-			safeGo("probeAspects", a.probeVisibleAspects)
+			safeGo("loadTags", func() { a.loadTagsFor(root, seq) })
+			safeGo("probeAspects", func() { a.probeVisibleAspectsFor(root, seq) })
 			end := a.pendingLargeEnd
 			a.pendingLargeEnd = 0
 			return end
@@ -1035,8 +1064,15 @@ func (a *appState) restorePendingSelection() {
 }
 
 func (a *appState) applyFilterLocked() {
+	a.applyFilterForceLocked(false)
+}
+
+func (a *appState) applyFilterForceLocked(forceLayout bool) {
 	anchor := a.takeSelectionAnchorLocked()
+	oldLen := len(a.Visible)
+	prev := a.Visible[:oldLen]
 	a.Visible = a.Visible[:0]
+	changed := forceLayout
 	q := strings.ToLower(strings.TrimSpace(a.Query))
 	mediaOnly := a.FilterMode != filterAll
 	kind := filterMediaKind(a.FilterMode)
@@ -1060,9 +1096,18 @@ func (a *appState) applyFilterLocked() {
 				continue
 			}
 		}
+		pos := len(a.Visible)
+		if !changed && (pos >= oldLen || prev[pos] != i) {
+			changed = true
+		}
 		a.Visible = append(a.Visible, i)
 	}
-	a.noteLayoutChanged()
+	if len(a.Visible) != oldLen {
+		changed = true
+	}
+	if changed {
+		a.noteLayoutChanged()
+	}
 	a.reconcileSelectionLocked(anchor)
 }
 
@@ -1279,7 +1324,7 @@ func (a *appState) pickFolder() {
 		}
 		return
 	}
-	a.update(func() { a.openFolder(paths[0]) })
+	a.update(func() { a.openRootFolder(paths[0]) })
 }
 
 func (a *appState) loadThumb(root string, index int) {
@@ -1935,7 +1980,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 					})
 					a.bindFolderRow(c, row, fav, func(m *ui.Menu) { a.favoriteContextMenu(m, fav) })
 					if !removed {
-						row.OnClick(func() { a.openFolder(fav) })
+						row.OnClick(func() { a.openRootFolder(fav) })
 					}
 				}
 			})
@@ -1948,12 +1993,10 @@ func (a *appState) sidebarView(c *ui.Context) {
 		// Selection stays app-side (see mediaListState): rows paint the
 		// current folder themselves, quietly, in treeRow.
 		a.Outline.List.Key = func(row int) any { return a.Outline.Item(row) }
-		roots := []string{"/"}
+		roots, openDirs := a.sidebarTreePlan()
 		if a.treeOpenRoot != a.Root {
-			for _, ancestor := range ancestorRoots(a.Root) {
-				if ancestor != filepath.Clean(a.Root) {
-					a.Outline.Open.Add(ancestor)
-				}
+			for _, dir := range openDirs {
+				a.Outline.Open.Add(dir)
 			}
 			a.treeOpenRoot = a.Root
 			a.treeRecurseOpen = ""
@@ -2000,7 +2043,7 @@ func (a *appState) sidebarView(c *ui.Context) {
 						}
 					})
 					a.bindFolderRow(c, row, hist, func(m *ui.Menu) { a.historyContextMenu(m, hist) })
-					row.OnClick(func() { a.openFolder(hist) })
+					row.OnClick(func() { a.openRootFolder(hist) })
 				}
 			})
 		})
@@ -2086,6 +2129,30 @@ func (a *appState) sidebarSection(c *ui.Context, title string, closed *bool, act
 	}
 }
 
+// sidebarTreePlan returns the outline roots and directories to expand for the
+// current folder according to SidebarTreeRoot.
+func (a *appState) sidebarTreePlan() (roots []string, open []string) {
+	root := filepath.Clean(a.Root)
+	if a.Profiles.SidebarTreeRoot == treeRootSystem {
+		for _, ancestor := range ancestorRoots(root) {
+			if ancestor != root {
+				open = append(open, ancestor)
+			}
+		}
+		return []string{"/"}, open
+	}
+	base := filepath.Clean(a.treeBaseRoot)
+	if a.treeBaseRoot == "" || (pathKey(base) != pathKey(root) && !pathWithin(base, root)) {
+		base = root
+		a.treeBaseRoot = base
+	}
+	open = append(open, base)
+	for cur := filepath.Dir(root); cur != root && pathWithin(base, cur); cur = filepath.Dir(cur) {
+		open = append(open, cur)
+	}
+	return []string{base}, open
+}
+
 func (a *appState) treeRow(c *ui.Context, path string) {
 	t := c.Theme()
 	pal := shellPaletteFor(c)
@@ -2110,6 +2177,14 @@ func (a *appState) treeRow(c *ui.Context, path string) {
 
 func (a *appState) mainView(c *ui.Context) {
 	t := c.Theme()
+	if !a.InLargeView && !a.galleryActive() {
+		if a.LayoutMode != a.heroPrevLayout || a.Thumb != a.heroPrevThumb || a.Root != a.heroPrevRoot {
+			if a.heroPrevRoot != "" {
+				a.heroMatchGen++
+			}
+			a.heroPrevLayout, a.heroPrevThumb, a.heroPrevRoot = a.LayoutMode, a.Thumb, a.Root
+		}
+	}
 	a.marqueeAutoScroll(c)
 	col := ui.Column(c).Fill().Background(t.Background)
 	col.HandleInput(a.browseInput).ObserveInput(a.observeGesture)
@@ -2396,7 +2471,7 @@ func (a *appState) emptyView(c *ui.Context) {
 	if files := zone.DroppedFiles(); len(files) > 0 {
 		for _, f := range files {
 			if isDir(f) {
-				a.openFolder(f)
+				a.openRootFolder(f)
 				break
 			}
 		}
@@ -2464,6 +2539,12 @@ func (a *appState) gridView(c *ui.Context) {
 			contentW = bounds.W
 		}
 		cols := gridColumnCount(contentW, float32(cell), gap)
+		if cols > 0 && cols != a.heroPrevGridCols {
+			if a.heroPrevGridCols != 0 {
+				a.heroMatchGen++
+			}
+			a.heroPrevGridCols = cols
+		}
 		a.noteBrowseBox(bounds, cols, gridStride(a.Thumb, gap), gap, contentW, len(a.Visible))
 		a.noteMarqueeBox(bounds)
 	}
@@ -3338,12 +3419,18 @@ func (a *appState) prevImage() {
 }
 
 func (a *appState) mediaCount() int {
+	if a.visibleStatsGen == a.layoutGen && a.visibleStatsN == len(a.Visible) && a.layoutGen > 0 {
+		return a.visibleMediaCount
+	}
 	n := 0
 	for _, index := range a.Visible {
 		if index >= 0 && index < len(a.Items) && isMediaFile(a.Items[index].Ext) {
 			n++
 		}
 	}
+	a.visibleMediaCount = n
+	a.visibleStatsGen = a.layoutGen
+	a.visibleStatsN = len(a.Visible)
 	return n
 }
 
@@ -3405,7 +3492,7 @@ func (a *appState) applyProfile(i int) {
 	a.MediaUnitRoot = ""
 	savePrefs(a.Profiles)
 	if p.Root != "" && isDir(p.Root) {
-		a.openFolder(p.Root)
+		a.openRootFolder(p.Root)
 	}
 	a.refreshView()
 }

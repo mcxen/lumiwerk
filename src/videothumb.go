@@ -104,12 +104,24 @@ func lookTool(tool string) (string, error) {
 }
 
 func findTool(tool string) string {
-	name := tool
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	return findToolNamed([]string{tool})
+}
+
+// findToolNamed searches PATH, the executable directory, and standard
+// platform install locations for the first matching executable in names.
+func findToolNamed(names []string, extraDirs ...string) string {
+	candidates := make([]string, 0, len(names)*2)
+	for _, n := range names {
+		if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(n), ".exe") {
+			candidates = append(candidates, n+".exe", n)
+		} else {
+			candidates = append(candidates, n)
+		}
 	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
+	for _, name := range candidates {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
 	}
 	var dirs []string
 	if exe, err := os.Executable(); err == nil {
@@ -129,10 +141,16 @@ func findTool(tool string) string {
 	default:
 		dirs = append(dirs, "/usr/local/bin", "/usr/bin", "/snap/bin")
 	}
+	dirs = append(dirs, extraDirs...)
 	for _, d := range dirs {
-		p := filepath.Join(d, name)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return p
+		if d == "" {
+			continue
+		}
+		for _, name := range candidates {
+			p := filepath.Join(d, name)
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				return p
+			}
 		}
 	}
 	return ""

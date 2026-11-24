@@ -8,9 +8,23 @@ import (
 	"time"
 )
 
-func TestIndexSubtreeBottomUpFlags(t *testing.T) {
+// isolatePresenceCache redirects disk persistence and resets folderMedia so tests
+// never touch the host's ~/Library/Caches/lumiwerk/media-presence.json.
+func isolatePresenceCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	cachePath := filepath.Join(t.TempDir(), "media-presence.json")
+	prev := presenceCachePath
+	presenceCachePath = func() string { return cachePath }
 	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	t.Cleanup(func() {
+		resetPresenceCacheForTest()
+		presenceCachePath = prev
+	})
+}
+
+func TestIndexSubtreeBottomUpFlags(t *testing.T) {
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	photos := filepath.Join(root, "photos")
@@ -62,8 +76,7 @@ func TestIndexSubtreeBottomUpFlags(t *testing.T) {
 }
 
 func TestNoteChangeBubblesAncestors(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	sub := filepath.Join(root, "album")
@@ -96,8 +109,7 @@ func TestNoteChangeBubblesAncestors(t *testing.T) {
 }
 
 func TestArchiveRoundTripPersist(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	dir := t.TempDir()
 	root := filepath.Join(dir, "tree")
@@ -141,8 +153,7 @@ func TestArchiveRoundTripPersist(t *testing.T) {
 }
 
 func TestPrewarmFillsLookupBeforeFilter(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	empty := filepath.Join(root, "empty")
@@ -175,8 +186,7 @@ func TestPrewarmFillsLookupBeforeFilter(t *testing.T) {
 }
 
 func TestIndexSubtreeSkipsSymlinkDirs(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	real := filepath.Join(root, "real")
@@ -206,8 +216,7 @@ func TestIndexSubtreeSkipsSymlinkDirs(t *testing.T) {
 }
 
 func TestIndexSubtreeArchiveAndInstallerFlags(t *testing.T) {
-	resetPresenceCacheForTest()
-	t.Cleanup(resetPresenceCacheForTest)
+	isolatePresenceCache(t)
 
 	root := t.TempDir()
 	pkgs := filepath.Join(root, "安装包")
@@ -249,5 +258,129 @@ func TestIndexSubtreeArchiveAndInstallerFlags(t *testing.T) {
 	}
 	if archiveVersion != 3 {
 		t.Fatalf("archiveVersion=%d want 3", archiveVersion)
+	}
+}
+
+func TestBubbleAncestorsStopsAtUnarchivedParent(t *testing.T) {
+	isolatePresenceCache(t)
+
+	outer := t.TempDir()
+	root := filepath.Join(outer, "root")
+	sub := filepath.Join(root, "sub")
+	sibling := filepath.Join(outer, "sibling")
+	for _, d := range []string{sub, sibling} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "pic.jpg"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	folderMedia.indexSubtree(root, false, nil)
+	if err := os.WriteFile(filepath.Join(sub, "new.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	folderMedia.forgetArchive(sub)
+	folderMedia.indexSubtree(sub, false, nil)
+	folderMedia.bubbleAncestors(sub, false, nil)
+
+	if res, ok := folderMedia.Lookup(root, mediaKindImage, false); !ok || res != presenceYes {
+		t.Fatalf("root image after bubble: res=%v ok=%v", res, ok)
+	}
+	if folderMedia.hasArchived(outer, false) {
+		t.Fatalf("bubbleAncestors crawled into unarchived parent %s", outer)
+	}
+	if folderMedia.hasArchived(sibling, false) {
+		t.Fatalf("bubbleAncestors scanned sibling outside archived root: %s", sibling)
+	}
+}
+
+func TestBubbleAncestorsPropagatesAcrossMultipleArchivedLevels(t *testing.T) {
+	isolatePresenceCache(t)
+
+	outer := t.TempDir()
+	root := filepath.Join(outer, "root")
+	a := filepath.Join(root, "a")
+	b := filepath.Join(a, "b")
+	if err := os.MkdirAll(b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	folderMedia.indexSubtree(root, false, nil)
+	if err := os.WriteFile(filepath.Join(b, "pic.jpg"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	folderMedia.forgetArchive(b)
+	folderMedia.indexSubtree(b, false, nil)
+	folderMedia.bubbleAncestors(b, false, nil)
+
+	for _, dir := range []string{a, root} {
+		if res, ok := folderMedia.Lookup(dir, mediaKindImage, false); !ok || res != presenceYes {
+			t.Fatalf("%s image after multi-level bubble: res=%v ok=%v", dir, res, ok)
+		}
+	}
+	if folderMedia.hasArchived(outer, false) {
+		t.Fatalf("bubbleAncestors crossed into unarchived parent %s", outer)
+	}
+}
+
+func TestRecomputeOneLevelChangedMtimeSameFlagsStops(t *testing.T) {
+	isolatePresenceCache(t)
+
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.jpg"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	folderMedia.indexSubtree(root, false, nil)
+
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(root, future, future); err != nil {
+		t.Fatal(err)
+	}
+	img, _, changed := folderMedia.recomputeOneLevel(root, false, nil)
+	if !img || changed {
+		t.Fatalf("recomputeOneLevel(mtime bump, same flags) = img:%v changed:%v, want true/false", img, changed)
+	}
+	mtime := dirMtime(root)
+	folderMedia.mu.Lock()
+	rec, ok := folderMedia.lookupArchiveLocked(root, false, mtime)
+	folderMedia.mu.Unlock()
+	if !ok || !rec.Image {
+		t.Fatalf("archive row not refreshed to new mtime: ok=%v rec=%+v", ok, rec)
+	}
+}
+
+func TestScanFolderAllKindsHonorsStop(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "mix")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.jpg", "b.mp4", "c.zip", "d.dmg"} {
+		if err := os.WriteFile(filepath.Join(sub, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, _, _, _, complete := scanFolderAllKinds(root, false, func() bool { return true }); complete {
+		t.Fatal("scanFolderAllKinds reported complete when stop=true")
+	}
+
+	checks := 0
+	if _, _, _, _, complete := scanFolderAllKinds(root, false, func() bool {
+		checks++
+		return checks > 1
+	}); complete {
+		t.Fatal("scanFolderAllKinds did not stop mid-walk")
+	}
+
+	img, vid, arc, inst, complete := scanFolderAllKinds(root, false, nil)
+	if !complete || !img || !vid || !arc || !inst {
+		t.Fatalf("scanFolderAllKinds = (%v,%v,%v,%v,complete=%v), want all true", img, vid, arc, inst, complete)
 	}
 }

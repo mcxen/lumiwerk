@@ -123,7 +123,16 @@ type prefsFile struct {
 	// HideDockWhenShelved drops the Dock icon while the main window is
 	// hidden in the tray, leaving a menu-bar-only app.
 	HideDockWhenShelved bool `json:"hideDockWhenShelved,omitempty"`
+	// SidebarTreeRoot controls where the sidebar directory tree starts:
+	// treeRootCurrent (default) starts from the opened folder;
+	// treeRootSystem starts from the filesystem root (/).
+	SidebarTreeRoot string `json:"sidebarTreeRoot,omitempty"`
 }
+
+const (
+	treeRootCurrent = "current"
+	treeRootSystem  = "system"
+)
 
 const typeFilterRevAll = 2
 
@@ -252,6 +261,7 @@ func normalizePrefs(p *prefsFile) {
 	p.PlaybackEnd = normalizePlaybackEnd(p.PlaybackEnd)
 	p.ViewerBar = normalizeBarMode(p.ViewerBar)
 	p.ThumbCacheMiB = normalizeThumbCacheMiB(p.ThumbCacheMiB)
+	p.SidebarTreeRoot = normalizeSidebarTreeRoot(p.SidebarTreeRoot)
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff
@@ -328,4 +338,11 @@ func normalizeThumbCacheMiB(mib int) int {
 		return 1024
 	}
 	return mib
+}
+
+func normalizeSidebarTreeRoot(mode string) string {
+	if mode == treeRootSystem {
+		return treeRootSystem
+	}
+	return treeRootCurrent
 }

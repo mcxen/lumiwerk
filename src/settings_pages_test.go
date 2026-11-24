@@ -46,7 +46,7 @@ func TestSettingsPagesRenderAndNavigate(t *testing.T) {
 func TestSettingsBrowseControlsPersist(t *testing.T) {
 	a := newSettingsTestState(t)
 	a.setPage("browse")
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 900)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1150)
 	te.Frame()
 	if err := te.Click("打开/关闭"); err != nil {
 		t.Fatal(err)
@@ -131,5 +131,34 @@ func TestSettingsViewerBarChoicePersists(t *testing.T) {
 	}
 	if !te.HasText("鼠标移到窗口底部才出现") {
 		t.Fatalf("figure caption missing: %v", te.Texts())
+	}
+}
+
+func TestSettingsSidebarTreeRootPersists(t *testing.T) {
+	a := newSettingsTestState(t)
+	a.setPage("browse")
+	a.treeOpenRoot = "/tmp/a"
+	a.treeBaseRoot = "/tmp/a"
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1100)
+	te.Frame()
+	if a.Profiles.SidebarTreeRoot != treeRootCurrent {
+		t.Fatalf("default = %q, want %q", a.Profiles.SidebarTreeRoot, treeRootCurrent)
+	}
+	if err := te.Click(rootName); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if got := loadPrefs().SidebarTreeRoot; got != treeRootSystem {
+		t.Fatalf("saved mode = %q, want %q", got, treeRootSystem)
+	}
+	if a.treeOpenRoot != "" || a.treeBaseRoot != "" {
+		t.Fatalf("tree state not reset on switch: open=%q base=%q", a.treeOpenRoot, a.treeBaseRoot)
+	}
+	if err := te.Click("当前文件夹"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if got := loadPrefs().SidebarTreeRoot; got != treeRootCurrent {
+		t.Fatalf("restored mode = %q, want %q", got, treeRootCurrent)
 	}
 }

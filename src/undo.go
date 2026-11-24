@@ -70,14 +70,25 @@ func inverseOf(op fileOperation) (fileOperation, bool) {
 		}
 		return fileOperation{op: opDelete, paths: append([]string(nil), op.created...)}, true
 	case opDelete:
-		if op.permanent || len(op.mappings) == 0 {
+		if op.permanent {
 			return fileOperation{}, false
 		}
-		swapped := swappedMappings(op.mappings)
-		if len(swapped) == 0 {
+		if len(op.mappings) > 0 {
+			swapped := swappedMappings(op.mappings)
+			if len(swapped) == 0 {
+				return fileOperation{}, false
+			}
+			return fileOperation{op: opMove, mappings: swapped}, true
+		}
+		if supportsTrashUntrash && len(op.paths) > 0 {
+			return fileOperation{op: opUntrash, paths: append([]string(nil), op.paths...)}, true
+		}
+		return fileOperation{}, false
+	case opUntrash:
+		if len(op.paths) == 0 {
 			return fileOperation{}, false
 		}
-		return fileOperation{op: opMove, mappings: swapped}, true
+		return fileOperation{op: opDelete, paths: append([]string(nil), op.paths...)}, true
 	default:
 		return fileOperation{}, false
 	}
@@ -318,6 +329,8 @@ func (a *appState) finishOperation(op fileOperation) {
 		a.PendingSelect = append([]string(nil), op.created...)
 	case opDelete:
 		a.noteDeleted(op.paths)
+	case opUntrash:
+		a.PendingSelect = append([]string(nil), op.paths...)
 	case opCompress, opExtract:
 		if _, undoable := inverseOf(op); op.detail != "" && !undoable {
 			a.toast(op.detail) // an undoable one showed it with 撤销

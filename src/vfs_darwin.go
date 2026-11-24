@@ -54,6 +54,16 @@ func fileHidden(info os.FileInfo) bool {
 	return false
 }
 
+const supportsTrashUntrash = false
+
+func platformTrashBatch(paths []string) ([]pathPair, error) {
+	return trashPathsEach(paths)
+}
+
+func platformUntrash(path string) error {
+	return errors.New("unsupported")
+}
+
 // platformTrash moves one path to the macOS Trash through Finder's native
 // service, so files deleted from external volumes land in that volume's
 // .Trashes, and it returns the new path for undo.

@@ -7,8 +7,10 @@ import (
 
 // execCommand starts a child process. On Windows it hides the console
 // window a GUI app would otherwise open for ffmpeg, ffprobe and other
-// console tools. Cover loading, playback and file tools must go through
-// this helper (or execCommandContext) rather than os/exec directly.
+// console tools. On Unix it runs the child in a new session (Setsid: true)
+// so tools detach from any controlling /dev/tty and cannot block on prompts.
+// Cover loading, playback and file tools must go through this helper (or
+// execCommandContext) rather than os/exec directly.
 func execCommand(name string, args ...string) *exec.Cmd {
 	return prepareExec(exec.Command(name, args...))
 }

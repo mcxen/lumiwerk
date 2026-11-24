@@ -27,7 +27,13 @@ import (
 //     thumbnail stays hidden until the flyer lands.
 
 // heroMatch is the shared identity of every presentation of one media item.
-type heroMatch struct{ path string }
+// gen separates browser relayouts (thumbnail size, layout mode, grid column
+// count changes) so cards never fly across the browser on reflow while keeping
+// the open/close transition to and from the large view intact.
+type heroMatch struct {
+	path string
+	gen  uint64
+}
 
 const (
 	heroThumbRadius = 8
@@ -54,9 +60,13 @@ type heroState struct {
 }
 
 func heroTransition(path string) ui.ElementTransition {
+	return heroTransitionGen(path, 0)
+}
+
+func heroTransitionGen(path string, gen uint64) ui.ElementTransition {
 	// Colors only: in-place layout changes (thumbnail size, reflow) stay
 	// instant; Match still animates the box between two presentations.
-	return ui.ElementTransition{Animation: &heroAnimation, Colors: true, Fly: true, Match: heroMatch{path}}
+	return ui.ElementTransition{Animation: &heroAnimation, Colors: true, Fly: true, Match: heroMatch{path, gen}}
 }
 
 func (a *appState) heroSet(path string, phase int, radius float32) {
@@ -110,7 +120,7 @@ func (a *appState) heroBox(c *ui.Context, key, path string, w, h, rest float32, 
 	if r := a.heroRadius(box, path, rest, phase); r > 0.01 {
 		box.Radius(r).Clip()
 	}
-	box.Transition(heroTransition(path))
+	box.Transition(heroTransitionGen(path, a.heroMatchGen))
 	box.Children(content)
 	return box
 }
@@ -131,7 +141,7 @@ func (a *appState) thumbHero(thumb ui.Element, path string) {
 			return
 		}
 	}
-	thumb.Transition(heroTransition(path))
+	thumb.Transition(heroTransitionGen(path, a.heroMatchGen))
 }
 
 // heroFlyer carries a closing transition above the browser into the box the

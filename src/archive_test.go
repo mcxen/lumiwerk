@@ -72,12 +72,6 @@ func TestArchiveNamesAndZipArgs(t *testing.T) {
 }
 
 func TestCompressExtractRoundTrip(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/zip"); err != nil {
-		t.Skip(err)
-	}
-	if _, err := os.Stat("/usr/bin/bsdtar"); err != nil {
-		t.Skip(err)
-	}
 	dir := t.TempDir()
 	folder := filepath.Join(dir, "roll")
 	if err := os.MkdirAll(filepath.Join(folder, "nested"), 0o755); err != nil {
@@ -132,9 +126,6 @@ func TestCompressExtractRoundTrip(t *testing.T) {
 }
 
 func TestEncryptedZipPromptsAndDropSource(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/zip"); err != nil {
-		t.Skip(err)
-	}
 	dir := t.TempDir()
 	src := filepath.Join(dir, "secret.txt")
 	if err := os.WriteFile(src, []byte("top"), 0o644); err != nil {
@@ -187,9 +178,6 @@ func errorsIsPassword(err error) bool {
 }
 
 func TestExtractTriesSavedPasswordsInOrder(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/zip"); err != nil {
-		t.Skip(err)
-	}
 	dir := t.TempDir()
 	src := filepath.Join(dir, "secret.txt")
 	if err := os.WriteFile(src, []byte("top"), 0o644); err != nil {
@@ -226,5 +214,72 @@ func TestZipPasswordCandidatesOrderAndDedupe(t *testing.T) {
 	want := []string{"main", "a", "b"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("candidates = %v, want %v", got, want)
+	}
+}
+
+func TestPureGoZipCompressRoundTrip(t *testing.T) {
+	isolateArchiveCache(t)
+	dir := t.TempDir()
+	folder := filepath.Join(dir, "album")
+	if err := os.MkdirAll(filepath.Join(folder, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "sub", "page.png"), pngBytes(t, 12, 8, colorWhite()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := perform(fileOperation{op: opCompress, paths: []string{folder}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipPath := applied.created[0]
+	entries, err := listZipEntries(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "album/sub/page.png" && !e.IsDir && e.Size > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected album/sub/page.png in pure-Go zip, got %+v", entries)
+	}
+	dest, err := realPath(filepath.Join(zipPath, "album", "sub", "page.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, h := probeImageSize(dest); w != 12 || h != 8 {
+		t.Fatalf("extracted image = %dx%d", w, h)
+	}
+}
+
+func colorWhite() colorRGBA { return colorRGBA{255, 255, 255, 255} }
+
+type colorRGBA struct{ R, G, B, A uint8 }
+
+func (c colorRGBA) RGBA() (r, g, b, a uint32) {
+	return uint32(c.R) * 0x101, uint32(c.G) * 0x101, uint32(c.B) * 0x101, uint32(c.A) * 0x101
+}
+
+func TestOpUntrashPerformAndInverse(t *testing.T) {
+	origHook := untrashPath
+	var restored []string
+	untrashPath = func(p string) error {
+		restored = append(restored, p)
+		return nil
+	}
+	t.Cleanup(func() { untrashPath = origHook })
+
+	applied, err := perform(fileOperation{op: opUntrash, paths: []string{"/tmp/a.jpg", "/tmp/b.jpg"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 2 || len(applied.mappings) != 2 {
+		t.Fatalf("restored=%v mappings=%v", restored, applied.mappings)
+	}
+	inv, ok := inverseOf(applied)
+	if !ok || inv.op != opDelete || len(inv.paths) != 2 {
+		t.Fatalf("inverse = %#v ok=%v", inv, ok)
 	}
 }

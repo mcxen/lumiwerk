@@ -261,7 +261,7 @@ func (a *appState) trayOpenSettings() {
 func (a *appState) trayOpenFolder(path string) {
 	a.dismissTrayPanel()
 	a.showMainWindow()
-	a.openFolder(path)
+	a.openRootFolder(path)
 }
 
 // trayPickFolder asks for a folder in the (shown) main window.

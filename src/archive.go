@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"errors"
 	"fmt"
@@ -180,11 +179,7 @@ func compressPaths(paths []string, password string, now time.Time) (string, erro
 	if err != nil {
 		return "", err
 	}
-	cwd, args, err := zipArgs(paths, dest, password)
-	if err != nil {
-		return "", err
-	}
-	if err := runTool("/usr/bin/zip", args, cwd); err != nil {
+	if err := writeZipArchive(paths, dest, password); err != nil {
 		_ = os.Remove(dest)
 		return "", fmt.Errorf("压缩失败。%s", err.Error())
 	}
@@ -192,22 +187,16 @@ func compressPaths(paths []string, password string, now time.Time) (string, erro
 }
 
 func zipEncrypted(path string) bool {
-	reader, err := zip.OpenReader(path)
+	entries, err := listZipEntries(path)
 	if err != nil {
 		return false
 	}
-	defer reader.Close()
-	for _, file := range reader.File {
-		if file.Flags&1 != 0 {
+	for _, entry := range entries {
+		if entry.Encrypted {
 			return true
 		}
 	}
 	return false
-}
-
-func archivePasswordError(msg string) bool {
-	lower := strings.ToLower(msg)
-	return strings.Contains(lower, "password") || strings.Contains(lower, "passphrase") || strings.Contains(lower, "decrypt")
 }
 
 type extractedArchive struct {
@@ -267,50 +256,26 @@ func mergePasswords(list []string) []string {
 // the one the user typed, then with every saved candidate. Only when none of
 // them fit does it report errNeedZipPassword so the UI can ask.
 func extractWithPasswords(archive, password string, candidates []string) (string, error) {
-	tries := mergePasswords(append([]string{password}, candidates...))
-	if strings.TrimSpace(password) == "" {
-		tries = append([]string{""}, tries...)
-	} else {
-		tries[0] = password
-	}
-	var last error = errNeedZipPassword
-	for _, pass := range tries {
-		dest, err := extractOne(archive, pass)
-		if err == nil {
-			return dest, nil
-		}
-		if !errors.Is(err, errNeedZipPassword) {
-			return "", err
-		}
-		last = err
-	}
-	return "", last
-}
-
-func extractOne(archive, password string) (string, error) {
-	if isZipName(filepath.Base(archive)) && password == "" && zipEncrypted(archive) {
+	if isZipName(filepath.Base(archive)) && strings.TrimSpace(password) == "" && len(candidates) == 0 && zipEncrypted(archive) {
 		return "", errNeedZipPassword
 	}
 	dest := extractDestination(archive)
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return "", err
 	}
-	args := []string{"-xf", archive, "-C", dest}
-	if password != "" {
-		args = []string{"--passphrase", password, "-xf", archive, "-C", dest}
-	}
-	if err := runTool("/usr/bin/bsdtar", args, ""); err != nil {
+	passList := passwordAttemptList(false, password, candidates)
+	if err := extractAllWithBackends(archive, dest, passList); err != nil {
 		_ = os.RemoveAll(dest)
-		// A wrong password does not always say so: depending on the bsdtar
-		// build it surfaces as a bare read or CRC error. An encrypted zip
-		// that fails while we hold a password means that password is wrong.
-		if archivePasswordError(err.Error()) ||
-			(password != "" && isZipName(filepath.Base(archive)) && zipEncrypted(archive)) {
-			return "", errNeedZipPassword
-		}
 		return "", err
 	}
 	return dest, nil
+}
+
+func extractOne(archive, password string) (string, error) {
+	if strings.TrimSpace(password) == "" {
+		return extractWithPasswords(archive, "", nil)
+	}
+	return extractWithPasswords(archive, password, nil)
 }
 
 func previewNames(names []string) string {

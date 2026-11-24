@@ -14,6 +14,7 @@ import (
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -178,6 +179,7 @@ func execStartApp(name string, args ...string) error {
 // the platform-specific, osascript-backed implementation; tests replace it
 // with a temporary directory.
 var trashPath = platformTrash
+var untrashPath = platformUntrash
 
 // finderTrashCommand runs the real Finder AppleScript. Tests replace it to
 // simulate an automation permission denial without waiting for osascript.
@@ -216,6 +218,16 @@ func finderTrashError(out []byte, err error) error {
 // pairs keep source and destination together, so a later failure can restore
 // every file that already moved.
 func trashPaths(paths []string) (moved []pathPair, err error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	if reflect.ValueOf(trashPath).Pointer() == reflect.ValueOf(platformTrash).Pointer() {
+		return platformTrashBatch(paths)
+	}
+	return trashPathsEach(paths)
+}
+
+func trashPathsEach(paths []string) (moved []pathPair, err error) {
 	for _, path := range paths {
 		dest, trashErr := trashPath(path)
 		if trashErr != nil {

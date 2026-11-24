@@ -283,11 +283,20 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 		}
 	}
 	for _, sub := range subs {
+		if stop != nil && stop() {
+			return
+		}
 		ci, cv, ca, cn := c.indexDir(sub, showHidden, seen, ctr, stop)
+		if stop != nil && stop() {
+			return
+		}
 		img = img || ci
 		vid = vid || cv
 		arc = arc || ca
 		inst = inst || cn
+	}
+	if stop != nil && stop() {
+		return
 	}
 
 	c.mu.Lock()
@@ -299,6 +308,15 @@ func (c *presenceCache) indexDir(path string, showHidden bool, seen map[string]b
 	return img, vid, arc, inst
 }
 
+func (c *presenceCache) hasArchived(path string, showHidden bool) bool {
+	path = filepath.Clean(path)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ensureArchiveLocked()
+	_, ok := c.archive[archiveKey{path: path, hidden: showHidden}]
+	return ok
+}
+
 func (c *presenceCache) bubbleAncestors(start string, showHidden bool, stop func() bool) {
 	cur := filepath.Clean(start)
 	for i := 0; i < presenceMaxDepth; i++ {
@@ -307,6 +325,11 @@ func (c *presenceCache) bubbleAncestors(start string, showHidden bool, stop func
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur || parent == "" || parent == "." {
+			return
+		}
+		// Only refresh already-tracked ancestors; walking into unarchived
+		// parents would crawl outside the watched tree (e.g. TMPDIR or ~).
+		if !c.hasArchived(parent, showHidden) {
 			return
 		}
 		_, _, changed := c.recomputeOneLevel(parent, showHidden, stop)
@@ -325,6 +348,7 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 		return false, false, false
 	}
 	var arc, inst bool
+	allComplete := true
 	for _, entry := range entries {
 		if stop != nil && stop() {
 			return img, vid, false
@@ -343,6 +367,9 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 				if matchesPresenceName(name, mediaKindInstaller) {
 					inst = true
 				}
+				if matchesPresenceName(name, mediaKindArchive) {
+					arc = true
+				}
 				continue
 			}
 			if fi, infoErr := entry.Info(); infoErr == nil && !showHidden && entryHidden(name, fi) {
@@ -359,19 +386,19 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 				inst = inst || rec.Installer
 				continue
 			}
-			ir, ic := scanFolderHasMedia(child, mediaKindImage, showHidden)
-			vr, vc := scanFolderHasMedia(child, mediaKindVideo, showHidden)
-			ar, ac := scanFolderHasMedia(child, mediaKindArchive, showHidden)
-			nr, nc := scanFolderHasMedia(child, mediaKindInstaller, showHidden)
-			ci, cv := ic && ir == presenceYes, vc && vr == presenceYes
-			ca, cn := ac && ar == presenceYes, nc && nr == presenceYes
-			if ic || vc || ac || nc {
+			ci, cv, ca, cn, complete := scanFolderAllKinds(child, showHidden, stop)
+			if stop != nil && stop() {
+				return img, vid, false
+			}
+			if complete {
 				c.mu.Lock()
 				c.storeArchiveLocked(archiveDir{
 					Path: child, Hidden: showHidden, Mtime: cm,
 					Image: ci, Video: cv, Archive: ca, Installer: cn,
 				})
 				c.mu.Unlock()
+			} else {
+				allComplete = false
 			}
 			img = img || ci
 			vid = vid || cv
@@ -393,15 +420,27 @@ func (c *presenceCache) recomputeOneLevel(path string, showHidden bool, stop fun
 		}
 	}
 
+	if stop != nil && stop() {
+		return img, vid, false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	prev, had := c.lookupArchiveLocked(path, showHidden, mtime)
+	c.ensureArchiveLocked()
+	key := archiveKey{path: path, hidden: showHidden}
+	prev, had := c.archive[key]
+	if !allComplete && !(img && vid && arc && inst) {
+		if had {
+			delete(c.archive, key)
+			c.scheduleSaveLocked()
+		}
+		return img, vid, false
+	}
 	c.storeArchiveLocked(archiveDir{
 		Path: path, Hidden: showHidden, Mtime: mtime,
 		Image: img, Video: vid, Archive: arc, Installer: inst,
 	})
 	if !had {
-		return img, vid, true
+		return img, vid, false
 	}
 	changed = prev.Image != img || prev.Video != vid || prev.Archive != arc || prev.Installer != inst
 	return img, vid, changed

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
+	"unsafe"
 )
 
 // fileCreated reports a file's creation time, which NTFS keeps for real.
@@ -36,27 +38,159 @@ func fileHidden(info os.FileInfo) bool {
 	return st.FileAttributes&0x2 != 0 // FILE_ATTRIBUTE_HIDDEN
 }
 
-// windowsTrashScript builds the PowerShell command to move abs to the Windows
-// Recycle Bin (ShellSpecialFolderConstants.ssfBITBUCKET = 0x0a = 10).
-func windowsTrashScript(abs string) string {
-	return fmt.Sprintf(
-		`(New-Object -ComObject Shell.Application).NameSpace(10).MoveHere('%s')`,
-		strings.ReplaceAll(abs, "'", "''"))
+const (
+	supportsTrashUntrash = true
+
+	winFoDelete     = 3
+	winFofSilent    = 0x0004
+	winFofNoConfirm = 0x0010
+	winFofAllowUndo = 0x0040
+	winFofNoErrorUI = 0x0400
+	winTrashFlags   = winFofSilent | winFofNoConfirm | winFofAllowUndo | winFofNoErrorUI
+)
+
+// shFileOpStruct matches Windows SDK SHFILEOPSTRUCTW on 64-bit Windows
+// (amd64 / arm64, 56 bytes with natural alignment).
+type shFileOpStruct struct {
+	hwnd                  uintptr
+	wFunc                 uint32
+	pFrom                 *uint16
+	pTo                   *uint16
+	fFlags                uint16
+	fAnyOperationsAborted int32
+	hNameMappings         uintptr
+	lpszProgressTitle     *uint16
 }
 
-// platformTrash moves one path to the Windows Recycle Bin through PowerShell's
-// Shell.Application verb, which needs no external tool.
-func platformTrash(path string) (string, error) {
-	abs, err := filepath.Abs(path)
+var (
+	modShell32          = syscall.NewLazyDLL("shell32.dll")
+	procSHFileOperation = modShell32.NewProc("SHFileOperationW")
+)
+
+// shFileOpFrom encodes paths as a double-NUL-terminated UTF-16 buffer for SHFileOperationW.
+func shFileOpFrom(paths []string) ([]uint16, []string, error) {
+	if len(paths) == 0 {
+		return nil, nil, errors.New("没有要移到回收站的项目")
+	}
+	var buf []uint16
+	absList := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		abs = filepath.Clean(abs)
+		if _, err := os.Stat(abs); err != nil {
+			return nil, nil, err
+		}
+		absList = append(absList, abs)
+		buf = append(buf, utf16.Encode([]rune(abs))...)
+		buf = append(buf, 0)
+	}
+	buf = append(buf, 0)
+	return buf, absList, nil
+}
+
+// platformTrashBatch moves one or more paths to the Windows Recycle Bin in a
+// single synchronous SHFileOperationW call (no PowerShell spawn, no UI prompt).
+func platformTrashBatch(paths []string) ([]pathPair, error) {
+	from, absList, err := shFileOpFrom(paths)
 	if err != nil {
+		return nil, err
+	}
+	op := shFileOpStruct{
+		wFunc:  winFoDelete,
+		pFrom:  &from[0],
+		fFlags: winTrashFlags,
+	}
+	r1, _, callErr := procSHFileOperation.Call(uintptr(unsafe.Pointer(&op)))
+	if r1 != 0 {
+		if callErr != nil && callErr != syscall.Errno(0) {
+			return nil, fmt.Errorf("移到回收站失败（错误码 0x%x）：%v", r1, callErr)
+		}
+		return nil, fmt.Errorf("移到回收站失败（错误码 0x%x）", r1)
+	}
+	if op.fAnyOperationsAborted != 0 {
+		return nil, errors.New("移到回收站操作被中止")
+	}
+	moved := make([]pathPair, len(absList))
+	for i, abs := range absList {
+		moved[i] = pathPair{From: abs}
+	}
+	return moved, nil
+}
+
+func platformTrash(path string) (string, error) {
+	if _, err := platformTrashBatch([]string{path}); err != nil {
 		return "", err
 	}
-	script := windowsTrashScript(abs)
+	return "", nil
+}
+
+func windowsUntrashScript(abs string) string {
+	escaped := strings.ReplaceAll(abs, "'", "''")
+	return fmt.Sprintf(`$target = '%s'
+$parent = [System.IO.Path]::GetDirectoryName($target)
+$leaf = [System.IO.Path]::GetFileName($target)
+$noext = [System.IO.Path]::GetFileNameWithoutExtension($target)
+$bin = (New-Object -ComObject Shell.Application).NameSpace(10)
+$hit = $null
+foreach ($it in $bin.Items()) {
+  $from = $it.ExtendedProperty('System.Recycle.DeletedFrom')
+  if (-not $from -or ($from.TrimEnd('\') -ine $parent.TrimEnd('\'))) { continue }
+  $p = $it.Path
+  $dir = [System.IO.Path]::GetDirectoryName($p)
+  $fn = [System.IO.Path]::GetFileName($p)
+  $ok = $false
+  if ($fn.StartsWith('$R') -and $dir) {
+    $meta = Join-Path $dir ('$I' + $fn.Substring(2))
+    if (Test-Path -LiteralPath $meta) {
+      $b = [System.IO.File]::ReadAllBytes($meta)
+      if ($b.Length -ge 28 -and [BitConverter]::ToInt64($b, 0) -eq 2) {
+        $len = [BitConverter]::ToInt32($b, 24)
+        if ($len -gt 0 -and (28 + $len * 2) -le $b.Length) {
+          $orig = [System.Text.Encoding]::Unicode.GetString($b, 28, $len * 2).TrimEnd([char]0)
+          if ($orig -ieq $target) { $ok = $true }
+        }
+      } elseif ($b.Length -ge 544 -and [BitConverter]::ToInt64($b, 0) -eq 1) {
+        $orig = [System.Text.Encoding]::Unicode.GetString($b, 24, 520).TrimEnd([char]0)
+        if ($orig -ieq $target) { $ok = $true }
+      }
+    }
+  }
+  if (-not $ok -and ($it.Name -ieq $leaf -or $it.Name -ieq $noext)) { $ok = $true }
+  if ($ok) { $hit = $it }
+}
+if ($null -eq $hit) { exit 2 }
+$hit.InvokeVerb('undelete')`, escaped)
+}
+
+// platformUntrash restores one item previously moved to the Windows Recycle Bin.
+func platformUntrash(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	abs = filepath.Clean(abs)
+	if _, err := os.Stat(abs); err == nil {
+		return fmt.Errorf("目标位置已存在同名项目：%s", filepath.Base(abs))
+	}
+	script := windowsUntrashScript(abs)
 	out, err := execCommand("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("从回收站还原失败：%s", msg)
 	}
-	return "", nil // the bin gives no new path back; undo restores by name
+	for range 10 {
+		if _, statErr := os.Stat(abs); statErr == nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("从回收站还原未完成：%s", filepath.Base(abs))
 }
 
 // mediaThumbJPEG builds a JPEG thumbnail of edge on the long side. Windows

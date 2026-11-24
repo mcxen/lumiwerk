@@ -198,14 +198,14 @@ func (a *appState) webtoonView(c *ui.Context) {
 				}
 				continue
 			}
-			if !it.InfoLoaded {
+			if !it.InfoLoaded && (it.IsVideo || it.Info.Width == 0 || it.Info.Height == 0) {
 				a.requestInfo(p.item)
 			}
 			if !it.Decoded && !it.Failed && !it.Loading {
 				a.loadThumb(a.Root, p.item)
 			}
 			a.ensureWebtoonPage(p.item, edge)
-			page := ui.Box(c).Absolute().Left(left).Top(ys[i]).Width(width).Height(hs[i]).Background(t.Surface)
+			page := ui.Box(c.Key(it.Path)).Absolute().Left(left).Top(ys[i]).Width(width).Height(hs[i]).Background(t.Surface)
 			page.Children(func() {
 				pic := it.Large
 				if pic == nil {

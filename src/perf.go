@@ -241,16 +241,22 @@ func (a *appState) prefetchAround(root string, first, last, n, extra int) {
 	}
 }
 
+var infoGate = make(chan struct{}, 4)
+
 func (a *appState) requestInfo(index int) {
 	if a.windowHidden {
 		return
 	}
 	a.mu.Lock()
-	if index < 0 || index >= len(a.Items) || a.Items[index].InfoLoaded || a.Items[index].InfoLoading {
+	if a.shelved || index < 0 || index >= len(a.Items) || a.Items[index].InfoLoaded || a.Items[index].InfoLoading {
 		a.mu.Unlock()
 		return
 	}
 	a.Items[index].InfoLoading = true
+	root := a.Root
+	seq := a.scanSeq
+	path := a.Items[index].Path
+	isVideo := a.Items[index].IsVideo
 	a.mu.Unlock()
-	safeGo("loadInfo", func() { a.loadInfo(index) })
+	safeGo("loadInfo", func() { a.loadInfoFor(root, seq, index, path, isVideo) })
 }

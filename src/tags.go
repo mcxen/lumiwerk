@@ -141,26 +141,48 @@ func finderTags(path string) []string {
 	return finderTagsFallback(path)
 }
 
-// loadTags fills every item's tags from the platform and refilters.
+// loadTags fills every item's tags from the platform and re-sorts only when
+// sorting by Finder tags.
 func (a *appState) loadTags() {
 	a.mu.Lock()
+	root := a.Root
+	seq := a.scanSeq
+	a.mu.Unlock()
+	a.loadTagsFor(root, seq)
+}
+
+func (a *appState) loadTagsFor(root string, seq int) {
+	a.mu.Lock()
+	if a.Root != root || a.scanSeq != seq {
+		a.mu.Unlock()
+		return
+	}
 	paths := make([]string, len(a.Items))
 	for i := range a.Items {
 		paths[i] = a.Items[i].Path
 	}
 	a.mu.Unlock()
 	tags := make([][]string, len(paths))
+	anyTags := false
 	for i, p := range paths {
 		tags[i] = finderTags(p)
+		if len(tags[i]) > 0 {
+			anyTags = true
+		}
 	}
 	a.update(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if a.Root != root || a.scanSeq != seq {
+			return
+		}
 		for i := range a.Items {
 			if i < len(tags) {
 				a.Items[i].Tags = tags[i]
 			}
 		}
-		a.applyFilterLocked()
+		if anyTags && strings.HasPrefix(a.Sort, "tag") {
+			a.applyFilterLocked()
+		}
 	})
 }

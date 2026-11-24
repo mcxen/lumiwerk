@@ -175,3 +175,78 @@ func TestFlowLayoutCachedAcrossFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestInfoResultsCoalesceLayoutGen(t *testing.T) {
+	a := waterfalTestState(3)
+	a.scanSeq = 7
+	a.Items[0].Info = mediaInfo{Width: 1600, Height: 1200}
+	a.Items[1].Info = mediaInfo{Width: 800, Height: 1200}
+	a.Items[2].Info = mediaInfo{Width: 0, Height: 0}
+	gen0 := a.layoutGen
+
+	// Same aspect ratio (3200x2400 == 1600x1200) must not invalidate flow layout.
+	a.applyInfoResults([]infoResult{
+		{root: a.Root, seq: 7, index: 0, path: a.Items[0].Path, full: mediaInfo{Width: 3200, Height: 2400, Camera: "Cam"}},
+	})
+	if a.layoutGen != gen0 {
+		t.Fatalf("unchanged aspect bumped layoutGen from %d to %d", gen0, a.layoutGen)
+	}
+	if !a.Items[0].InfoLoaded || a.Items[0].Info.Camera != "Cam" {
+		t.Fatalf("metadata not applied: %+v", a.Items[0])
+	}
+
+	// Multiple items changing aspect in one batch bump layoutGen at most once.
+	a.applyInfoResults([]infoResult{
+		{root: a.Root, seq: 7, index: 1, path: a.Items[1].Path, full: mediaInfo{Width: 1200, Height: 800}},
+		{root: a.Root, seq: 7, index: 2, path: a.Items[2].Path, full: mediaInfo{Width: 1000, Height: 1500}},
+	})
+	if a.layoutGen != gen0+1 {
+		t.Fatalf("batch of aspect changes bumped layoutGen to %d, want %d", a.layoutGen, gen0+1)
+	}
+}
+
+func TestApplyFilterPreservesLayoutGenWhenVisibleUnchanged(t *testing.T) {
+	a := waterfalTestState(4)
+	a.applyFilterForceLocked(true)
+	gen0 := a.layoutGen
+	a.applyFilter()
+	if a.layoutGen != gen0 {
+		t.Fatalf("unchanged visible list bumped layoutGen from %d to %d", gen0, a.layoutGen)
+	}
+}
+
+func TestJustifiedAndWaterfallScrollAndReflowStayStable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, layout := range []int{2, 3} {
+		a := waterfalTestState(80)
+		a.LayoutMode = layout
+		te := ui.NewTester(a.view, 1200, 760)
+		te.Frame()
+		te.Frame()
+
+		// Scrolling builds new cards without triggering hero open/close state.
+		a.browseScroll.Y = 350
+		te.Frame()
+		if a.Hero.phase != heroNone {
+			t.Fatalf("layout %d: scroll set Hero.phase=%d", layout, a.Hero.phase)
+		}
+
+		// Updating an earlier card's aspect reflows cards into new positions;
+		// heroMatchGen stays clean and cards remain interactive.
+		a.Items[0].Info = mediaInfo{Width: 2400, Height: 800}
+		a.noteLayoutChanged()
+		te.Frame()
+		if !te.HasText(a.Items[0].Name) {
+			t.Fatalf("layout %d: first item missing after reflow", layout)
+		}
+
+		// Changing thumbnail size bumps heroMatchGen so browser cards do not
+		// cross-match across resize steps.
+		genBefore := a.heroMatchGen
+		a.Thumb = 200
+		te.Frame()
+		if a.heroMatchGen == genBefore {
+			t.Fatalf("layout %d: Thumb change did not bump heroMatchGen", layout)
+		}
+	}
+}

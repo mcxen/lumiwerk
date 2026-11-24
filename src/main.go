@@ -56,7 +56,7 @@ func main() {
 			pendingOpen = path
 			return
 		}
-		a.Window.Update(func() { a.openFolder(path) })
+		a.Window.Update(func() { a.openRootFolder(path) })
 	}
 	mygo.App.OnOpenFile(func(path string) {
 		if isDir(path) {
@@ -92,7 +92,7 @@ func main() {
 		a.appMenu = newAppMenu(a)
 		mygo.App.SetMenu(a.appMenu)
 		if pendingOpen != "" {
-			a.openFolder(pendingOpen)
+			a.openRootFolder(pendingOpen)
 			pendingOpen = ""
 		}
 		for _, arg := range os.Args[1:] {

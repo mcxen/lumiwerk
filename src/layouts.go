@@ -3,9 +3,9 @@ package main
 import (
 	"container/heap"
 	"fmt"
+	"sort"
 
 	"github.com/egoist/mygo/ui"
-	"slices"
 )
 
 // waterfallColumns sizes columns like Finder's icon view: a thumbnail-sized
@@ -335,13 +335,7 @@ func (a *appState) waterfallView(c *ui.Context) {
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 		a.noteMarqueeBox(bounds)
 	}
-	boxes := a.cachedWaterfall(width)
-	contentH := float32(0)
-	for _, b := range boxes {
-		if bottom := b.Y + b.H + flowPad; bottom > contentH {
-			contentH = bottom
-		}
-	}
+	boxes, contentH, cols := a.cachedWaterfallData(width)
 	if contentH < height {
 		contentH = height
 	}
@@ -358,23 +352,29 @@ func (a *appState) waterfallView(c *ui.Context) {
 		bottom = contentH
 	}
 	scroll.Children(func() {
-		ui.Box(c).Width(width).Height(contentH)
-		for _, b := range boxes {
-			if b.Y+b.H < top || b.Y > bottom {
-				continue
-			}
-			i := b.Index
-			item := a.visibleItem(i)
-			if item == nil {
-				continue
-			}
-			if !item.InfoLoaded {
-				a.requestInfo(a.Visible[i])
-			}
-			card := ui.Box(c).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
-			card.Children(func() {
-				a.thumbCard(c, root, i, b.H)
+		ui.Box(c.Key("lw-water-canvas")).Width(width).Height(contentH)
+		for _, col := range cols {
+			start := sort.Search(len(col), func(k int) bool {
+				return col[k].Y+col[k].H >= top
 			})
+			for k := start; k < len(col); k++ {
+				b := col[k]
+				if b.Y > bottom {
+					break
+				}
+				i := b.Index
+				item := a.visibleItem(i)
+				if item == nil {
+					continue
+				}
+				if !item.InfoLoaded && (item.IsVideo || item.Info.Width == 0 || item.Info.Height == 0) {
+					a.requestInfo(a.Visible[i])
+				}
+				card := ui.Box(c.Key(a.itemKey(i))).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
+				card.Children(func() {
+					a.thumbCard(c, root, i, b.H)
+				})
+			}
 		}
 	})
 }
@@ -389,48 +389,44 @@ func (a *appState) justifiedView(c *ui.Context) {
 		a.noteBrowseBox(bounds, 0, 0, 0, bounds.W, len(a.Visible))
 		a.noteMarqueeBox(bounds)
 	}
-	const gap = float64(flowGap)
-	rows := a.cachedJustified(width)
-	aspects := a.visibleAspects()
-	rowH := float32(a.Thumb) + flowLabel
-	stride := rowH + float32(gap)
-	if a.Chosen >= 0 && a.revealFrames > 0 {
-		for r, row := range rows {
-			if slices.Contains(row, a.Chosen) {
-				a.revealFlow([]flowBox{{Index: a.Chosen, Y: flowPad + float32(r)*stride, H: rowH}}, height)
+	boxes, contentH := a.cachedJustifiedData(width)
+	if contentH < height {
+		contentH = height
+	}
+	a.revealFlow(boxes, height)
+	top := a.browseScroll.Y - height*flowOverscan
+	if top < 0 {
+		top = 0
+	}
+	bottom := a.browseScroll.Y + height*(1+flowOverscan)
+	if bottom > contentH {
+		bottom = contentH
+	}
+	// justifiedFrames lays out rows in non-decreasing Y order, so binary
+	// search isolates the visible slice in O(log n).
+	start := sort.Search(len(boxes), func(k int) bool {
+		return boxes[k].Y+boxes[k].H >= top
+	})
+	scroll.Children(func() {
+		ui.Box(c.Key("lw-just-canvas")).Width(width).Height(contentH)
+		for k := start; k < len(boxes); k++ {
+			b := boxes[k]
+			if b.Y > bottom {
 				break
 			}
+			i := b.Index
+			item := a.visibleItem(i)
+			if item == nil {
+				continue
+			}
+			if !item.InfoLoaded && (item.IsVideo || item.Info.Width == 0 || item.Info.Height == 0) {
+				a.requestInfo(a.Visible[i])
+			}
+			card := ui.Box(c.Key(a.itemKey(i))).Absolute().Left(b.X).Top(b.Y).Width(b.W).Height(b.H)
+			card.Children(func() {
+				a.thumbCardWidth(c, root, i, b.H, b.W)
+			})
 		}
-	}
-	// Rows have one height, so the visible ones follow from the scroll
-	// offset: build those plus one screen each way, and stand the rest in
-	// with two spacers, as waterfallView does with its canvas.
-	first := int((a.browseScroll.Y - height*flowOverscan - flowPad) / stride)
-	last := int((a.browseScroll.Y+height*(1+flowOverscan)-flowPad)/stride) + 1
-	first = max(0, min(first, len(rows)))
-	last = max(first, min(last, len(rows)))
-	scroll.Children(func() {
-		col := ui.Column(c).FillWidth().Gap(float32(gap)).Padding(flowPad)
-		col.Children(func() {
-			if first > 0 {
-				ui.Box(c).Key("lw-justified-above").Height(float32(first)*stride - float32(gap))
-			}
-			for _, r := range rows[first:last] {
-				widths := justifiedWidths(aspects, r, float64(width-flowPad*2), float64(a.Thumb), gap, r[len(r)-1] == len(a.Visible)-1)
-				rr := ui.Row(c).Key(a.itemKey(r[0])).Gap(flowGap).Height(rowH)
-				rr.Children(func() {
-					for k, i := range r {
-						if item := a.visibleItem(i); item != nil && !item.InfoLoaded {
-							a.requestInfo(a.Visible[i])
-						}
-						a.thumbCardWidth(c, root, i, rowH, widths[k])
-					}
-				})
-			}
-			if last < len(rows) {
-				ui.Box(c).Key("lw-justified-below").Height(float32(len(rows)-last)*stride - float32(gap))
-			}
-		})
 	})
 }
 
@@ -533,7 +529,7 @@ func (a *appState) mediaCard(c *ui.Context, root string, i int, opts mediaCardOp
 				}
 			}
 			paintMediaThumb(c, item, opts.width, opts.fit, a.cardGlyphBox(opts))
-			a.paintThumbBadges(c, item, opts.waterfallBadges)
+			a.paintThumbBadges(c, item, a.Visible[i], opts.waterfallBadges)
 		})
 		if flowLabel > 0 {
 			if opts.inlineRename && a.renamingInline(i) {

@@ -128,7 +128,26 @@ func washOf(name string) wash {
 }
 
 // washGradients are the base and the glow of a wash in one appearance.
+var washGradCache = map[washGradKey][2]ui.LinearGradient{}
+
+type washGradKey struct {
+	name     string
+	dark     bool
+	vibrancy bool
+}
+
 func washGradients(name string, dark bool) (base, glow ui.LinearGradient) {
+	return washGradientsFor(name, dark, false)
+}
+
+func washGradientsFor(name string, dark, vibrancy bool) (base, glow ui.LinearGradient) {
+	if name == "" {
+		name = defaultWash
+	}
+	key := washGradKey{name: name, dark: dark, vibrancy: vibrancy}
+	if cached, ok := washGradCache[key]; ok {
+		return cached[0], cached[1]
+	}
 	w := washOf(name)
 	hexes, g := w.light, w.lightGlow
 	if dark {
@@ -136,10 +155,15 @@ func washGradients(name string, dark bool) (base, glow ui.LinearGradient) {
 	}
 	stops := make([]ui.GradientStop, len(hexes))
 	for i, h := range hexes {
-		stops[i] = ui.GradientStop{Color: ui.Hex(h), At: float32(i) / float32(len(hexes)-1)}
+		c := ui.Hex(h)
+		if vibrancy {
+			c = c.Alpha(0.95)
+		}
+		stops[i] = ui.GradientStop{Color: c, At: float32(i) / float32(len(hexes)-1)}
 	}
 	base = ui.LinearGradient{Angle: 180, Oklab: true, Stops: stops}
 	glow = ui.LinearGradient{Angle: 225, Oklab: true, Stops: []ui.GradientStop{{Color: g, At: 0}, {Color: g.Alpha(0), At: 0.5}}}
+	washGradCache[key] = [2]ui.LinearGradient{base, glow}
 	return base, glow
 }
 
@@ -158,14 +182,7 @@ func shellTheme(c *ui.Context, pal *shellPalette) *ui.Theme {
 // which holds the sidebar and the card. Over the window's material the base
 // is a little transparent so the desktop shows through.
 func (a *appState) paintBackdrop(c *ui.Context, row ui.Element) {
-	base, glow := washGradients(a.Profiles.View.Wash, c.Theme().Dark)
-	if c.Vibrancy() {
-		stops := make([]ui.GradientStop, len(base.Stops))
-		for i, st := range base.Stops {
-			stops[i] = ui.GradientStop{Color: st.Color.Alpha(0.95), At: st.At}
-		}
-		base.Stops = stops
-	}
+	base, glow := washGradientsFor(a.Profiles.View.Wash, c.Theme().Dark, c.Vibrancy())
 	c.Root().LinearGradient(base)
 	row.LinearGradient(glow)
 }

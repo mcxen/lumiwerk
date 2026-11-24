@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -130,6 +131,7 @@ const (
 	opCopy fileOp = iota
 	opMove
 	opDelete
+	opUntrash
 	opRename
 	opCompress
 	opExtract
@@ -222,6 +224,15 @@ func perform(op fileOperation) (fileOperation, error) {
 				}
 			}
 		}
+	case opUntrash:
+		var restored []pathPair
+		for _, path := range op.paths {
+			if err := untrashPath(path); err != nil {
+				return op, err
+			}
+			restored = append(restored, pathPair{From: path, To: path})
+		}
+		op.mappings = restored
 	case opRename:
 		mappings := op.mappings
 		if len(mappings) == 0 {
@@ -324,79 +335,215 @@ func uniquePath(path string) string {
 	}
 }
 
+func aspectChanged(oldW, oldH, newW, newH int) bool {
+	if newW <= 0 || newH <= 0 {
+		return false
+	}
+	if oldW <= 0 || oldH <= 0 {
+		return true
+	}
+	return int64(oldW)*int64(newH) != int64(oldH)*int64(newW)
+}
+
 func (a *appState) loadInfo(index int) {
 	a.mu.Lock()
-	if index < 0 || index >= len(a.Items) {
+	if index < 0 || index >= len(a.Items) || a.Items[index].InfoLoaded {
 		a.mu.Unlock()
 		return
 	}
+	root := a.Root
+	seq := a.scanSeq
 	path := a.Items[index].Path
 	isVideo := a.Items[index].IsVideo
-	if a.Items[index].InfoLoaded {
+	a.mu.Unlock()
+	a.loadInfoFor(root, seq, index, path, isVideo)
+}
+
+func (a *appState) loadInfoFor(root string, seq, index int, path string, isVideo bool) {
+	infoGate <- struct{}{}
+	defer func() { <-infoGate }()
+
+	a.mu.Lock()
+	if a.shelved || a.Root != root || a.scanSeq != seq || index < 0 || index >= len(a.Items) || a.Items[index].Path != path {
 		a.mu.Unlock()
 		return
 	}
-	a.mu.Unlock()
-	// The header probe is cheap and gives flow layouts an aspect before the
-	// full probe (spawned processes on macOS) answers.
-	info := mediaInfo{}
-	if !isVideo {
-		info.Width, info.Height = probeImageSize(path)
+	if a.Items[index].InfoLoaded {
+		a.Items[index].InfoLoading = false
+		a.mu.Unlock()
+		return
 	}
-	full := loadMediaInfo(path, isVideo)
-	if full.Width == 0 && full.Height == 0 && !isVideo {
-		full.Width, full.Height = info.Width, info.Height
-	}
-	a.update(func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if index < len(a.Items) && a.Items[index].Path == path {
-			a.Items[index].Info = full
-			a.Items[index].InfoLoaded = true
+	// Drop queued probes for cards already scrolled off screen (unless selected
+	// or open in large view) so fast scrolling does not stall behind stale I/O.
+	if !a.InLargeView && a.Chosen != index && !a.Selected.Has(path) {
+		seen := atomic.LoadInt64(&a.Items[index].Seen)
+		frame := atomic.LoadInt64(&a.frameNow)
+		if seen > 0 && frame > 0 && seen < frame {
 			a.Items[index].InfoLoading = false
-			a.noteLayoutChanged()
+			a.mu.Unlock()
+			return
 		}
-	})
+	}
+	a.mu.Unlock()
+
+	full := loadMediaInfo(path, isVideo)
+	a.queueInfoResult(infoResult{root: root, seq: seq, index: index, path: path, full: full})
+}
+
+type infoResult struct {
+	root  string
+	seq   int
+	index int
+	path  string
+	full  mediaInfo
+}
+
+func (a *appState) queueInfoResult(res infoResult) {
+	if a.Window == nil {
+		a.update(func() { a.applyInfoResults([]infoResult{res}) })
+		return
+	}
+	a.infoMu.Lock()
+	a.infoPending = append(a.infoPending, res)
+	schedule := !a.infoFlushScheduled
+	if schedule {
+		a.infoFlushScheduled = true
+	}
+	a.infoMu.Unlock()
+	if schedule {
+		time.AfterFunc(30*time.Millisecond, func() {
+			a.update(a.flushInfoResults)
+		})
+	}
+}
+
+func (a *appState) flushInfoResults() {
+	a.infoMu.Lock()
+	batch := a.infoPending
+	a.infoPending = nil
+	a.infoFlushScheduled = false
+	a.infoMu.Unlock()
+	if len(batch) > 0 {
+		a.applyInfoResults(batch)
+	}
+}
+
+func (a *appState) applyInfoResults(batch []infoResult) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	layoutChanged := false
+	for _, res := range batch {
+		if a.Root != res.root || a.scanSeq != res.seq || res.index < 0 || res.index >= len(a.Items) {
+			continue
+		}
+		item := &a.Items[res.index]
+		if item.Path != res.path {
+			continue
+		}
+		full := res.full
+		if full.Width == 0 && full.Height == 0 && !item.IsVideo {
+			full.Width, full.Height = item.Info.Width, item.Info.Height
+		}
+		if aspectChanged(item.Info.Width, item.Info.Height, full.Width, full.Height) {
+			layoutChanged = true
+		}
+		item.Info = full
+		item.InfoLoaded = true
+		item.InfoLoading = false
+	}
+	if layoutChanged {
+		a.noteLayoutChanged()
+	}
 }
 
 // probeVisibleAspects gives flow layouts an aspect for every visible item
 // right now: probed sizes for loaded info, a header read for images, and 1
-// for the rest. It runs off the UI goroutine and posts the result.
+// for the rest. It runs off the UI goroutine and posts results in chunks.
 func (a *appState) probeVisibleAspects() {
 	a.mu.Lock()
+	root := a.Root
+	seq := a.scanSeq
+	a.mu.Unlock()
+	a.probeVisibleAspectsFor(root, seq)
+}
+
+func (a *appState) probeVisibleAspectsFor(root string, seq int) {
+	a.mu.Lock()
+	if a.shelved || a.Root != root || a.scanSeq != seq {
+		a.mu.Unlock()
+		return
+	}
 	visible := append([]int(nil), a.Visible...)
 	paths := make([]string, len(visible))
+	skip := make([]bool, len(visible))
 	for i, idx := range visible {
-		if idx >= 0 && idx < len(a.Items) {
-			paths[i] = a.Items[idx].Path
-		}
-	}
-	video := make([]bool, len(visible))
-	for i, idx := range visible {
-		if idx >= 0 && idx < len(a.Items) {
-			video[i] = a.Items[idx].IsVideo
-		}
-	}
-	a.mu.Unlock()
-	sizes := make([][2]int, len(paths))
-	for i, path := range paths {
-		if path == "" || video[i] {
+		if idx < 0 || idx >= len(a.Items) {
+			skip[i] = true
 			continue
 		}
-		w, h := probeImageSize(path)
-		sizes[i] = [2]int{w, h}
+		it := &a.Items[idx]
+		if it.IsDir || it.IsVideo || it.InfoLoaded || (it.Info.Width > 0 && it.Info.Height > 0) {
+			skip[i] = true
+			continue
+		}
+		paths[i] = it.Path
 	}
-	a.update(func() {
+	a.mu.Unlock()
+
+	// Probe the leading viewport first so initial cards settle in one update,
+	// then sweep remaining items in bounded chunks.
+	const firstChunk = 64
+	const nextChunk = 256
+	for start := 0; start < len(visible); {
+		chunk := nextChunk
+		if start == 0 {
+			chunk = firstChunk
+		}
+		end := min(start+chunk, len(visible))
 		a.mu.Lock()
-		defer a.mu.Unlock()
-		for i, idx := range visible {
-			if idx < 0 || idx >= len(a.Items) || a.Items[idx].InfoLoaded {
+		stale := a.shelved || a.Root != root || a.scanSeq != seq
+		a.mu.Unlock()
+		if stale {
+			return
+		}
+		sizes := make([][2]int, end-start)
+		hasAny := false
+		for i := start; i < end; i++ {
+			if skip[i] || paths[i] == "" {
 				continue
 			}
-			if w, h := sizes[i][0], sizes[i][1]; w > 0 && h > 0 {
-				a.Items[idx].Info.Width, a.Items[idx].Info.Height = w, h
+			w, h := probeImageSize(paths[i])
+			if w > 0 && h > 0 {
+				sizes[i-start] = [2]int{w, h}
+				hasAny = true
 			}
 		}
-		a.noteLayoutChanged()
-	})
+		if hasAny {
+			s, e := start, end
+			a.update(func() {
+				a.mu.Lock()
+				defer a.mu.Unlock()
+				if a.Root != root || a.scanSeq != seq {
+					return
+				}
+				changed := false
+				for i := s; i < e; i++ {
+					idx := visible[i]
+					if idx < 0 || idx >= len(a.Items) || a.Items[idx].Path != paths[i] || a.Items[idx].InfoLoaded {
+						continue
+					}
+					if w, h := sizes[i-s][0], sizes[i-s][1]; w > 0 && h > 0 {
+						if aspectChanged(a.Items[idx].Info.Width, a.Items[idx].Info.Height, w, h) {
+							changed = true
+						}
+						a.Items[idx].Info.Width, a.Items[idx].Info.Height = w, h
+					}
+				}
+				if changed {
+					a.noteLayoutChanged()
+				}
+			})
+		}
+		start = end
+	}
 }

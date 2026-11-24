@@ -293,3 +293,25 @@ func figureViewerBar(c *ui.Context, pal *settingsPalette, mode string) {
 		})
 	})
 }
+
+// figureSidebarTree shows where the sidebar directory tree begins.
+func figureSidebarTree(c *ui.Context, pal *settingsPalette, mode string) {
+	system := mode == treeRootSystem
+	caption := "侧边栏目录树从打开的文件夹开始，不展开上层系统目录。"
+	if system {
+		caption = fmt.Sprintf("侧边栏目录树从 %s 开始，并一路展开到当前文件夹。", rootName)
+	}
+	setFigure(c, pal, caption, func() {
+		if system {
+			figPill(c, pal, rootName, pal.textMuted, true)
+			figThen(c, pal)
+			figPill(c, pal, "…", pal.textMuted, true)
+			figThen(c, pal)
+			figPill(c, pal, "当前", pal.accent, false)
+			return
+		}
+		figPill(c, pal, "当前文件夹", pal.accent, false)
+		figThen(c, pal)
+		figPill(c, pal, "子目录", pal.textMuted, true)
+	})
+}

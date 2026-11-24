@@ -7,8 +7,9 @@ import (
 )
 
 type tab struct {
-	Root string
-	Name string
+	Root     string
+	TreeRoot string
+	Name     string
 	// History and Cursor are the tab's back/forward trail while another
 	// tab is active; the active tab's live in appState.
 	History []string
@@ -20,12 +21,15 @@ type tab struct {
 func (a *appState) enterTab(i int) {
 	if from := a.Tabs.Active; from >= 0 && from < len(a.Tabs.Tabs) && from != i {
 		a.Tabs.Tabs[from].History, a.Tabs.Tabs[from].Cursor = a.History, a.Cursor
+		a.Tabs.Tabs[from].TreeRoot = a.treeBaseRoot
 	}
 	a.Tabs.Active = i
 	if i >= 0 && i < len(a.Tabs.Tabs) {
 		a.mu.Lock()
 		a.History, a.Cursor = a.Tabs.Tabs[i].History, a.Tabs.Tabs[i].Cursor
 		a.mu.Unlock()
+		a.treeBaseRoot = a.Tabs.Tabs[i].TreeRoot
+		a.treeOpenRoot = ""
 	}
 }
 
@@ -35,9 +39,9 @@ type tabState struct {
 }
 
 func (a *appState) openTab(path string) {
-	a.Tabs.Tabs = append(a.Tabs.Tabs, tab{Root: path, Name: pathName(path), Cursor: -1})
+	a.Tabs.Tabs = append(a.Tabs.Tabs, tab{Root: path, TreeRoot: path, Name: pathName(path), Cursor: -1})
 	a.enterTab(len(a.Tabs.Tabs) - 1)
-	a.openFolder(path)
+	a.openRootFolder(path)
 }
 
 // openInNewTab keeps the current folder as a tab, then opens path beside it.
@@ -46,7 +50,7 @@ func (a *appState) openInNewTab(path string) {
 		return
 	}
 	if len(a.Tabs.Tabs) == 0 && a.Root != "" {
-		a.Tabs.Tabs = append(a.Tabs.Tabs, tab{Root: a.Root, Name: pathName(a.Root), Cursor: -1})
+		a.Tabs.Tabs = append(a.Tabs.Tabs, tab{Root: a.Root, TreeRoot: a.treeBaseRoot, Name: pathName(a.Root), Cursor: -1})
 		a.Tabs.Active = 0
 	}
 	a.openTab(path)

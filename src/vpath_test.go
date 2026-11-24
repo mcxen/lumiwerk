@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -234,8 +236,24 @@ func TestEncryptedZipMemberUsesPasswordBook(t *testing.T) {
 	if names, err := scanDir(locked); err != nil || childNames(names) != "s.png" {
 		t.Fatalf("names stay listable without a password: %v %v", childNames(names), err)
 	}
-	if _, err := realPath(member); err == nil {
-		t.Fatal("no saved password fits: the member must not open")
+	if _, err := realPath(member); !errors.Is(err, errNeedZipPassword) {
+		t.Fatalf("no saved password fits: got err=%v, want errNeedZipPassword", err)
+	}
+	// Even when calling extractWithTool without skipping the empty password,
+	// Setsid detaches /dev/tty so bsdtar fails quickly instead of hanging on
+	// an interactive passphrase prompt.
+	done := make(chan error, 1)
+	probeDest := filepath.Join(t.TempDir(), "probe.png")
+	go func() {
+		done <- extractWithTool(locked, "s.png", probeDest, false)
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("extractWithTool without password unexpectedly succeeded on encrypted zip")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("extractWithTool without --passphrase blocked waiting on /dev/tty")
 	}
 	setArchivePasswords([]string{"wrong", "pw2"})
 	if w, h := probeImageSize(member); w != 10 || h != 12 {
@@ -329,5 +347,55 @@ func TestBrowseCBZInTheWindow(t *testing.T) {
 	}
 	if w, h := probeImageSize(a.Items[0].Path); w != 20 || h != 20 {
 		t.Fatalf("large page size = %dx%d", w, h)
+	}
+}
+
+func TestParseSevenZipSLT(t *testing.T) {
+	sample := `
+7-Zip 24.08 (x64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-08-11
+
+Listing archive: sample.7z
+
+--
+Path = sample.7z
+Type = 7z
+
+----------
+Path = ch1
+Size = 0
+Modified = 2026-11-20 12:34:56
+Attributes = D_HS
+Folder = +
+
+Path = ch1\p01.png
+Size = 4096
+Modified = 2026-11-20 12:35:00
+Attributes = A
+Encrypted = +
+
+Path = __MACOSX\._p01.png
+Size = 128
+Modified = 2026-11-20 12:35:00
+Attributes = A
+`
+	entries := parseSevenZipSLT(sample, time.Unix(100, 0))
+	if len(entries) != 2 {
+		t.Fatalf("entries = %+v, want 2 (junk filtered)", entries)
+	}
+	if entries[0].Name != "ch1" || !entries[0].IsDir {
+		t.Fatalf("entry 0 = %+v", entries[0])
+	}
+	if entries[1].Name != "ch1/p01.png" || entries[1].IsDir || entries[1].Size != 4096 || !entries[1].Encrypted {
+		t.Fatalf("entry 1 = %+v", entries[1])
+	}
+}
+
+func TestSafeArchivePathRejectsTraversal(t *testing.T) {
+	dest := t.TempDir()
+	if _, err := safeArchivePath(dest, "../evil.png"); err == nil {
+		t.Fatal("expected traversal error")
+	}
+	if got, err := safeArchivePath(dest, "ch1/p01.png"); err != nil || got != filepath.Join(dest, "ch1", "p01.png") {
+		t.Fatalf("safeArchivePath = %q err=%v", got, err)
 	}
 }

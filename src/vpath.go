@@ -14,8 +14,6 @@ package main
 // metadata and playback all call it at their single file-open point.
 
 import (
-	"archive/zip"
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -160,12 +158,7 @@ func listArchive(archive string) ([]archiveEntry, error) {
 	}
 	listMu.Unlock()
 
-	var entries []archiveEntry
-	if isZipName(filepath.Base(archive)) {
-		entries, err = listZip(archive)
-	} else {
-		entries, err = listWithBsdtar(archive)
-	}
+	entries, err := listArchiveWithBackends(archive, archivePasswords())
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +174,7 @@ func listArchive(archive string) ([]archiveEntry, error) {
 // junkEntry hides what archivers add behind the user's back.
 func junkEntry(name string) bool {
 	for _, part := range strings.Split(name, "/") {
-		if part == "__MACOSX" || part == ".DS_Store" || part == "Thumbs.db" {
+		if part == "__MACOSX" || part == ".DS_Store" || part == "Thumbs.db" || strings.HasPrefix(part, "._") {
 			return true
 		}
 	}
@@ -191,60 +184,6 @@ func junkEntry(name string) bool {
 func cleanEntryName(name string) string {
 	name = strings.ReplaceAll(name, "\\", "/")
 	return strings.TrimPrefix(path.Clean("/"+name), "/")
-}
-
-func listZip(archive string) ([]archiveEntry, error) {
-	r, err := zip.OpenReader(archive)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	var out []archiveEntry
-	for _, f := range r.File {
-		name := cleanEntryName(f.Name)
-		if name == "" || junkEntry(name) {
-			continue
-		}
-		dir := f.FileInfo().IsDir() || strings.HasSuffix(f.Name, "/")
-		out = append(out, archiveEntry{
-			Name: name, IsDir: dir, Size: int64(f.UncompressedSize64),
-			ModTime: f.Modified, Encrypted: f.Flags&1 != 0,
-		})
-	}
-	return out, nil
-}
-
-func listWithBsdtar(archive string) ([]archiveEntry, error) {
-	info, err := os.Stat(archive)
-	if err != nil {
-		return nil, err
-	}
-	cmd := execCommand("/usr/bin/bsdtar", "-tf", archive)
-	cmd.Stdin = bytes.NewReader(nil)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if archivePasswordError(stderr.String()) {
-			return nil, errNeedZipPassword
-		}
-		return nil, fmt.Errorf("读取压缩包失败：%s", strings.TrimSpace(stderr.String()))
-	}
-	var entries []archiveEntry
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimRight(line, "\r")
-		if line == "" {
-			continue
-		}
-		name := cleanEntryName(line)
-		if name == "" || junkEntry(name) {
-			continue
-		}
-		entries = append(entries, archiveEntry{
-			Name: name, IsDir: strings.HasSuffix(line, "/"), ModTime: info.ModTime(),
-		})
-	}
-	return entries, nil
 }
 
 // archiveChildren lists the direct children of the folder inner ("" = root)
@@ -411,7 +350,7 @@ func realPath(p string) (string, error) {
 		return dest, nil
 	}
 	if isZipName(filepath.Base(archive)) {
-		err = extractZipEntry(archive, inner, dest)
+		err = extractMemberWithBackends(archive, inner, dest, archivePasswords())
 	} else {
 		err = extractNonZip(archive, inner, key, dest)
 	}
@@ -433,29 +372,6 @@ func realPathOr(p string) string {
 		return real
 	}
 	return p
-}
-
-func extractZipEntry(archive, inner, dest string) error {
-	r, err := zip.OpenReader(archive)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	for _, f := range r.File {
-		if cleanEntryName(f.Name) != inner || f.FileInfo().IsDir() {
-			continue
-		}
-		if f.Flags&1 != 0 {
-			return extractWithTool(archive, inner, dest)
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		defer rc.Close()
-		return writeCached(dest, rc)
-	}
-	return errNoSuchEntry
 }
 
 // writeCached stores src at dest atomically so a half-written file is never
@@ -481,41 +397,20 @@ func writeCached(dest string, src io.Reader) error {
 	return os.Rename(name, dest)
 }
 
-// bsdtarArgs prepends the passphrase option when pass is set.
-func bsdtarArgs(pass string, args ...string) []string {
-	if pass == "" {
-		return args
+// extractWithTool pulls one member through the archive backends, trying the
+// password book. When encrypted is true, the empty-password attempt is skipped.
+func extractWithTool(archive, inner, dest string, encrypted bool) error {
+	if encrypted && len(archivePasswords()) == 0 {
+		return errNeedZipPassword
 	}
-	return append([]string{"--passphrase", pass}, args...)
-}
-
-// extractWithTool pulls one member through bsdtar, trying the password book.
-// It handles encrypted ZIP members, which archive/zip cannot decrypt.
-func extractWithTool(archive, inner, dest string) error {
-	tries := append([]string{""}, archivePasswords()...)
-	last := errNeedZipPassword
-	for _, pass := range tries {
-		cmd := execCommand("/usr/bin/bsdtar", bsdtarArgs(pass, "-xOf", archive, "--", inner)...)
-		cmd.Stdin = bytes.NewReader(nil)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
-		if err == nil && len(out) > 0 {
-			return writeCached(dest, bytes.NewReader(out))
-		}
-		last = errNeedZipPassword
-		if err == nil {
-			last = errNoSuchEntry
-		}
-	}
-	return last
+	return extractMemberWithBackends(archive, inner, dest, archivePasswords())
 }
 
 // extractNonZip extracts the whole archive once when it is small enough,
 // otherwise just the one member.
 func extractNonZip(archive, inner string, key listKey, dest string) error {
 	if key.size > extractAllLimit {
-		return extractWithTool(archive, inner, dest)
+		return extractMemberWithBackends(archive, inner, dest, archivePasswords())
 	}
 	dir := archiveCacheDir(key)
 	done := filepath.Join(dir, ".complete")
@@ -523,7 +418,7 @@ func extractNonZip(archive, inner string, key listKey, dest string) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		if err := bsdtarExtractAll(archive, dir); err != nil {
+		if err := extractAllWithBackends(archive, dir, archivePasswords()); err != nil {
 			return err
 		}
 		_ = os.WriteFile(done, nil, 0o644)
@@ -532,26 +427,6 @@ func extractNonZip(archive, inner string, key listKey, dest string) error {
 		return nil
 	}
 	return errNoSuchEntry
-}
-
-func bsdtarExtractAll(archive, dir string) error {
-	tries := append([]string{""}, archivePasswords()...)
-	var last error
-	for _, pass := range tries {
-		cmd := execCommand("/usr/bin/bsdtar", bsdtarArgs(pass, "-xf", archive, "-C", dir)...)
-		cmd.Stdin = bytes.NewReader(nil)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		err := cmd.Run()
-		if err == nil {
-			return nil
-		}
-		last = fmt.Errorf("解压失败：%s", strings.TrimSpace(stderr.String()))
-		if archivePasswordError(stderr.String()) {
-			last = errNeedZipPassword
-		}
-	}
-	return last
 }
 
 // isArchiveDir is true for an archive file or a folder inside one: places

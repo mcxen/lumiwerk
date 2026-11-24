@@ -223,13 +223,21 @@ func (a *appState) recurseNotice() string {
 	if a.galleryActive() || a.InLargeView || !a.Recursive || a.Root == "" {
 		return ""
 	}
+	if a.recurseSummaryGen == a.layoutGen && a.recurseSummaryRoot == a.Root && a.recurseSummaryN == len(a.Visible) && a.layoutGen > 0 && a.recurseSummary != "" {
+		return a.recurseSummary
+	}
 	folders, images, videos := recurseScopeStats(a.Root, a.Items, a.Visible)
-	return recurseSummaryText(folders, images, videos)
+	s := recurseSummaryText(folders, images, videos)
+	a.recurseSummary = s
+	a.recurseSummaryGen = a.layoutGen
+	a.recurseSummaryRoot = a.Root
+	a.recurseSummaryN = len(a.Visible)
+	return s
 }
 
 // paintThumbBadges draws the source folder on a waterfall card and the
 // duration on any video thumbnail.
-func (a *appState) paintThumbBadges(c *ui.Context, item *mediaItem, showFolder bool) {
+func (a *appState) paintThumbBadges(c *ui.Context, item *mediaItem, itemIndex int, showFolder bool) {
 	if item == nil || item.IsDir {
 		return
 	}
@@ -240,13 +248,8 @@ func (a *appState) paintThumbBadges(c *ui.Context, item *mediaItem, showFolder b
 		}
 	}
 	if item.IsVideo {
-		if !item.InfoLoaded {
-			for i := range a.Items {
-				if &a.Items[i] == item {
-					a.requestInfo(i)
-					break
-				}
-			}
+		if !item.InfoLoaded && itemIndex >= 0 {
+			a.requestInfo(itemIndex)
 		}
 		if item.Info.DurationSec > 0 {
 			thumbChip(c, formatClock(item.Info.DurationSec), ui.AnchorBottomRight, s)
