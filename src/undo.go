@@ -404,6 +404,7 @@ func (a *appState) noteDeleted(paths []string) {
 			a.closeVideo()
 		}
 	}
+	a.pruneHistoryPaths(paths)
 }
 
 func (a *appState) retargetPaths(mappings []pathPair) {
@@ -456,6 +457,7 @@ func (a *appState) retargetPaths(mappings []pathPair) {
 		a.Clip[i] = remapPath(path, mappings)
 	}
 	a.mu.Unlock()
+	a.remapHistoryPaths(mappings)
 	if retitled != "" {
 		a.setTitle(appName + " — " + pathName(retitled))
 	}

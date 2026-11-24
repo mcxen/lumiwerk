@@ -3,7 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // The persisted history: saving, loading, dead-entry pruning and the
@@ -147,5 +151,122 @@ func TestSessionPathPersistsImmediately(t *testing.T) {
 	p := loadPrefs()
 	if !p.restoreSession() {
 		t.Fatal("restore session should default on")
+	}
+}
+
+func TestHistoryRemoveRemapPruneAndBackup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	d1 := filepath.Join(root, "alpha")
+	d2 := filepath.Join(root, "beta")
+	d2Sub := filepath.Join(d2, "sub")
+	d1New := filepath.Join(root, "alpha-renamed")
+	for _, d := range []string{d1, d2, d2Sub, d1New} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &appState{
+		Chosen:     -1,
+		LargeIndex: -1,
+		History:    []string{d1, d2, d2Sub},
+		Cursor:     2,
+		Recent:     []string{d1, d2, d2Sub},
+		Visited: map[string]int64{
+			d1:                       100,
+			d2:                       200,
+			d2Sub:                    300,
+			filepath.Join(root, "z"): 50, // unreferenced -> pruned on save
+		},
+	}
+	a.persistBrowsingHistory()
+	// Second save rotates history.json to history.json.bak.
+	a.Visited[d1] = 150
+	a.persistBrowsingHistory()
+	if _, err := os.Stat(historyPath() + ".bak"); err != nil {
+		t.Fatalf("expected history.json.bak: %v", err)
+	}
+	loaded := loadHistory()
+	if _, ok := loaded.Visited[filepath.Join(root, "z")]; ok {
+		t.Fatalf("stale visited entry survived save/load: %+v", loaded.Visited)
+	}
+
+	// Single entry removal drops d2 from Recent + Visited while keeping History.
+	a.removeHistoryEntry(d2)
+	if !reflect.DeepEqual(a.Recent, []string{d1, d2Sub}) {
+		t.Fatalf("Recent after remove = %q, want [d1 d2Sub]", a.Recent)
+	}
+	if _, ok := a.Visited[d2]; ok {
+		t.Fatal("Visited still holds removed entry d2")
+	}
+	if !reflect.DeepEqual(a.History, []string{d1, d2, d2Sub}) {
+		t.Fatalf("History mutated by removeHistoryEntry: %q", a.History)
+	}
+
+	// Rename/move remaps History, Recent, and Visited.
+	a.remapHistoryPaths([]pathPair{{From: d1, To: d1New}})
+	if a.History[0] != d1New || a.Recent[0] != d1New || a.Visited[d1New] != 150 {
+		t.Fatalf("remap failed: hist=%q recent=%q visited=%v", a.History, a.Recent, a.Visited)
+	}
+
+	// Deleting d2 prunes both d2 and d2Sub across History, Recent, and Visited, keeping Cursor valid.
+	a.pruneHistoryPaths([]string{d2})
+	if !reflect.DeepEqual(a.Recent, []string{d1New}) || !reflect.DeepEqual(a.History, []string{d1New}) {
+		t.Fatalf("prune failed: hist=%q recent=%q", a.History, a.Recent)
+	}
+	if a.Cursor != 0 || a.Visited[d2Sub] != 0 {
+		t.Fatalf("cursor=%d visited=%v after prune", a.Cursor, a.Visited)
+	}
+}
+
+func TestSidebarHistoryDisambiguatesAndRemovesEntry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	treeRoot := t.TempDir()
+	histRoot := t.TempDir()
+	dirA := filepath.Join(histRoot, "parentA", "photos")
+	dirB := filepath.Join(histRoot, "parentB", "photos")
+	for _, d := range []string{dirA, dirB} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &appState{
+		Root:         treeRoot,
+		Chosen:       -1,
+		LargeIndex:   -1,
+		Cursor:       -1,
+		Thumb:        defaultThumb,
+		LayoutMode:   defaultLayout,
+		SidebarShown: true,
+		Recent:       []string{dirA, dirB},
+		Visited:      map[string]int64{dirA: time.Now().Unix()},
+	}
+	te := ui.NewTester(func(c *ui.Context) { a.sidebarView(c) }, 320, 640)
+	te.Frame()
+	te.Frame()
+
+	// Duplicate folder names show parent directory suffixes.
+	if !te.HasText("parentA") || !te.HasText("parentB") {
+		t.Fatalf("expected parent disambiguation labels in sidebar: %q", te.Texts())
+	}
+
+	box, ok := te.Find("parentA")
+	if !ok {
+		t.Fatal("parentA label not found")
+	}
+	te.Move(box.X+box.W/2, box.Y+box.H/2)
+	te.Frame()
+	if err := te.Click("从历史中移除"); err != nil {
+		t.Fatalf("remove button click failed: %v", err)
+	}
+	te.Frame()
+
+	if !reflect.DeepEqual(a.Recent, []string{dirB}) {
+		t.Fatalf("Recent after clicking hover remove = %q, want [%s]", a.Recent, dirB)
+	}
+	if a.Root != treeRoot {
+		t.Fatalf("clicking hover remove navigated Root to %q, want %q", a.Root, treeRoot)
 	}
 }

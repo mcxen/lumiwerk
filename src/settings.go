@@ -6,25 +6,33 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 )
 
 type settingsState struct {
-	Open           bool
-	Window         *mygo.Window
-	Pane           int
-	Dest           string
-	VideoDest      string
-	ImageShortcut  string
-	VideoShortcut  string
-	EnterOpens     bool
-	PlaybackEnd    string
-	CacheCap       float64
-	QuickRule      string
-	ZipPassword    string
-	ZipBook        string // extra passwords, one per line
-	ZipUsePassword bool
+	Open            bool
+	Window          *mygo.Window
+	Pane            int
+	Dest            string
+	VideoDest       string
+	ImageShortcut   string
+	VideoShortcut   string
+	EnterOpens      bool
+	PlaybackEnd     string
+	CacheCap        float64
+	DiskCacheCap    float64
+	ArchiveCacheCap float64
+	DiskThumbBytes  int64
+	ArchiveBytes    int64
+	PresenceBytes   int64
+	CacheStatsAt    time.Time
+	CacheStatsBusy  bool
+	QuickRule       string
+	ZipPassword     string
+	ZipBook         string // extra passwords, one per line
+	ZipUsePassword  bool
 	// StartFolder is the folder the next launch opens, kept apart from the
 	// live Root so choosing one does not move the browser.
 	StartFolder string
@@ -36,20 +44,22 @@ func (a *appState) openSettings() {
 	prevWindow := a.Settings.Window
 	prevPane := a.Settings.Pane
 	a.Settings = settingsState{
-		Window:         prevWindow,
-		Pane:           prevPane,
-		Dest:           firstNonEmpty(a.Profiles.ImageDestination, a.currentDestination()),
-		VideoDest:      a.Profiles.VideoDestination,
-		ImageShortcut:  a.Profiles.ImageCopyShortcut,
-		VideoShortcut:  a.Profiles.VideoCopyShortcut,
-		EnterOpens:     a.Profiles.EnterOpens,
-		PlaybackEnd:    normalizePlaybackEnd(a.Profiles.PlaybackEnd),
-		CacheCap:       cacheCapMiB(thumbLRU.Limit()),
-		QuickRule:      a.Profiles.QuickRename,
-		ZipPassword:    a.Profiles.ZipPassword,
-		ZipBook:        strings.Join(a.Profiles.ZipPasswords, "\n"),
-		ZipUsePassword: a.Profiles.ZipUsePassword,
-		UpdateSource:   a.Profiles.UpdateSource,
+		Window:          prevWindow,
+		Pane:            prevPane,
+		Dest:            firstNonEmpty(a.Profiles.ImageDestination, a.currentDestination()),
+		VideoDest:       a.Profiles.VideoDestination,
+		ImageShortcut:   a.Profiles.ImageCopyShortcut,
+		VideoShortcut:   a.Profiles.VideoCopyShortcut,
+		EnterOpens:      a.Profiles.EnterOpens,
+		PlaybackEnd:     normalizePlaybackEnd(a.Profiles.PlaybackEnd),
+		CacheCap:        cacheCapMiB(thumbLRU.Limit()),
+		DiskCacheCap:    float64(normalizeDiskCacheMiB(a.Profiles.DiskCacheMiB)),
+		ArchiveCacheCap: float64(normalizeArchiveCacheMiB(a.Profiles.ArchiveCacheMiB)),
+		QuickRule:       a.Profiles.QuickRename,
+		ZipPassword:     a.Profiles.ZipPassword,
+		ZipBook:         strings.Join(a.Profiles.ZipPasswords, "\n"),
+		ZipUsePassword:  a.Profiles.ZipUsePassword,
+		UpdateSource:    a.Profiles.UpdateSource,
 	}
 	if active := a.Profiles.Active; active >= 0 && active < len(a.Profiles.Profiles) {
 		a.Settings.StartFolder = a.Profiles.Profiles[active].Root
@@ -86,6 +96,43 @@ func cacheCapMiB(bytes int) float64 {
 		return 1024
 	}
 	return mib
+}
+
+// refreshCacheStats computes disk, archive, and media-presence cache byte sizes
+// off the UI thread when a window exists, throttling to at most every 3 seconds
+// unless force is true.
+func (a *appState) refreshCacheStats(force bool) {
+	if a.Window == nil {
+		if force || a.Settings.CacheStatsAt.IsZero() {
+			a.Settings.DiskThumbBytes = diskThumbs.FileSize()
+			a.Settings.ArchiveBytes = archiveCacheSize()
+			a.Settings.PresenceBytes = folderMedia.DiskSize()
+			a.Settings.CacheStatsAt = time.Now()
+		}
+		return
+	}
+	if a.Settings.CacheStatsBusy || (!force && time.Since(a.Settings.CacheStatsAt) < 3*time.Second) {
+		return
+	}
+	a.Settings.CacheStatsBusy = true
+	w := a.Settings.Window
+	safeGo("settings.cacheStats", func() {
+		d := diskThumbs.FileSize()
+		ar := archiveCacheSize()
+		pr := folderMedia.DiskSize()
+		apply := func() {
+			a.Settings.DiskThumbBytes = d
+			a.Settings.ArchiveBytes = ar
+			a.Settings.PresenceBytes = pr
+			a.Settings.CacheStatsAt = time.Now()
+			a.Settings.CacheStatsBusy = false
+		}
+		if w != nil {
+			w.Update(apply)
+		} else {
+			a.update(apply)
+		}
+	})
 }
 
 func firstNonEmpty(values ...string) string {

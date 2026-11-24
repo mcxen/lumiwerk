@@ -171,8 +171,8 @@ func (c *thumbCache) SetLimit(limit int) {
 		limit = thumbBudget
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.limit = limit
-	c.mu.Unlock()
 	c.evict()
 }
 

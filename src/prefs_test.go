@@ -188,3 +188,32 @@ func TestMigrateViewInstallersWhenAbsent(t *testing.T) {
 		t.Fatalf("old all-type view should become 全部: %#v", loaded.View)
 	}
 }
+
+func TestFilterModeDefaultsToMediaAndPersists(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	p := loadPrefs()
+	if p.FilterMode != filterMedia || !p.FilterModeSet {
+		t.Fatalf("fresh prefs FilterMode=%d set=%v, want %d/true", p.FilterMode, p.FilterModeSet, filterMedia)
+	}
+
+	savePrefs(prefsFile{FilterMode: filterAll, FilterModeSet: true})
+	loaded := loadPrefs()
+	if loaded.FilterMode != filterAll || !loaded.FilterModeSet {
+		t.Fatalf("explicit filterAll FilterMode=%d set=%v, want 0/true", loaded.FilterMode, loaded.FilterModeSet)
+	}
+
+	if err := os.WriteFile(prefsPath(), []byte(`{"viewSet":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacy := loadPrefs()
+	if legacy.FilterMode != filterMedia || !legacy.FilterModeSet {
+		t.Fatalf("legacy prefs without filterModeSet got FilterMode=%d set=%v, want %d/true", legacy.FilterMode, legacy.FilterModeSet, filterMedia)
+	}
+
+	savePrefs(prefsFile{FilterMode: 99, FilterModeSet: true})
+	clamped := loadPrefs()
+	if clamped.FilterMode != filterMedia {
+		t.Fatalf("out-of-range FilterMode=%d, want %d", clamped.FilterMode, filterMedia)
+	}
+}

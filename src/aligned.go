@@ -22,7 +22,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.26"
+	appVersion                  = "0.3.27"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -197,6 +197,7 @@ type appState struct {
 	Visited          map[string]int64
 	Recent           []string
 	dwellSeq         int
+	dwellTimer       *time.Timer
 	historyCleared   bool
 	scrollCarry      float32
 	Gallery          bool
@@ -207,6 +208,11 @@ type appState struct {
 	Rotation         float32
 	Mirror           bool
 	Video            *videoView
+	warmVideoMu      sync.Mutex
+	warmVideoBackend playbackBackend
+	warmVideoStarted bool
+	warmVideoClosed  bool
+	warmVideoDone    chan struct{}
 	gifPlayer        *ui.VideoPlayer
 	gifPath          string
 	videoEdgeDue     time.Time
@@ -277,6 +283,7 @@ type appState struct {
 	dense         *ui.Theme
 	denseBase     *ui.Theme
 	treeCache     map[string]treeEntry
+	treeFiles     map[string]bool
 	selAnchor     selectionAnchor
 	keyPivot      int
 	revealFrames  int
@@ -284,62 +291,63 @@ type appState struct {
 	// frameStamp is the current build's time. frameNow publishes it only
 	// after the build finishes, so a decode running at the start of the
 	// next frame still sees the cards the previous frame showed.
-	frameStamp      int64
-	frameNow        int64
-	nextSweep       time.Time
-	PendingLarge    string
-	KeepLarge       bool
-	NewFolder       bool
-	FolderName      string
-	FolderTake      []string
-	ZipAsk          bool
-	ZipPass         string
-	ZipFor          string
-	ZipPaths        []string
-	ZipDrop         bool
-	CropAsk         bool
-	CropW           string
-	CropH           string
-	CropX           string
-	CropY           string
-	CropPaths       []string
-	TrimAsk         bool
-	TrimStart       string
-	TrimEnd         string
-	Editor          editorState
-	editorSeq       int
-	InfoAsk         bool
-	InfoText        string
-	ShareHold       []shareService
-	SeekFrom        float64
-	ResumePlay      bool
-	VideoVolume     float64
-	PrevVolume      float64
-	VideoSave       saveVideoState
-	playerMoved     time.Time
-	playerPtrX      float32
-	playerPtrY      float32
-	playerPtrSeen   bool
-	playerInZone    bool    // pointer is in the bottom hot zone of the stage
-	playerNearSide  bool    // pointer is near the left/right edge arrows
-	lastBarShown    bool    // whether the control bar is currently shown
-	barItemPath     string  // item the control bar last revealed for
-	galleryLift     float32 // height of the gallery chrome the control bar must clear
-	playerTimelineW float32
-	playerMenu      bool
-	playerEndSeen   bool
-	playerSkipClick bool
-	StageW          float32
-	StageH          float32
-	Sharp           *ui.Bitmap
-	SharpKey        string
-	SharpPlace      sharpPlace
-	sharpToken      int
-	sharpDue        time.Time
-	sharpDueKey     string
-	sharpBusy       bool
-	sharpBusyKey    string
-	sharpFailKey    string
+	frameStamp       int64
+	frameNow         int64
+	nextSweep        time.Time
+	PendingLarge     string
+	pendingOpenLarge string
+	KeepLarge        bool
+	NewFolder        bool
+	FolderName       string
+	FolderTake       []string
+	ZipAsk           bool
+	ZipPass          string
+	ZipFor           string
+	ZipPaths         []string
+	ZipDrop          bool
+	CropAsk          bool
+	CropW            string
+	CropH            string
+	CropX            string
+	CropY            string
+	CropPaths        []string
+	TrimAsk          bool
+	TrimStart        string
+	TrimEnd          string
+	Editor           editorState
+	editorSeq        int
+	InfoAsk          bool
+	InfoText         string
+	ShareHold        []shareService
+	SeekFrom         float64
+	ResumePlay       bool
+	VideoVolume      float64
+	PrevVolume       float64
+	VideoSave        saveVideoState
+	playerMoved      time.Time
+	playerPtrX       float32
+	playerPtrY       float32
+	playerPtrSeen    bool
+	playerInZone     bool    // pointer is in the bottom hot zone of the stage
+	playerNearSide   bool    // pointer is near the left/right edge arrows
+	lastBarShown     bool    // whether the control bar is currently shown
+	barItemPath      string  // item the control bar last revealed for
+	galleryLift      float32 // height of the gallery chrome the control bar must clear
+	playerTimelineW  float32
+	playerMenu       bool
+	playerEndSeen    bool
+	playerSkipClick  bool
+	StageW           float32
+	StageH           float32
+	Sharp            *ui.Bitmap
+	SharpKey         string
+	SharpPlace       sharpPlace
+	sharpToken       int
+	sharpDue         time.Time
+	sharpDueKey      string
+	sharpBusy        bool
+	sharpBusyKey     string
+	sharpFailKey     string
 }
 
 func newAppMenu(a *appState) *mygo.Menu {
@@ -538,9 +546,10 @@ func (a *appState) openFolder(path string) {
 	a.Chosen = -1
 	a.InLargeView = false
 	a.LargeIndex = -1
+	a.pendingOpenLarge = ""
 	a.scanSeq++
 	a.dwellSeq++
-	a.noteDwell(path, a.dwellSeq)
+	a.noteDwellLocked(path, a.dwellSeq)
 	if a.Cursor >= 0 && a.Cursor < len(a.History) && a.History[a.Cursor] == path {
 		// already positioned.
 	} else if a.Cursor < 0 || a.Cursor >= len(a.History) {
@@ -645,12 +654,19 @@ func (a *appState) scanFolder(root string, seq int) {
 		}
 	}
 	slices.SortStableFunc(files, func(x, y mediaItem) int { return a.compareMedia(x, y) })
+	hasVideo := false
+	for i := range files {
+		if files[i].IsVideo {
+			hasVideo = true
+			break
+		}
+	}
 	a.update(func() {
-		pending := func() int {
+		pending, openPath := func() (int, string) {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if a.Root != root || a.scanSeq != seq {
-				return 0
+				return 0, ""
 			}
 			a.noteSelectionAnchorLocked()
 			carryItemState(a.Items, files)
@@ -664,11 +680,19 @@ func (a *appState) scanFolder(root string, seq int) {
 			safeGo("probeAspects", func() { a.probeVisibleAspectsFor(root, seq) })
 			end := a.pendingLargeEnd
 			a.pendingLargeEnd = 0
-			return end
+			openPath := a.pendingOpenLarge
+			a.pendingOpenLarge = ""
+			return end, openPath
 		}()
 		// Opening a picture takes the lock itself, so it waits for the unlock.
 		if pending != 0 {
 			a.openLargeAtEnd(pending)
+		} else if openPath != "" {
+			if vi := a.visibleIndexForPath(openPath); vi >= 0 {
+				a.openLargeImage(vi)
+			}
+		} else if hasVideo && a.Window != nil {
+			a.warmPlaybackBackend()
 		}
 	})
 }
@@ -862,7 +886,11 @@ func (a *appState) filterSwitcher(c *ui.Context) {
 		a.FilterMode = filterAll
 	}
 	on := a.FilterMode != filterAll
-	if toolbarIconBtn(c, "media-mode", "媒体模式：只看图片和视频", allTypesIcon, on).Clicked() {
+	btn := toolbarIconBtn(c, "media-mode", "媒体模式：只看图片和视频", allTypesIcon, on)
+	if on {
+		btn.Tooltip("媒体模式：当前只看图片和视频，点击显示全部文件")
+	}
+	if btn.Clicked() {
 		a.setFilterMode(map[bool]int{true: filterAll, false: filterMedia}[on])
 	}
 	if !on || a.toolbarCompact {
@@ -898,6 +926,9 @@ func (a *appState) setFilterMode(mode int) {
 		return
 	}
 	a.FilterMode = mode
+	a.Profiles.FilterMode = mode
+	a.Profiles.FilterModeSet = true
+	savePrefs(a.Profiles)
 	a.applyFilter()
 }
 
@@ -1254,24 +1285,68 @@ func (a *appState) goForward() {
 // cached: the first one is read at once, later ones are refreshed in the
 // background once they are older than treeTTL.
 func (a *appState) treeChildren(path string) []string {
+	if a.treeFiles[path] {
+		return nil
+	}
 	now := time.Now()
 	if e, ok := a.treeCache[path]; ok {
 		if now.Sub(e.at) > treeTTL && !e.refreshing && a.Window != nil {
 			e.refreshing = true
 			a.treeCache[path] = e
 			safeGo("treeChildren", func() {
-				dirs := listSubdirs(path)
-				a.update(func() { a.treeCache[path] = treeEntry{dirs: dirs, at: time.Now()} })
+				dirs, files := listTreeEntries(path)
+				a.update(func() { a.storeTreeEntry(path, dirs, files, time.Now()) })
 			})
 		}
-		return a.filterTreeDirs(e.dirs)
+		return a.filterTreeChildren(e)
 	}
+	dirs, files := listTreeEntries(path)
+	a.storeTreeEntry(path, dirs, files, now)
+	return a.filterTreeChildren(a.treeCache[path])
+}
+
+func (a *appState) storeTreeEntry(path string, dirs, files []string, at time.Time) {
 	if a.treeCache == nil || len(a.treeCache) > 4096 {
 		a.treeCache = map[string]treeEntry{}
+		a.treeFiles = map[string]bool{}
 	}
-	dirs := listSubdirs(path)
-	a.treeCache[path] = treeEntry{dirs: dirs, at: now}
-	return a.filterTreeDirs(dirs)
+	if a.treeFiles == nil {
+		a.treeFiles = map[string]bool{}
+	}
+	a.treeCache[path] = treeEntry{dirs: dirs, files: files, at: at}
+	delete(a.treeFiles, path)
+	for _, f := range files {
+		a.treeFiles[f] = true
+	}
+}
+
+func (a *appState) filterTreeChildren(e treeEntry) []string {
+	dirs := a.filterTreeDirs(e.dirs)
+	if !a.Profiles.showTreeFiles() || len(e.files) == 0 {
+		if len(dirs) == 0 {
+			return nil
+		}
+		return dirs
+	}
+	var files []string
+	if a.FilterMode == filterAll || a.FilterMode == filterMedia {
+		files = e.files
+	} else {
+		kind := filterMediaKind(a.FilterMode)
+		for _, f := range e.files {
+			ext := strings.TrimPrefix(filepath.Ext(f), ".")
+			if matchesMediaKind(ext, kind) {
+				files = append(files, f)
+			}
+		}
+	}
+	if len(dirs) == 0 && len(files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(dirs)+len(files))
+	out = append(out, dirs...)
+	out = append(out, files...)
+	return out
 }
 
 // filterTreeDirs applies 仅媒体 folder hiding to the sidebar outline.
@@ -1298,22 +1373,35 @@ const treeTTL = 3 * time.Second
 
 type treeEntry struct {
 	dirs       []string
+	files      []string
 	at         time.Time
 	refreshing bool
 }
 
-func listSubdirs(path string) []string {
+func listTreeEntries(path string) (dirs, files []string) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	var out []string
 	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			out = append(out, filepath.Join(path, e.Name()))
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		full := filepath.Join(path, name)
+		if e.IsDir() {
+			if isInstallerBundle(name) {
+				continue
+			}
+			dirs = append(dirs, full)
+			continue
+		}
+		ext := strings.TrimPrefix(filepath.Ext(name), ".")
+		if isMediaFile(ext) {
+			files = append(files, full)
 		}
 	}
-	return out
+	return dirs, files
 }
 
 func (a *appState) pickFolder() {
@@ -2010,8 +2098,14 @@ func (a *appState) sidebarView(c *ui.Context) {
 		ui.Outline(c, &a.Outline, roots, a.treeChildren, func(path string) { a.treeRow(c, path) }).Grow(1)
 		ui.Divider(c)
 		// History section: recent folders visited, newest first.
+		var presentHist []string
+		for _, h := range a.Recent {
+			if a.folderPresent(h) {
+				presentHist = append(presentHist, h)
+			}
+		}
 		var histAction *sidebarAction
-		if len(a.Recent) > 0 {
+		if len(presentHist) > 0 {
 			histAction = &sidebarAction{
 				key:     "clear",
 				icon:    lucideClose,
@@ -2021,29 +2115,52 @@ func (a *appState) sidebarView(c *ui.Context) {
 			}
 		}
 		a.sidebarSection(c, "历史", &a.Profiles.HistoryClosed, histAction, func() {
-			if len(a.Recent) == 0 {
+			if len(presentHist) == 0 {
 				ui.Text(c, "暂无浏览记录").FontSize(11).TextColor(t.TextMuted).Padding(4, 12)
 				return
 			}
+			dupParents := favoriteDisambiguation(presentHist)
 			ui.Scroll(c.Key("hist-scroll")).MaxHeight(180).FillWidth().Children(func() {
-				for _, h := range a.Recent {
+				for _, h := range presentHist {
 					hist := h
-					row := ui.Row(c.Key(hist)).Padding(4, 12).Gap(6).AlignItems(ui.Center).Radius(4).
+					row := ui.Row(c.Key("hist-"+hist)).Padding(4, 6, 4, 10).Gap(6).AlignItems(ui.Center).Radius(5).
 						Cursor(ui.CursorPointer).Tooltip(hist)
 					if pathKey(hist) == pathKey(a.Root) {
 						row.Background(pal.rowCurrent)
 					} else if row.Hovered() {
 						row.Background(pal.rowHover)
 					}
+					removed := false
 					row.Children(func() {
 						ui.Icon(c, dirIcon).FontSize(12).Shrink(0)
 						ui.Text(c, pathName(hist)).FontSize(11).SingleLine().MaxLines(1).Ellipsis("…").Grow(1).MinWidth(0)
-						if at := a.Visited[hist]; at > 0 {
+						if sub := dupParents[hist]; sub != "" {
+							ui.Text(c, sub).FontSize(10).TextColor(t.TextMuted).SingleLine().MaxLines(1).MaxWidth(64).Ellipsis("…").Shrink(0)
+						}
+						if at := visitedAt(a.Visited, hist); at > 0 {
 							ui.Text(c, visitLabel(at, time.Now())).FontSize(10).TextColor(t.TextMuted).SingleLine().Shrink(0)
+						}
+						if row.Hovered() {
+							rm := ui.ButtonBase(c.Key("hist-rm-"+hist)).Size(18, 18).Radius(4).Center().
+								Cursor(ui.CursorPointer).Label("从历史中移除").Tooltip("从历史中移除")
+							if rm.Pressed() {
+								rm.Background(pal.pressed).TextColor(pal.text)
+							} else if rm.Hovered() {
+								rm.Background(pal.hover).TextColor(pal.text)
+							} else {
+								rm.TextColor(t.TextMuted)
+							}
+							rm.Children(func() { ui.Icon(c, lucideClose).Size(10, 10) })
+							if rm.Clicked() {
+								removed = true
+								a.removeHistoryEntry(hist)
+							}
 						}
 					})
 					a.bindFolderRow(c, row, hist, func(m *ui.Menu) { a.historyContextMenu(m, hist) })
-					row.OnClick(func() { a.openRootFolder(hist) })
+					if !removed {
+						row.OnClick(func() { a.openRootFolder(hist) })
+					}
 				}
 			})
 		})
@@ -2153,24 +2270,83 @@ func (a *appState) sidebarTreePlan() (roots []string, open []string) {
 	return []string{base}, open
 }
 
+func (a *appState) visibleIndexForPath(path string) int {
+	want := pathKey(path)
+	for vi, ii := range a.Visible {
+		if ii >= 0 && ii < len(a.Items) && pathKey(a.Items[ii].Path) == want {
+			return vi
+		}
+	}
+	return -1
+}
+
+func (a *appState) openTreeFile(path string, openLarge bool) {
+	if vi := a.visibleIndexForPath(path); vi >= 0 {
+		a.chooseOnly(vi)
+		a.revealFrames = 2
+		if openLarge {
+			a.openLargeImage(vi)
+		}
+		return
+	}
+	dir := filepath.Dir(path)
+	if dir != "" && dir != path && isDir(dir) {
+		a.openFolder(dir)
+		a.selectAfterLoad(path)
+		if openLarge {
+			a.mu.Lock()
+			a.pendingOpenLarge = path
+			a.mu.Unlock()
+		}
+	}
+}
+
 func (a *appState) treeRow(c *ui.Context, path string) {
 	t := c.Theme()
 	pal := shellPaletteFor(c)
+	isFile := a.treeFiles[path]
 	row := ui.Row(c).Padding(4, 8).Gap(6).AlignItems(ui.Center).Radius(4).
 		Cursor(ui.CursorPointer).Tooltip(path)
 	selected := a.Root == path
+	if isFile {
+		selected = a.Selected.Has(path)
+		if !selected {
+			if it := a.visibleItem(a.Chosen); it != nil && it.Path == path {
+				selected = true
+			}
+		}
+	}
 	if selected {
 		row.Background(pal.rowCurrent)
 	} else if row.Hovered() {
 		row.Background(pal.rowHover)
 	}
-	if a.folderInRecurseScope(path) {
+	if !isFile && a.folderInRecurseScope(path) {
 		row.BorderWidth(0, 0, 0, 2).BorderColor(t.Warning.Alpha(0.55))
 	}
+	icon := dirIcon
+	if isFile {
+		ext := strings.TrimPrefix(filepath.Ext(path), ".")
+		if isVideoFile(ext) {
+			icon = videoIcon
+		} else {
+			icon = imageIcon
+		}
+	}
 	row.Children(func() {
-		ui.Icon(c, dirIcon).FontSize(14).Shrink(0)
+		ui.Icon(c, icon).FontSize(14).Shrink(0)
 		ui.Text(c, pathName(path)).FontSize(12).SingleLine().Ellipsis("…").MinWidth(0)
 	})
+	if isFile {
+		a.fileDragSource(row, path)
+		row.ContextMenu(func(m *ui.Menu) { a.folderContextMenu(m, path) })
+		if row.DoubleClicked() {
+			a.openTreeFile(path, true)
+		} else if row.Clicked() {
+			a.openTreeFile(path, false)
+		}
+		return
+	}
 	a.bindFolderRow(c, row, path, func(m *ui.Menu) { a.folderContextMenu(m, path) })
 	row.OnClick(func() { a.openFolder(path) })
 }
@@ -3388,8 +3564,9 @@ func (a *appState) closeLargeImage() {
 	}
 	a.InLargeView = false
 	a.LargeIndex = -1
+	a.pendingOpenLarge = ""
 	a.dropLargeBitmaps("")
-	a.closeVideo()
+	a.parkVideo()
 	a.closeGIF()
 	if a.Root != "" {
 		a.setTitle(fmt.Sprintf("%s — %s", appName, pathName(a.Root)))

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestEnabledFileTypesAreIndependent(t *testing.T) {
@@ -185,5 +187,55 @@ func TestScanVisibilityFixture(t *testing.T) {
 	}
 	if !isHiddenPath(root, filepath.Join(root, ".hidden.jpg")) {
 		t.Fatal("hidden fixture was included")
+	}
+}
+
+func TestDefaultMediaFilterHidesPDFUntilCleared(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	prefs := loadPrefs()
+	a := &appState{
+		Chosen:     -1,
+		LargeIndex: -1,
+		Thumb:      150,
+		Root:       t.TempDir(),
+		Profiles:   prefs,
+		FilterMode: prefs.FilterMode,
+		Items: []mediaItem{
+			{Path: "/probe/photo.jpg", Name: "photo.jpg", Ext: "jpg"},
+			{Path: "/probe/clip.mp4", Name: "clip.mp4", Ext: "mp4", IsVideo: true},
+			{Path: "/probe/doc.pdf", Name: "doc.pdf", Ext: "pdf"},
+			{Path: "/probe/notes.txt", Name: "notes.txt", Ext: "txt"},
+		},
+	}
+	a.applyFilter()
+	if a.FilterMode != filterMedia {
+		t.Fatalf("default FilterMode = %d, want %d", a.FilterMode, filterMedia)
+	}
+	if len(a.Visible) != 2 || a.Items[a.Visible[0]].Name != "photo.jpg" || a.Items[a.Visible[1]].Name != "clip.mp4" {
+		t.Fatalf("default visible = %v, want photo.jpg and clip.mp4 only", a.Visible)
+	}
+
+	te := ui.NewTester(func(c *ui.Context) { a.toolbarView(c) }, 1400, 48)
+	te.Frame()
+	for _, want := range []string{"图片", "视频"} {
+		if _, ok := te.Find(want); !ok {
+			t.Fatalf("toolbar missing %q in default media mode: %v", want, te.Texts())
+		}
+	}
+	if err := te.Click("媒体模式：只看图片和视频"); err != nil {
+		t.Fatalf("click media-mode: %v", err)
+	}
+	te.Frame()
+	if a.FilterMode != filterAll || loadPrefs().FilterMode != filterAll {
+		t.Fatalf("clearing media mode failed: live=%d saved=%d", a.FilterMode, loadPrefs().FilterMode)
+	}
+	if len(a.Visible) != 4 {
+		t.Fatalf("visible after clearing media mode = %d, want 4", len(a.Visible))
+	}
+
+	a.setFilterMode(filterMedia)
+	a.setViewFilter()
+	if a.FilterMode != filterAll || loadPrefs().FilterMode != filterAll {
+		t.Fatalf("setViewFilter did not reset FilterMode: live=%d saved=%d", a.FilterMode, loadPrefs().FilterMode)
 	}
 }

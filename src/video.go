@@ -86,6 +86,9 @@ func (d *ffmpegDecoder) startLocked() error {
 }
 
 func probeFrameDuration(path string) time.Duration {
+	if dur, ok := probeFrameDurationNative(path); ok {
+		return dur
+	}
 	const fallback = 100 * time.Millisecond
 	out, err := execCommand(toolPath("ffprobe"), "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=avg_frame_rate,r_frame_rate",
@@ -475,12 +478,16 @@ func shownFrame(frames []timedFrame, now float64) (show timedFrame, ok bool, ahe
 }
 
 func startFramePump(d *ffmpegDecoder) chan timedFrame {
+	return startFramePumpFrom(d, 0)
+}
+
+func startFramePumpFrom(d *ffmpegDecoder, startIndex int) chan timedFrame {
 	frames := make(chan timedFrame, 6)
-	safeGo("video.framePump", func() { d.runPump(frames) })
+	safeGo("video.framePump", func() { d.runPump(frames, startIndex) })
 	return frames
 }
 
-func (d *ffmpegDecoder) runPump(frames chan<- timedFrame) {
+func (d *ffmpegDecoder) runPump(frames chan<- timedFrame, startIndex int) {
 	start := d.startAt
 	if start < 0 {
 		start = 0
@@ -488,7 +495,7 @@ func (d *ffmpegDecoder) runPump(frames chan<- timedFrame) {
 	// Frame n is at start + n·interval: the fps filter makes the output
 	// constant-rate, and multiplying (not adding) keeps rounding from
 	// accumulating over a long file.
-	for n := 0; ; n++ {
+	for n := startIndex; ; n++ {
 		select {
 		case <-d.quit:
 			return
@@ -914,6 +921,9 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 	}
 	kernel := newPlaybackSession()
 	kernel.SetVolume(volume)
+	if warmed := a.takeWarmedBackend(); warmed != nil {
+		kernel.backend = warmed
+	}
 	v := &videoView{kernel: kernel, path: path}
 	a.Video = v
 	if err := kernel.Open(path, at, playing); err != nil {
@@ -924,6 +934,105 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 	a.wirePlaybackBackend(kernel)
 	if !playing {
 		a.requestSharpFrame()
+	}
+}
+
+// newPlaybackBackend initializes the preferred playback backend (libmpv when
+// available, falling back to FFmpeg). Safe to run off the UI thread.
+func newPlaybackBackend() (playbackBackend, error) {
+	backend, err := playbackProbe()
+	if err != nil || backend == nil {
+		if err != nil {
+			logInfof("video.kernel: libmpv unavailable, using FFmpeg: %v", err)
+		}
+		return newFallbackPlayback()
+	}
+	return backend, nil
+}
+
+// warmPlaybackBackend pre-initializes a playback backend in the background
+// when a scanned folder contains video files, hiding cold libmpv startup
+// latency before the user opens a clip.
+func (a *appState) warmPlaybackBackend() {
+	if a == nil {
+		return
+	}
+	a.warmVideoMu.Lock()
+	if a.warmVideoClosed || a.warmVideoStarted || a.warmVideoBackend != nil {
+		a.warmVideoMu.Unlock()
+		return
+	}
+	a.warmVideoStarted = true
+	done := make(chan struct{})
+	a.warmVideoDone = done
+	a.warmVideoMu.Unlock()
+
+	safeGo("video.warm", func() {
+		backend, err := newPlaybackBackend()
+		a.warmVideoMu.Lock()
+		defer func() {
+			close(done)
+			a.warmVideoMu.Unlock()
+		}()
+		if err != nil || backend == nil {
+			return
+		}
+		if a.warmVideoClosed {
+			_ = backend.Close()
+			return
+		}
+		a.warmVideoBackend = backend
+	})
+}
+
+// takeWarmedBackend returns a pre-warmed backend (waiting briefly if one is
+// still initializing) so openPlayback reuses it instead of cold-starting.
+func (a *appState) takeWarmedBackend() playbackBackend {
+	if a == nil {
+		return nil
+	}
+	a.warmVideoMu.Lock()
+	if a.warmVideoClosed {
+		a.warmVideoMu.Unlock()
+		return nil
+	}
+	if b := a.warmVideoBackend; b != nil {
+		a.warmVideoBackend = nil
+		a.warmVideoMu.Unlock()
+		return b
+	}
+	done := a.warmVideoDone
+	a.warmVideoMu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+	case <-time.After(150 * time.Millisecond):
+		return nil
+	}
+	a.warmVideoMu.Lock()
+	defer a.warmVideoMu.Unlock()
+	if a.warmVideoClosed {
+		return nil
+	}
+	b := a.warmVideoBackend
+	a.warmVideoBackend = nil
+	return b
+}
+
+// closeWarmedVideo tears down any pre-warmed backend held at app quit.
+func (a *appState) closeWarmedVideo() {
+	if a == nil {
+		return
+	}
+	a.warmVideoMu.Lock()
+	a.warmVideoClosed = true
+	b := a.warmVideoBackend
+	a.warmVideoBackend = nil
+	a.warmVideoMu.Unlock()
+	if b != nil {
+		_ = b.Close()
 	}
 }
 

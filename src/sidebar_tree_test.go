@@ -21,6 +21,14 @@ func TestSidebarTreeStartsAtCurrentFolderByDefault(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	photo := filepath.Join(opened, "photo.jpg")
+	video := filepath.Join(opened, "clip.mp4")
+	note := filepath.Join(opened, "notes.txt")
+	for _, f := range []string{photo, video, note} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	a := &appState{
 		Chosen: -1, LargeIndex: -1, Thumb: 128, SidebarShown: true, SidebarWidth: 240,
@@ -32,10 +40,16 @@ func TestSidebarTreeStartsAtCurrentFolderByDefault(t *testing.T) {
 	te := ui.NewTester(func(c *ui.Context) { a.sidebarView(c) }, 240, 560)
 	te.Frame()
 
-	for _, want := range []string{"tree-opened", "tree-child", "tree-sibling"} {
+	for _, want := range []string{"tree-opened", "tree-child", "tree-sibling", "photo.jpg", "clip.mp4"} {
 		if !te.HasText(want) {
 			t.Fatalf("sidebar missing %q in current-folder mode; texts=%v", want, te.Texts())
 		}
+	}
+	if te.HasText("notes.txt") {
+		t.Fatalf("non-media file should not be listed in sidebar tree; texts=%v", te.Texts())
+	}
+	if got := a.treeChildren(photo); got != nil {
+		t.Fatalf("media file should have nil treeChildren, got %v", got)
 	}
 	if te.HasText("tree-parent") || te.HasText(rootName) {
 		t.Fatalf("current-folder tree should not display ancestors; texts=%v", te.Texts())
@@ -45,6 +59,42 @@ func TestSidebarTreeStartsAtCurrentFolderByDefault(t *testing.T) {
 	}
 	if _, ok := a.treeCache[parent]; ok {
 		t.Fatalf("current-folder mode must not read parent %q into treeCache", parent)
+	}
+
+	// Media filter hides non-matching files in the tree too.
+	a.FilterMode = filterImages
+	te.Frame()
+	if !te.HasText("photo.jpg") || te.HasText("clip.mp4") {
+		t.Fatalf("filterImages should keep only images; texts=%v", te.Texts())
+	}
+	a.FilterMode = filterVideos
+	te.Frame()
+	if te.HasText("photo.jpg") || !te.HasText("clip.mp4") {
+		t.Fatalf("filterVideos should keep only videos; texts=%v", te.Texts())
+	}
+	a.FilterMode = filterAll
+
+	// Opting out hides media files and keeps folders only.
+	a.Profiles.SidebarTreeFoldersOnly = true
+	te.Frame()
+	if te.HasText("photo.jpg") || te.HasText("clip.mp4") {
+		t.Fatalf("folders-only mode should hide media files; texts=%v", te.Texts())
+	}
+	a.Profiles.SidebarTreeFoldersOnly = false
+	te.Frame()
+
+	// Clicking a media file in the tree selects it in the active folder.
+	a.Items = []mediaItem{
+		{Path: photo, Name: "photo.jpg", Ext: "jpg"},
+		{Path: video, Name: "clip.mp4", Ext: "mp4", IsVideo: true},
+	}
+	a.Visible = []int{0, 1}
+	if err := te.Click("photo.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	te.Frame()
+	if a.Chosen != 0 || !a.Selected.Has(photo) {
+		t.Fatalf("clicking photo.jpg in tree did not select it: chosen=%d selected=%v", a.Chosen, a.Selected.Has(photo))
 	}
 
 	// Entering a child keeps the opened folder as the tree root so siblings remain visible.

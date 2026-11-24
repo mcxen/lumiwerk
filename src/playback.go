@@ -189,15 +189,9 @@ func (s *playbackSession) failOpen(path string, err error) error {
 
 func (s *playbackSession) openLocked(path string, at float64, playing bool) error {
 	if s.backend == nil {
-		backend, err := playbackProbe()
-		if err != nil || backend == nil {
-			if err != nil {
-				logInfof("video.kernel: libmpv unavailable, using FFmpeg: %v", err)
-			}
-			backend, err = newFallbackPlayback()
-			if err != nil {
-				return s.failOpen(path, err)
-			}
+		backend, err := newPlaybackBackend()
+		if err != nil {
+			return s.failOpen(path, err)
 		}
 		s.backend = backend
 	}
@@ -645,6 +639,7 @@ type ffmpegBackend struct {
 	frames       chan timedFrame
 	edge         int
 	generation   int
+	openGen      int
 	closed       bool
 	audioRunning bool
 	lastErr      error
@@ -671,19 +666,6 @@ func newFFmpegBackend() (*ffmpegBackend, error) {
 	return &ffmpegBackend{volume: 1, speed: 1, edge: 2560, audioMap: -1, videoMap: -1}, nil
 }
 
-func (b *ffmpegBackend) validate(path string) error {
-	dec := newFFmpegDecoder(path)
-	if err := dec.start(); err != nil {
-		return err
-	}
-	_, err := dec.Next()
-	closeErr := dec.Close()
-	if err != nil {
-		return err
-	}
-	return closeErr
-}
-
 // execLookPath is a variable so fallback construction is testable without a
 // machine-specific media installation.
 var execLookPath = lookTool
@@ -697,30 +679,42 @@ func (b *ffmpegBackend) Open(path string, at float64, playing bool) error {
 		return io.EOF
 	}
 	b.stopLocked()
+	b.openGen++
+	openGen := b.openGen
 	at = max(0, at)
 	b.path = path
-	if err := b.validate(path); err != nil {
-		b.path = ""
-		b.playing = false
-		return err
-	}
 	b.position, b.frameAt = at, at
 	b.clock.seek(at, false, playbackNow())
+	b.duration = 0
 	b.playing = false
 	b.ended = false
 	b.frame = nil
 	b.held = nil
 	b.lastErr = nil
-	b.decoder = newFFmpegDecoderAt(path, at)
-	b.decoder.edge = b.edge
-	b.decoder.audioMap = b.audioMap
-	b.decoder.videoMap = b.videoMap
-	if err := b.decoder.start(); err != nil {
+	dec := newFFmpegDecoderAt(path, at)
+	dec.edge = b.edge
+	dec.audioMap = b.audioMap
+	dec.videoMap = b.videoMap
+	if err := dec.start(); err != nil {
+		_ = dec.Close()
+		b.path = ""
 		return err
 	}
-	b.frames = startFramePump(b.decoder)
-	if b.duration <= 0 {
-		b.duration = probeVideo(path).DurationSec
+	// Decode the first frame synchronously on the single ffmpeg process so
+	// broken files fail fast without spawning a second validation process.
+	first, err := dec.Next()
+	if err != nil {
+		_ = dec.Close()
+		b.path = ""
+		return err
+	}
+	b.decoder = dec
+	b.frame = first.Image
+	b.frames = startFramePumpFrom(b.decoder, 1)
+	if info, ok := probeVideoNative(path); ok && info.DurationSec > 0 {
+		b.duration = info.DurationSec
+	} else {
+		b.kickDurationProbe(path, openGen)
 	}
 	if playing {
 		b.playing = true
@@ -745,6 +739,7 @@ func (b *ffmpegBackend) stopLocked() {
 func (b *ffmpegBackend) Close() error {
 	b.mu.Lock()
 	b.closed = true
+	b.openGen++
 	b.stopLocked()
 	b.mu.Unlock()
 	return nil
@@ -757,6 +752,7 @@ func (b *ffmpegBackend) Park() {
 	if b.closed {
 		return
 	}
+	b.openGen++
 	b.stopLocked()
 	b.path = ""
 	b.playing = false
@@ -1161,6 +1157,26 @@ func (b *ffmpegBackend) SelectVideo(id int) error {
 	}
 	b.seekLocked(b.position)
 	return b.lastErr
+}
+
+func (b *ffmpegBackend) kickDurationProbe(path string, openGen int) {
+	safeGo("video.durationProbe", func() {
+		dur := probeVideo(path).DurationSec
+		if dur <= 0 {
+			return
+		}
+		b.mu.Lock()
+		if b.closed || b.openGen != openGen || b.path != path || b.duration > 0 {
+			b.mu.Unlock()
+			return
+		}
+		b.duration = dur
+		notify := b.notify
+		b.mu.Unlock()
+		if notify != nil {
+			notify()
+		}
+	})
 }
 
 func (b *ffmpegBackend) kickTrackProbe() {

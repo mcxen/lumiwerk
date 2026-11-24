@@ -31,9 +31,13 @@ func main() {
 
 	a := &appState{Chosen: -1, LargeIndex: -1, keyPivot: -1, Thumb: defaultThumb, LayoutMode: defaultLayout, FolderFirst: true}
 	a.Profiles = loadPrefs()
+	a.FilterMode = a.Profiles.FilterMode
 	a.seedDefaultFavorites()
 	setArchivePasswords(zipPasswordCandidates(a.Profiles))
 	thumbLRU.SetLimit(a.Profiles.ThumbCacheMiB << 20)
+	diskThumbs.SetLimit(int64(a.Profiles.DiskCacheMiB) << 20)
+	setArchiveCacheLimit(int64(a.Profiles.ArchiveCacheMiB) << 20)
+	safeGo("main.archiveCacheSweep", sweepArchiveCache)
 	a.VideoVolume = normalizedPlaybackVolume(a.Profiles.Volume)
 	a.PrevVolume = normalizedPlaybackVolume(a.Profiles.PreviousVolume)
 	applyUpdateSource(a.Profiles.UpdateSource)
@@ -136,6 +140,9 @@ func main() {
 		// dwell that finished after the last navigate is not lost.
 		a.persistBrowsingHistory()
 		a.flushPlayProgress()
+		a.closeVideo()
+		a.closeWarmedVideo()
+		diskThumbs.Close()
 	})
 
 	if err := mygo.App.Run(); err != nil {

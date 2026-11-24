@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	mp4 "github.com/abema/go-mp4"
 	"github.com/remko/go-mkvparse"
@@ -239,4 +240,144 @@ func mkvCover(path string) []byte {
 		return h.cover
 	}
 	return h.first
+}
+
+// probeFrameDurationNative reads the video track's average frame interval from
+// MP4/MOV or MKV/WebM container metadata without spawning ffprobe.
+func probeFrameDurationNative(path string) (time.Duration, bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".m4v", ".mov", ".3gp":
+		return probeMP4FrameDuration(path)
+	case ".mkv", ".webm":
+		return probeMKVFrameDuration(path)
+	default:
+		return 0, false
+	}
+}
+
+func probeMP4FrameDuration(path string) (time.Duration, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	var (
+		best      time.Duration
+		inVideo   bool
+		timescale uint32
+		mdhdDur   uint64
+		samples   uint64
+		deltas    uint64
+	)
+	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (any, error) {
+		switch h.BoxInfo.Type {
+		case mp4.BoxTypeMoov():
+			return h.Expand()
+		case mp4.BoxTypeTrak():
+			inVideo = false
+			timescale = 0
+			mdhdDur = 0
+			samples = 0
+			deltas = 0
+			if _, err := h.Expand(); err != nil {
+				return nil, err
+			}
+			if best == 0 && inVideo && timescale > 0 && samples > 0 {
+				num := deltas
+				if num == 0 {
+					num = mdhdDur
+				}
+				if num > 0 {
+					sec := (float64(num) / float64(samples)) / float64(timescale)
+					fps := 1.0 / sec
+					if fps > 0 && fps <= 240 {
+						best = time.Duration(sec * float64(time.Second))
+					}
+				}
+			}
+			return nil, nil
+		case mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl():
+			return h.Expand()
+		case mp4.BoxTypeTkhd():
+			box, _, err := h.ReadPayload()
+			if err == nil {
+				if p, ok := box.(*mp4.Tkhd); ok && p.Width > 0 && p.Height > 0 {
+					inVideo = true
+				}
+			}
+		case mp4.BoxTypeMdhd():
+			box, _, err := h.ReadPayload()
+			if err == nil {
+				if p, ok := box.(*mp4.Mdhd); ok {
+					timescale = p.Timescale
+					mdhdDur = p.GetDuration()
+				}
+			}
+		case mp4.BoxTypeStts():
+			box, _, err := h.ReadPayload()
+			if err == nil {
+				if p, ok := box.(*mp4.Stts); ok {
+					for _, e := range p.Entries {
+						samples += uint64(e.SampleCount)
+						deltas += uint64(e.SampleCount) * uint64(e.SampleDelta)
+					}
+				}
+			}
+		}
+		return nil, nil
+	})
+	if err != nil || best <= 0 {
+		return 0, false
+	}
+	return best, true
+}
+
+type mkvFrameDur struct {
+	mkvparse.DefaultHandler
+	trackType  int64
+	defaultDur int64
+	videoDur   time.Duration
+}
+
+func (h *mkvFrameDur) HandleMasterBegin(id mkvparse.ElementID, _ mkvparse.ElementInfo) (bool, error) {
+	if id == mkvparse.TrackEntryElement {
+		h.trackType = 0
+		h.defaultDur = 0
+	}
+	return h.videoDur == 0, nil
+}
+
+func (h *mkvFrameDur) HandleInteger(id mkvparse.ElementID, v int64, _ mkvparse.ElementInfo) error {
+	switch id {
+	case mkvparse.TrackTypeElement:
+		h.trackType = v
+	case mkvparse.DefaultDurationElement:
+		h.defaultDur = v
+	}
+	return nil
+}
+
+func (h *mkvFrameDur) HandleMasterEnd(id mkvparse.ElementID, _ mkvparse.ElementInfo) error {
+	if id == mkvparse.TrackEntryElement && h.videoDur == 0 && h.trackType == mkvparse.TrackType_Video && h.defaultDur > 0 {
+		dur := time.Duration(h.defaultDur)
+		fps := float64(time.Second) / float64(dur)
+		if fps > 0 && fps <= 240 {
+			h.videoDur = dur
+		}
+	}
+	return nil
+}
+
+func probeMKVFrameDuration(path string) (time.Duration, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	h := &mkvFrameDur{}
+	if mkvparse.ParseSections(f, h, mkvparse.TracksElement) != nil || h.videoDur <= 0 {
+		return 0, false
+	}
+	return h.videoDur, true
 }

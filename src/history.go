@@ -31,7 +31,7 @@ type historyFile struct {
 }
 
 // historyDwell is how long a folder must stay open before it is recorded.
-const historyDwell = 20 * time.Second
+const historyDwell = 3 * time.Second
 
 // dedupeRecent keeps the first (newest) entry per normalized path and drops
 // folders that no longer exist.
@@ -66,10 +66,66 @@ func recentFromTrail(trail []string, visited map[string]int64) []string {
 	return out
 }
 
+// visitedAt returns the recorded Unix timestamp for path, matching exact
+// keys first and falling back to normalized pathKey.
+func visitedAt(visited map[string]int64, path string) int64 {
+	if len(visited) == 0 || path == "" {
+		return 0
+	}
+	if at := visited[path]; at > 0 {
+		return at
+	}
+	want := pathKey(path)
+	for k, at := range visited {
+		if at > 0 && pathKey(k) == want {
+			return at
+		}
+	}
+	return 0
+}
+
+// pruneVisited keeps only visit timestamps whose normalized path is still
+// referenced by recent or history, preventing unbounded growth in history.json.
+func pruneVisited(visited map[string]int64, recent, history []string) map[string]int64 {
+	if len(visited) == 0 {
+		return nil
+	}
+	keep := make(map[string]bool, len(recent)+len(history))
+	for _, p := range recent {
+		if p != "" {
+			keep[pathKey(p)] = true
+		}
+	}
+	for _, p := range history {
+		if p != "" {
+			keep[pathKey(p)] = true
+		}
+	}
+	out := make(map[string]int64, len(keep))
+	for k, v := range visited {
+		if v > 0 && keep[pathKey(k)] {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // noteDwell records path in the recent list once it has stayed open for
-// historyDwell; navigating away first (a newer seq) cancels it.
+// historyDwell; navigating away first cancels the previous timer.
 func (a *appState) noteDwell(path string, seq int) {
-	time.AfterFunc(historyDwell, func() {
+	a.mu.Lock()
+	a.noteDwellLocked(path, seq)
+	a.mu.Unlock()
+}
+
+func (a *appState) noteDwellLocked(path string, seq int) {
+	if a.dwellTimer != nil {
+		a.dwellTimer.Stop()
+	}
+	a.dwellTimer = time.AfterFunc(historyDwell, func() {
 		a.update(func() { a.recordVisit(path, seq) })
 	})
 }
@@ -85,6 +141,7 @@ func (a *appState) recordVisit(path string, seq int) {
 	}
 	a.Visited[path] = time.Now().Unix()
 	a.Recent = dedupeRecent(append([]string{path}, a.Recent...), nil)
+	a.Visited = pruneVisited(a.Visited, a.Recent, a.History)
 	a.mu.Unlock()
 	// Sidebar recent still waits for historyDwell; once recorded, flush so
 	// a crash after the dwell keeps the list without waiting for quit.
@@ -149,6 +206,7 @@ func loadHistory() historyFile {
 		h.History = h.History[len(h.History)-maxPersistedHistory:]
 		h.Cursor = len(h.History) - 1
 	}
+	h.Visited = pruneVisited(h.Visited, h.Recent, h.History)
 	return h
 }
 
@@ -160,7 +218,7 @@ func (h historyFile) CursorPath() string {
 	return ""
 }
 
-// saveHistory writes the trail atomically, as savePrefs does.
+// saveHistory writes the trail atomically with a .bak backup, as savePrefs does.
 func saveHistory(h historyFile) {
 	h.SavedAt = time.Now()
 	if len(h.History) > maxPersistedHistory {
@@ -175,6 +233,7 @@ func saveHistory(h historyFile) {
 	if h.Cursor < -1 {
 		h.Cursor = -1
 	}
+	h.Visited = pruneVisited(h.Visited, h.Recent, h.History)
 	data, err := json.MarshalIndent(h, "", "  ")
 	if err != nil {
 		logErrorf("could not encode history: %v", err)
@@ -189,6 +248,9 @@ func saveHistory(h historyFile) {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		logErrorf("could not write history %s: %v", tmp, err)
 		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		_ = os.Rename(path, path+".bak")
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		logErrorf("could not install history %s: %v", path, err)
@@ -244,4 +306,144 @@ func (a *appState) clearHistory() {
 	a.historyCleared = true
 	a.mu.Unlock()
 	saveHistory(historyFile{Cursor: -1})
+}
+
+// removeHistoryEntry drops path from the sidebar Recent list and Visited times
+// without disturbing the back/forward navigation trail.
+func (a *appState) removeHistoryEntry(path string) {
+	if path == "" {
+		return
+	}
+	target := pathKey(path)
+	a.mu.Lock()
+	kept := make([]string, 0, len(a.Recent))
+	for _, r := range a.Recent {
+		if pathKey(r) != target {
+			kept = append(kept, r)
+		}
+	}
+	a.Recent = kept
+	for k := range a.Visited {
+		if pathKey(k) == target {
+			delete(a.Visited, k)
+		}
+	}
+	if len(a.Recent) == 0 && len(a.History) == 0 {
+		a.historyCleared = true
+	}
+	a.mu.Unlock()
+	a.persistBrowsingHistory()
+}
+
+// remapHistoryPaths updates Recent, History, and Visited after folders move or rename.
+func (a *appState) remapHistoryPaths(mappings []pathPair) {
+	if len(mappings) == 0 {
+		return
+	}
+	a.mu.Lock()
+	changed := false
+	for i, p := range a.History {
+		if next := remapPath(p, mappings); next != p {
+			a.History[i] = next
+			changed = true
+		}
+	}
+	remappedRecent := make([]string, len(a.Recent))
+	for i, p := range a.Recent {
+		next := remapPath(p, mappings)
+		remappedRecent[i] = next
+		if next != p {
+			changed = true
+		}
+	}
+	if changed {
+		a.Recent = dedupeRecent(remappedRecent, nil)
+	}
+	if len(a.Visited) > 0 {
+		nextVisited := make(map[string]int64, len(a.Visited))
+		for k, v := range a.Visited {
+			nk := remapPath(k, mappings)
+			if nk != k {
+				changed = true
+			}
+			if v > nextVisited[nk] {
+				nextVisited[nk] = v
+			}
+		}
+		a.Visited = nextVisited
+	}
+	a.mu.Unlock()
+	if changed {
+		a.persistBrowsingHistory()
+	}
+}
+
+func pathMatchesAny(p string, targets []string) bool {
+	pk := pathKey(p)
+	for _, t := range targets {
+		if t == "" {
+			continue
+		}
+		if pk == pathKey(t) || pathWithin(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// pruneHistoryPaths drops deleted or trashed folders (and their subfolders)
+// from Recent, History, and Visited, keeping Cursor aligned to survivors.
+func (a *appState) pruneHistoryPaths(removed []string) {
+	if len(removed) == 0 {
+		return
+	}
+	a.mu.Lock()
+	changed := false
+	keptRecent := make([]string, 0, len(a.Recent))
+	for _, p := range a.Recent {
+		if pathMatchesAny(p, removed) {
+			changed = true
+			continue
+		}
+		keptRecent = append(keptRecent, p)
+	}
+	if changed {
+		a.Recent = keptRecent
+	}
+
+	keptHist := make([]string, 0, len(a.History))
+	keptCursor := -1
+	histChanged := false
+	for i, p := range a.History {
+		if pathMatchesAny(p, removed) {
+			histChanged = true
+			continue
+		}
+		if i == a.Cursor {
+			keptCursor = len(keptHist)
+		}
+		keptHist = append(keptHist, p)
+	}
+	if histChanged {
+		a.History = keptHist
+		if len(a.History) > 0 && keptCursor < 0 {
+			keptCursor = len(a.History) - 1
+		}
+		a.Cursor = keptCursor
+		changed = true
+	}
+
+	for k := range a.Visited {
+		if pathMatchesAny(k, removed) {
+			delete(a.Visited, k)
+			changed = true
+		}
+	}
+	if changed && len(a.Recent) == 0 && len(a.History) == 0 {
+		a.historyCleared = true
+	}
+	a.mu.Unlock()
+	if changed {
+		a.persistBrowsingHistory()
+	}
 }

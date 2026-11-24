@@ -96,6 +96,11 @@ func (a *appState) settingsGeneralPage(c *ui.Context, pal *settingsPalette) {
 // setViewFilter stores the type filter the user just changed, saves it and
 // rescans so the browser shows the new set at once.
 func (a *appState) setViewFilter() {
+	if a.FilterMode != filterAll {
+		a.FilterMode = filterAll
+		a.Profiles.FilterMode = filterAll
+		a.Profiles.FilterModeSet = true
+	}
 	savePrefs(a.Profiles)
 	a.refreshView()
 }
@@ -135,6 +140,9 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 			}
 		}
 		figureTypes(c, pal, *view)
+		if a.FilterMode != filterAll {
+			setNote(c, "工具栏已开启「媒体模式」，主界面当前仅显示图片和视频；点击工具栏按钮可显示全部文件。", false)
+		}
 	})
 	setGroup(c, "浏览", func() {
 		if setChoiceHint(c, "enter", "按 Enter 时", "对选中的文件", &a.Settings.EnterOpens, []bool{false, true}, []string{"重命名", "打开/关闭"}) {
@@ -153,7 +161,12 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 			savePrefs(a.Profiles)
 			a.update(func() {})
 		}
-		figureSidebarTree(c, pal, a.Profiles.SidebarTreeRoot)
+		if setToggleHint(c, "sidebar-tree-files", "目录树显示媒体文件", "在侧边栏目录树中同时列出图片和视频", &a.Profiles.SidebarTreeFiles) {
+			a.Profiles.SidebarTreeFoldersOnly = !a.Profiles.SidebarTreeFiles
+			savePrefs(a.Profiles)
+			a.update(func() {})
+		}
+		figureSidebarTree(c, pal, a.Profiles.SidebarTreeRoot, a.Profiles.showTreeFiles())
 	})
 	setGroup(c, "查看器控制栏", func() {
 		a.Profiles.ViewerBar = normalizeBarMode(a.Profiles.ViewerBar)
@@ -177,18 +190,45 @@ func (a *appState) settingsBrowsePage(c *ui.Context, pal *settingsPalette) {
 }
 
 func (a *appState) settingsAdvancedPage(c *ui.Context, pal *settingsPalette) {
+	a.refreshCacheStats(false)
+	if a.Settings.CacheCap <= 0 {
+		a.Settings.CacheCap = cacheCapMiB(thumbLRU.Limit())
+	}
+	if a.Settings.DiskCacheCap <= 0 {
+		a.Settings.DiskCacheCap = float64(normalizeDiskCacheMiB(a.Profiles.DiskCacheMiB))
+	}
+	if a.Settings.ArchiveCacheCap <= 0 {
+		a.Settings.ArchiveCacheCap = float64(normalizeArchiveCacheMiB(a.Profiles.ArchiveCacheMiB))
+	}
 	setGroup(c, "缓存", func() {
-		if setSlider(c, "cache", "缩略图缓存", &a.Settings.CacheCap, 64, 1024, " MiB") {
+		if setSlider(c, "cache", "内存缩略图缓存", &a.Settings.CacheCap, 64, 1024, " MiB") {
 			a.Profiles.ThumbCacheMiB = normalizeThumbCacheMiB(int(a.Settings.CacheCap))
 			thumbLRU.SetLimit(a.Profiles.ThumbCacheMiB << 20)
 			savePrefs(a.Profiles)
 		}
-		usage := fmt.Sprintf("内存 %.0f / %.0f MiB · 磁盘 %.0f MiB",
-			float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), float64(diskThumbs.Size())/(1024*1024))
+		if setSlider(c, "disk-cache", "磁盘缩略图缓存", &a.Settings.DiskCacheCap, 128, 4096, " MiB") {
+			a.Profiles.DiskCacheMiB = normalizeDiskCacheMiB(int(a.Settings.DiskCacheCap))
+			diskThumbs.SetLimit(int64(a.Profiles.DiskCacheMiB) << 20)
+			savePrefs(a.Profiles)
+		}
+		if setSlider(c, "archive-cache", "压缩包缓存", &a.Settings.ArchiveCacheCap, 256, 8192, " MiB") {
+			a.Profiles.ArchiveCacheMiB = normalizeArchiveCacheMiB(int(a.Settings.ArchiveCacheCap))
+			setArchiveCacheLimit(int64(a.Profiles.ArchiveCacheMiB) << 20)
+			safeGo("archiveCache.enforce", enforceArchiveCacheLimit)
+			savePrefs(a.Profiles)
+		}
+		const mib = 1024 * 1024
+		usage := fmt.Sprintf("内存 %.0f/%.0f MiB · 磁盘 %.1f MiB · 压缩包 %.1f MiB",
+			float64(thumbLRU.Size())/mib, float64(thumbLRU.Limit())/mib,
+			float64(a.Settings.DiskThumbBytes+a.Settings.PresenceBytes)/mib, float64(a.Settings.ArchiveBytes)/mib)
 		if setButtonHint(c, "settings-clear-caches", "清理缓存", usage, "清理") {
 			thumbLRU.Clear()
+			clearCoverKeys()
 			diskThumbs.Clear()
+			clearArchiveCache()
+			folderMedia.Clear()
 			sweepTempLeftovers()
+			a.refreshCacheStats(true)
 			logInfof("settings: caches cleared by the user")
 		}
 	})

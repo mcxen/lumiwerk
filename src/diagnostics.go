@@ -85,7 +85,9 @@ func diagnosticReport(a *appState) string {
 	if a != nil {
 		fmt.Fprintf(&b, "root: %s\nlayout: %d largeView: %t\nitems: %d visible: %d selected: %d\n",
 			a.Root, a.LayoutMode, a.InLargeView, len(a.Items), len(a.Visible), a.Selected.Len())
-		fmt.Fprintf(&b, "thumbnailCache: %d entries, %.1f/%.1f MiB, workers: %d\n", thumbLRU.Len(), float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.limit)/(1024*1024), cap(thumbGate))
+		fmt.Fprintf(&b, "thumbnailCache: %d entries, %.1f/%.1f MiB, workers: %d\n", thumbLRU.Len(), float64(thumbLRU.Size())/(1024*1024), float64(thumbLRU.Limit())/(1024*1024), cap(thumbGate))
+		fmt.Fprintf(&b, "diskThumbCache: %.1f/%.1f MiB\n", float64(diskThumbs.FileSize())/(1024*1024), float64(diskThumbs.Limit())/(1024*1024))
+		fmt.Fprintf(&b, "archiveCache: %.1f/%.1f MiB\n", float64(archiveCacheSize())/(1024*1024), float64(archiveCacheLimitBytes())/(1024*1024))
 	}
 	b.WriteString("\nrecent events (newest first):\n")
 	shown := 0

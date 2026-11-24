@@ -99,6 +99,10 @@ type prefsFile struct {
 	// ThumbCacheMiB is the decoded-thumbnail cache budget in MiB. Absent
 	// (0) means the default; normalizePrefs clamps it to 64–1024.
 	ThumbCacheMiB int `json:"thumbCacheMiB,omitempty"`
+	// DiskCacheMiB is the bbolt disk thumbnail cache budget in MiB (128–4096, default 512).
+	DiskCacheMiB int `json:"diskCacheMiB,omitempty"`
+	// ArchiveCacheMiB is the extracted archive cache budget in MiB (256–8192, default 1024).
+	ArchiveCacheMiB int `json:"archiveCacheMiB,omitempty"`
 	// RememberPlayProgress resumes videos where they left off. The zero
 	// value is flipped by RememberPlayOff below so the default stays on.
 	RememberPlayProgress bool `json:"rememberPlayProgress"`
@@ -127,6 +131,16 @@ type prefsFile struct {
 	// treeRootCurrent (default) starts from the opened folder;
 	// treeRootSystem starts from the filesystem root (/).
 	SidebarTreeRoot string `json:"sidebarTreeRoot,omitempty"`
+	// SidebarTreeFiles shows image and video files in the sidebar tree
+	// (inverse of SidebarTreeFoldersOnly so absent fields default to true).
+	SidebarTreeFiles       bool `json:"sidebarTreeFiles"`
+	SidebarTreeFoldersOnly bool `json:"sidebarTreeFoldersOnly,omitempty"`
+	// FilterMode is the toolbar's quick media filter: filterAll (0),
+	// filterImages (1), filterVideos (2), or filterMedia (3, the default).
+	// FilterModeSet distinguishes an explicit filterAll (0) from an absent
+	// field in a fresh or older prefs.json.
+	FilterMode    int  `json:"filterMode,omitempty"`
+	FilterModeSet bool `json:"filterModeSet,omitempty"`
 }
 
 const (
@@ -261,7 +275,17 @@ func normalizePrefs(p *prefsFile) {
 	p.PlaybackEnd = normalizePlaybackEnd(p.PlaybackEnd)
 	p.ViewerBar = normalizeBarMode(p.ViewerBar)
 	p.ThumbCacheMiB = normalizeThumbCacheMiB(p.ThumbCacheMiB)
+	p.DiskCacheMiB = normalizeDiskCacheMiB(p.DiskCacheMiB)
+	p.ArchiveCacheMiB = normalizeArchiveCacheMiB(p.ArchiveCacheMiB)
 	p.SidebarTreeRoot = normalizeSidebarTreeRoot(p.SidebarTreeRoot)
+	// Showing images and videos in the sidebar tree is on unless opted out.
+	p.SidebarTreeFiles = !p.SidebarTreeFoldersOnly
+	if !p.FilterModeSet {
+		p.FilterMode = filterMedia
+		p.FilterModeSet = true
+	} else if p.FilterMode < filterAll || p.FilterMode > filterMedia {
+		p.FilterMode = filterMedia
+	}
 	// Restoring the last session is the expected default for a media
 	// browser; the setting only records an explicit opt-out.
 	p.RestoreSession = !p.RestoreOff
@@ -340,9 +364,37 @@ func normalizeThumbCacheMiB(mib int) int {
 	return mib
 }
 
+func normalizeDiskCacheMiB(mib int) int {
+	switch {
+	case mib <= 0:
+		return int(defaultDiskThumbBudget >> 20)
+	case mib < 128:
+		return 128
+	case mib > 4096:
+		return 4096
+	}
+	return mib
+}
+
+func normalizeArchiveCacheMiB(mib int) int {
+	switch {
+	case mib <= 0:
+		return int(defaultArchiveCacheLimit >> 20)
+	case mib < 256:
+		return 256
+	case mib > 8192:
+		return 8192
+	}
+	return mib
+}
+
 func normalizeSidebarTreeRoot(mode string) string {
 	if mode == treeRootSystem {
 		return treeRootSystem
 	}
 	return treeRootCurrent
+}
+
+func (p *prefsFile) showTreeFiles() bool {
+	return !p.SidebarTreeFoldersOnly
 }

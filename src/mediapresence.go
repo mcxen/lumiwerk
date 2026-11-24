@@ -559,3 +559,27 @@ func resetPresenceCacheForTest() {
 	folderMedia.lastHidden = false
 	folderMedia.diskOnce = sync.Once{}
 }
+
+// DiskSize returns the on-disk size of the media-presence archive in bytes.
+func (c *presenceCache) DiskSize() int64 {
+	info, err := os.Stat(presenceCachePath())
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// Clear drops all cached media-presence entries from memory and removes the on-disk archive.
+func (c *presenceCache) Clear() {
+	c.prewarm.gen.Add(1)
+	c.mu.Lock()
+	c.mem = map[presenceKey]presenceMem{}
+	c.disk = map[presenceKey]presenceDiskRec{}
+	c.archive = map[archiveKey]archiveDir{}
+	c.dirty = false
+	c.saveDue = time.Time{}
+	c.mu.Unlock()
+	p := presenceCachePath()
+	_ = os.Remove(p)
+	_ = os.Remove(p + ".tmp")
+}

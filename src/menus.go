@@ -141,8 +141,12 @@ func menuEntries() []menuEntry {
 			show(func(s *menuScope) bool { return s.Many() }).
 			off(func(*menuScope) bool { return true }),
 		menuItem("open", surfItem, "", "打开", func(a *appState, s *menuScope) {
-			if s.Sidebar && isDir(a.menuPath) {
-				a.openFolder(a.menuPath)
+			if s.Sidebar {
+				if isDir(a.menuPath) {
+					a.openFolder(a.menuPath)
+				} else {
+					a.openTreeFile(a.menuPath, true)
+				}
 			} else {
 				a.openItem(a.Chosen)
 			}
@@ -355,6 +359,8 @@ func (a *appState) menuScopeFor(surface menuSurface) *menuScope {
 		s.Sidebar = true
 		if isDir(a.menuPath) {
 			s.Folder = a.menuPath
+		} else {
+			s.Folder = filepath.Dir(a.menuPath)
 		}
 	}
 	s.Paths = a.operationPaths()

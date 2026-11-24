@@ -134,6 +134,11 @@ var mpvTunedOptions = [][]string{
 	{"zimg-fast", "yes"},
 	{"hr-seek-framedrop", "yes"},
 	{"demuxer-readahead-secs", "2"},
+	{"load-scripts", "no"},
+	{"osc", "no"},
+	{"ytdl", "no"},
+	{"sub-auto", "no"},
+	{"audio-file-auto", "no"},
 }
 
 func newMPVBackend() (playbackBackend, error) {
@@ -312,10 +317,9 @@ func (b *mpvBackend) eventLoop() {
 		case mpv.EventPropertyChange:
 			b.applyProperty(ev.Property())
 		case mpv.EventFileLoaded:
-			b.chooseDecoder(core)
-			b.markLoaded(core)
+			b.markLoaded(core, true)
 		case mpv.EventVideoReconfig:
-			b.markLoaded(core)
+			b.markLoaded(core, false)
 		}
 	}
 }
@@ -326,11 +330,15 @@ func (b *mpvBackend) eventLoop() {
 // or tracks as the first never got them back: the render loop waited for a
 // size forever and the view stayed on "loading". It runs on the event
 // goroutine, never on the UI thread.
-func (b *mpvBackend) markLoaded(core *mpv.Mpv) {
+func (b *mpvBackend) markLoaded(core *mpv.Mpv, selectDecoder bool) {
+	tracks, _ := core.GetProperty("track-list", mpv.FormatNode)
+	list, hasTracks := tracks.([]any)
+	if selectDecoder && hasTracks {
+		b.chooseDecoder(core, list)
+	}
 	width, _ := core.GetProperty("dwidth", mpv.FormatInt64)
 	height, _ := core.GetProperty("dheight", mpv.FormatInt64)
 	duration, _ := core.GetProperty("duration", mpv.FormatDouble)
-	tracks, _ := core.GetProperty("track-list", mpv.FormatNode)
 	b.st.mu.Lock()
 	if !b.st.accepting {
 		b.st.mu.Unlock()
@@ -345,7 +353,7 @@ func (b *mpvBackend) markLoaded(core *mpv.Mpv) {
 	if d := mpvFloat(duration); d > 0 {
 		b.st.duration = d
 	}
-	if list, ok := tracks.([]any); ok {
+	if hasTracks {
 		b.st.audioTracks, b.st.videoTracks = mpvParseTracks(list)
 	}
 	b.st.loaded = true
@@ -365,9 +373,7 @@ var mpvHardwareDecoders = []string{"auto-copy-safe", "auto-copy"}
 
 // chooseDecoder turns on hardware decoding for this file only (it resets
 // on the next loadfile) when its video track is too large for the CPU.
-func (b *mpvBackend) chooseDecoder(core *mpv.Mpv) {
-	tracks, _ := core.GetProperty("track-list", mpv.FormatNode)
-	list, _ := tracks.([]any)
+func (b *mpvBackend) chooseDecoder(core *mpv.Mpv, list []any) {
 	if mpvSelectedVideoPixels(list) <= mpvSoftwareDecodePixels {
 		return
 	}
@@ -515,18 +521,25 @@ func (b *mpvBackend) beginLoad() {
 func (b *mpvBackend) Open(path string, at float64, playing bool) error {
 	b.SetPlaying(playing)
 	b.beginLoad()
-	command := "loadfile " + strconv.Quote(path) + " replace -1"
+	var opts []string
 	if at > 0 {
-		command += " start=" + strconv.FormatFloat(at, 'f', 3, 64)
+		opts = append(opts, "start="+strconv.FormatFloat(at, 'f', 3, 64))
+	}
+	if !playing {
+		opts = append(opts, "pause=yes")
+	}
+	cmd := []string{"loadfile", path, "replace", "-1"}
+	if len(opts) > 0 {
+		cmd = append(cmd, strings.Join(opts, ","))
 	}
 	var err error
-	if !b.withCore(func(core *mpv.Mpv) { err = core.CommandString(command) }) {
+	if !b.withCore(func(core *mpv.Mpv) { err = core.CommandAsync(0, cmd) }) {
 		return fmt.Errorf("mpv closed")
 	}
 	if err != nil {
 		return fmt.Errorf("mpv loadfile: %w", err)
 	}
-	// loadfile can clear a pause that was set before the file was current.
+	// Keep pause synced even if loadfile options ignore pause on older cores.
 	if !playing {
 		b.SetPlaying(false)
 	}

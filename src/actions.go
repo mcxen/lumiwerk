@@ -1017,6 +1017,9 @@ func (a *appState) folderContextMenu(m *ui.Menu, path string) {
 func (a *appState) historyContextMenu(m *ui.Menu, path string) {
 	a.folderContextMenu(m, path)
 	m.Separator()
+	if m.Item("从历史中移除").Chosen() {
+		a.removeHistoryEntry(path)
+	}
 	if m.Item("清除历史记录").Chosen() {
 		a.clearHistory()
 	}

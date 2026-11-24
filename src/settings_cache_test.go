@@ -14,15 +14,42 @@ import (
 // that empties it and sweeps the temporaries of crashed runs.
 func TestAdvancedSettingsClearsCaches(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	resetPresenceCacheForTest()
+	t.Cleanup(func() {
+		resetPresenceCacheForTest()
+		diskThumbs.Close()
+		diskThumbs.SetLimit(defaultDiskThumbBudget)
+		setArchiveCacheLimit(defaultArchiveCacheLimit)
+	})
+	archRoot := filepath.Join(t.TempDir(), "archives")
+	origArchRoot := archiveCacheRoot
+	t.Cleanup(func() { archiveCacheRoot = origArchRoot })
+	archiveCacheRoot = func() string { return archRoot }
+
 	a := &appState{Chosen: -1, LargeIndex: -1, Thumb: 192}
 	a.Profiles = loadPrefs()
+	a.openSettings()
 	a.Settings.Pane = 4 // 高级
 
-	// A cached thumbnail and a stale temp file, both gone after the click.
-	// The cache is global; other tests' entries must not confuse the count.
+	// A cached thumbnail, disk thumb, archive dir, presence cache and a stale temp file.
 	thumbLRU.Clear()
 	bmp := ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 4, 4)))
 	thumbLRU.Put("stale", bmp, 128)
+
+	sample := filepath.Join(t.TempDir(), "pic.jpg")
+	if err := os.WriteFile(sample, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diskThumbs.Put(sample, 192, make([]byte, 512))
+	if err := os.MkdirAll(filepath.Join(archRoot, "k1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archRoot, "k1", "a.bin"), make([]byte, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	folderMedia.HasSync(filepath.Dir(sample), mediaKindImage, false)
+	folderMedia.flushDisk()
+
 	dir := t.TempDir()
 	origTempDir := osTempDir
 	t.Cleanup(func() { osTempDir = origTempDir })
@@ -36,15 +63,17 @@ func TestAdvancedSettingsClearsCaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	te := ui.NewTester(func(c *ui.Context) { a.settingsAdvancedPage(c, settingsPaletteFor(c)) }, 900, 640)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsAdvancedPage(c, settingsPaletteFor(c)) }, 900, 720)
 	te.Frame()
 	te.Frame()
-	if !te.HasText("清理缓存") || !te.HasText("清理") {
-		t.Fatalf("cache cleanup section missing: %q", te.Texts())
+	for _, want := range []string{"清理缓存", "内存缩略图缓存", "磁盘缩略图缓存", "压缩包缓存", "清理"} {
+		if !te.HasText(want) {
+			t.Fatalf("missing %q in %q", want, te.Texts())
+		}
 	}
 
-	if thumbLRU.Len() != 1 {
-		t.Fatalf("cache holds %d entries, want 1", thumbLRU.Len())
+	if thumbLRU.Len() != 1 || diskThumbs.Size() == 0 || archiveCacheSize() == 0 {
+		t.Fatalf("precondition unexpected: mem=%d disk=%d arch=%d", thumbLRU.Len(), diskThumbs.Size(), archiveCacheSize())
 	}
 	if err := te.Click("清理"); err != nil {
 		t.Fatalf("cleanup button not clickable: %v", err)
@@ -52,7 +81,10 @@ func TestAdvancedSettingsClearsCaches(t *testing.T) {
 	te.Frame()
 
 	if thumbLRU.Len() != 0 || thumbLRU.Size() != 0 {
-		t.Fatalf("cache not cleared: %d entries, %d bytes", thumbLRU.Len(), thumbLRU.Size())
+		t.Fatalf("mem cache not cleared: %d entries, %d bytes", thumbLRU.Len(), thumbLRU.Size())
+	}
+	if diskThumbs.Size() != 0 || archiveCacheSize() != 0 || folderMedia.DiskSize() != 0 {
+		t.Fatalf("disk caches not cleared: disk=%d arch=%d pres=%d", diskThumbs.Size(), archiveCacheSize(), folderMedia.DiskSize())
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("stale temp survived the cleanup: %v", err)

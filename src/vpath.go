@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -285,11 +286,29 @@ var archiveCacheRoot = func() string {
 // RAR rescans it; beyond the limit members are extracted one at a time.
 const extractAllLimit = 2 << 30
 
+const defaultArchiveCacheLimit = int64(1024 << 20)
+
 var (
-	extractMu    sync.Mutex
-	extractLocks = map[string]*sync.Mutex{}
-	cacheSwept   sync.Once
+	extractMu         sync.Mutex
+	extractLocks      = map[string]*sync.Mutex{}
+	cacheSwept        sync.Once
+	archiveCacheLimit atomic.Int64
+	archiveEnforceMu  sync.Mutex
 )
+
+func archiveCacheLimitBytes() int64 {
+	if v := archiveCacheLimit.Load(); v > 0 {
+		return v
+	}
+	return defaultArchiveCacheLimit
+}
+
+func setArchiveCacheLimit(limit int64) {
+	if limit <= 0 {
+		limit = defaultArchiveCacheLimit
+	}
+	archiveCacheLimit.Store(limit)
+}
 
 func extractLock(key string) *sync.Mutex {
 	extractMu.Lock()
@@ -307,21 +326,101 @@ func archiveCacheDir(key listKey) string {
 	return filepath.Join(archiveCacheRoot(), hex.EncodeToString(sum[:8]))
 }
 
-// sweepArchiveCache drops cached archives not touched for a week, once per run.
+// sweepArchiveCache drops expired and oversized cached archive folders once per run.
 func sweepArchiveCache() {
 	cacheSwept.Do(func() {
-		root := archiveCacheRoot()
-		dirs, err := os.ReadDir(root)
-		if err != nil {
-			return
-		}
-		cutoff := time.Now().Add(-7 * 24 * time.Hour)
-		for _, d := range dirs {
-			if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
-				_ = os.RemoveAll(filepath.Join(root, d.Name()))
-			}
-		}
+		enforceArchiveCacheLimit()
 	})
+}
+
+func dirBytes(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// archiveCacheSize returns the total bytes stored under archiveCacheRoot.
+func archiveCacheSize() int64 {
+	return dirBytes(archiveCacheRoot())
+}
+
+// clearArchiveCache removes all cached archive extractions and clears directory listings.
+func clearArchiveCache() {
+	archiveEnforceMu.Lock()
+	defer archiveEnforceMu.Unlock()
+	root := archiveCacheRoot()
+	if entries, err := os.ReadDir(root); err == nil {
+		for _, e := range entries {
+			_ = os.RemoveAll(filepath.Join(root, e.Name()))
+		}
+	}
+	listMu.Lock()
+	listCache = map[listKey][]archiveEntry{}
+	listMu.Unlock()
+}
+
+// enforceArchiveCacheLimit deletes entries older than a week and evicts the
+// oldest archive directories down to 80% of archiveCacheLimitBytes when over budget.
+func enforceArchiveCacheLimit() {
+	archiveEnforceMu.Lock()
+	defer archiveEnforceMu.Unlock()
+	root := archiveCacheRoot()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
+	type cachedDir struct {
+		path  string
+		mtime time.Time
+		size  int64
+	}
+	var live []cachedDir
+	var total int64
+	for _, e := range entries {
+		p := filepath.Join(root, e.Name())
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = os.RemoveAll(p)
+			continue
+		}
+		sz := info.Size()
+		if e.IsDir() {
+			sz = dirBytes(p)
+		}
+		live = append(live, cachedDir{path: p, mtime: info.ModTime(), size: sz})
+		total += sz
+	}
+	limit := archiveCacheLimitBytes()
+	if total <= limit {
+		return
+	}
+	// Oldest mtime first.
+	for i := 1; i < len(live); i++ {
+		for j := i; j > 0 && live[j].mtime.Before(live[j-1].mtime); j-- {
+			live[j], live[j-1] = live[j-1], live[j]
+		}
+	}
+	target := limit * 8 / 10
+	for _, item := range live {
+		if total <= target {
+			break
+		}
+		if err := os.RemoveAll(item.path); err == nil {
+			total -= item.size
+		}
+	}
 }
 
 var errNoSuchEntry = errors.New("压缩包里没有这个文件")
@@ -339,14 +438,19 @@ func realPath(p string) (string, error) {
 		return "", err
 	}
 	sweepArchiveCache()
-	dest := filepath.Join(archiveCacheDir(key), filepath.FromSlash(inner))
+	dir := archiveCacheDir(key)
+	dest := filepath.Join(dir, filepath.FromSlash(inner))
 	if cachedFile(dest) {
+		now := time.Now()
+		_ = os.Chtimes(dir, now, now)
 		return dest, nil
 	}
 	lock := extractLock(archive)
 	lock.Lock()
 	defer lock.Unlock()
 	if cachedFile(dest) {
+		now := time.Now()
+		_ = os.Chtimes(dir, now, now)
 		return dest, nil
 	}
 	if isZipName(filepath.Base(archive)) {
@@ -357,6 +461,9 @@ func realPath(p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	now := time.Now()
+	_ = os.Chtimes(dir, now, now)
+	safeGo("archiveCache.enforce", enforceArchiveCacheLimit)
 	return dest, nil
 }
 

@@ -46,7 +46,7 @@ func TestSettingsPagesRenderAndNavigate(t *testing.T) {
 func TestSettingsBrowseControlsPersist(t *testing.T) {
 	a := newSettingsTestState(t)
 	a.setPage("browse")
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1150)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1220)
 	te.Frame()
 	if err := te.Click("打开/关闭"); err != nil {
 		t.Fatal(err)
@@ -139,10 +139,13 @@ func TestSettingsSidebarTreeRootPersists(t *testing.T) {
 	a.setPage("browse")
 	a.treeOpenRoot = "/tmp/a"
 	a.treeBaseRoot = "/tmp/a"
-	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1100)
+	te := ui.NewTester(func(c *ui.Context) { a.settingsBody(c) }, 780, 1220)
 	te.Frame()
 	if a.Profiles.SidebarTreeRoot != treeRootCurrent {
 		t.Fatalf("default = %q, want %q", a.Profiles.SidebarTreeRoot, treeRootCurrent)
+	}
+	if !a.Profiles.SidebarTreeFiles {
+		t.Fatal("default SidebarTreeFiles = false, want true")
 	}
 	if err := te.Click(rootName); err != nil {
 		t.Fatal(err)
@@ -160,5 +163,14 @@ func TestSettingsSidebarTreeRootPersists(t *testing.T) {
 	te.Frame()
 	if got := loadPrefs().SidebarTreeRoot; got != treeRootCurrent {
 		t.Fatalf("restored mode = %q, want %q", got, treeRootCurrent)
+	}
+	sw, ok := te.AccessByRole(ui.RoleSwitch, "目录树显示媒体文件")
+	if !ok {
+		t.Fatalf("switch access node missing")
+	}
+	te.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
+	te.Frame()
+	if a.Profiles.SidebarTreeFiles || !loadPrefs().SidebarTreeFoldersOnly {
+		t.Fatalf("toggling sidebar tree files failed: show=%v foldersOnly=%v", a.Profiles.SidebarTreeFiles, loadPrefs().SidebarTreeFoldersOnly)
 	}
 }

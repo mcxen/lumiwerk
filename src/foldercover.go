@@ -204,6 +204,12 @@ var coverKeys = struct {
 
 func coverKeyID(path string, edge int) string { return fmt.Sprintf("%s#%d", path, thumbBand(edge)) }
 
+func clearCoverKeys() {
+	coverKeys.Lock()
+	coverKeys.m = map[string]string{}
+	coverKeys.Unlock()
+}
+
 func rememberCoverKey(path string, edge int, key string) {
 	coverKeys.Lock()
 	defer coverKeys.Unlock()
