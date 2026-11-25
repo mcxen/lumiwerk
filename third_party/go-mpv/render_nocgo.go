@@ -1,8 +1,7 @@
-//go:build !cgo || nocgo
-
 package mpv
 
 import (
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -99,6 +98,8 @@ func (m *Mpv) NewRenderContextSW() (*RenderContext, error) {
 
 	var ctx uintptr
 	err := newError(renderContextCreate(unsafe.Pointer(&ctx), m.handle, unsafe.Pointer(&params[0])))
+	runtime.KeepAlive(apiType)
+	runtime.KeepAlive(params)
 	if err != nil {
 		unregisterRenderCallbacks(id)
 		return nil, err
@@ -125,6 +126,9 @@ func (m *Mpv) NewRenderContextGL(getProcAddress func(name string) unsafe.Pointer
 
 	var ctx uintptr
 	err := newError(renderContextCreate(unsafe.Pointer(&ctx), m.handle, unsafe.Pointer(&params[0])))
+	runtime.KeepAlive(apiType)
+	runtime.KeepAlive(gl)
+	runtime.KeepAlive(params)
 	if err != nil {
 		unregisterRenderCallbacks(id)
 		return nil, err
@@ -147,7 +151,13 @@ func (rc *RenderContext) RenderSW(width, height, stride int, format string, buf 
 		{},
 	}
 
-	return newError(renderContextRender(rc.ctx, unsafe.Pointer(&params[0])))
+	err := newError(renderContextRender(rc.ctx, unsafe.Pointer(&params[0])))
+	runtime.KeepAlive(size)
+	runtime.KeepAlive(cformat)
+	runtime.KeepAlive(cstride)
+	runtime.KeepAlive(buf)
+	runtime.KeepAlive(params)
+	return err
 }
 
 // RenderGL renders the current frame into the given OpenGL framebuffer object
@@ -164,7 +174,11 @@ func (rc *RenderContext) RenderGL(fbo, width, height int, flipY bool) error {
 		{},
 	}
 
-	return newError(renderContextRender(rc.ctx, unsafe.Pointer(&params[0])))
+	err := newError(renderContextRender(rc.ctx, unsafe.Pointer(&params[0])))
+	runtime.KeepAlive(gl)
+	runtime.KeepAlive(flip)
+	runtime.KeepAlive(params)
+	return err
 }
 
 // SetUpdateCallback sets fn to run when a new frame is ready. fn runs on an mpv
@@ -187,6 +201,7 @@ func (rc *RenderContext) ReportSwap() {
 
 // Free destroys the render context. Call it before the mpv core is destroyed.
 func (rc *RenderContext) Free() {
+	renderContextSetUpdateCallback(rc.ctx, 0, 0)
 	renderContextFree(rc.ctx)
 	unregisterRenderCallbacks(rc.cbID)
 }

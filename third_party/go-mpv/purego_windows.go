@@ -1,4 +1,4 @@
-//go:build (!cgo || nocgo) && windows
+//go:build windows
 
 package mpv
 

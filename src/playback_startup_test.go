@@ -3,6 +3,7 @@ package main
 import (
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -140,4 +141,170 @@ func TestFFmpegOpenPopulatesFirstFrameAndResetsDuration(t *testing.T) {
 	if d := b.Duration(); d < 0.8 || d > 1.2 {
 		t.Fatalf("one.mp4 duration after reuse = %v, want ~1s (stale duration kept?)", d)
 	}
+}
+
+func TestParkedVideoClosesAfterIdleTimeout(t *testing.T) {
+	origTimeout := videoParkIdleTimeout
+	videoParkIdleTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { videoParkIdleTimeout = origTimeout })
+
+	var uiMu sync.Mutex
+	hook := func(fn func()) {
+		uiMu.Lock()
+		fn()
+		uiMu.Unlock()
+	}
+	prev := headlessUpdate.Load()
+	headlessUpdate.Store(&hook)
+	t.Cleanup(func() { headlessUpdate.Store(prev) })
+
+	stub := &stubBackend{name: "stub", path: "/tmp/clip.mp4", playing: true}
+	kernel := newPlaybackSession()
+	kernel.backend = stub
+	kernel.path = stub.path
+	a := &appState{
+		Chosen:     -1,
+		LargeIndex: -1,
+		Video:      &videoView{kernel: kernel, path: stub.path},
+	}
+
+	uiMu.Lock()
+	a.parkVideo()
+	uiMu.Unlock()
+	if stub.closes.Load() != 0 {
+		t.Fatal("parked backend closed immediately instead of waiting for idle timeout")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		uiMu.Lock()
+		closedVideo := a.Video == nil
+		uiMu.Unlock()
+		if stub.closes.Load() == 1 && closedVideo {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("parked backend did not auto-close after idle timeout: closes=%d", stub.closes.Load())
+}
+
+func TestReopeningBeforeIdleTimeoutCancelsParkedClose(t *testing.T) {
+	origTimeout := videoParkIdleTimeout
+	videoParkIdleTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { videoParkIdleTimeout = origTimeout })
+
+	var uiMu sync.Mutex
+	hook := func(fn func()) {
+		uiMu.Lock()
+		fn()
+		uiMu.Unlock()
+	}
+	prev := headlessUpdate.Load()
+	headlessUpdate.Store(&hook)
+	t.Cleanup(func() { headlessUpdate.Store(prev) })
+
+	stub := &stubBackend{name: "stub", path: "/tmp/first.mp4", playing: true}
+	kernel := newPlaybackSession()
+	kernel.backend = stub
+	kernel.path = stub.path
+	a := &appState{
+		Chosen:     -1,
+		LargeIndex: -1,
+		Video:      &videoView{kernel: kernel, path: stub.path},
+	}
+
+	uiMu.Lock()
+	a.parkVideo()
+	a.openPlayback("/tmp/reopen.mp4", 0, false)
+	uiMu.Unlock()
+
+	time.Sleep(140 * time.Millisecond)
+
+	uiMu.Lock()
+	defer uiMu.Unlock()
+	if stub.closes.Load() != 0 {
+		t.Fatalf("expected reopen to cancel idle close, got closes=%d", stub.closes.Load())
+	}
+	if a.Video == nil || a.Video.path != "/tmp/reopen.mp4" {
+		t.Fatalf("unexpected Video after reopen: %+v", a.Video)
+	}
+}
+
+func TestWarmedBackendReleasesAfterIdleTimeout(t *testing.T) {
+	origTimeout := videoParkIdleTimeout
+	videoParkIdleTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { videoParkIdleTimeout = origTimeout })
+
+	origProbe := playbackProbe
+	stub := &stubBackend{name: "warmed"}
+	playbackProbe = func() (playbackBackend, error) { return stub, nil }
+	t.Cleanup(func() { playbackProbe = origProbe })
+
+	a := &appState{Chosen: -1, LargeIndex: -1}
+	t.Cleanup(a.closeWarmedVideo)
+
+	a.warmPlaybackBackend()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if stub.closes.Load() == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if stub.closes.Load() != 1 {
+		t.Fatalf("warmed backend did not auto-close after idle timeout: closes=%d", stub.closes.Load())
+	}
+	if got := a.takeWarmedBackend(); got != nil {
+		t.Fatalf("expected nil warmed backend after idle release, got %v", got)
+	}
+}
+
+func TestFFmpegFallbackSkipsMygoAudioOnDarwin(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin-only AudioQueue bypass check")
+	}
+	if allowFallbackAudio {
+		t.Fatal("allowFallbackAudio must default to false on darwin")
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+
+	origOpenSound := openPlaybackSound
+	openPlaybackSound = func(path string, at, speed float64) (*soundtrack, error) {
+		t.Fatal("openPlaybackSound must not be called on darwin")
+		return nil, nil
+	}
+	t.Cleanup(func() { openPlaybackSound = origOpenSound })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.mp4")
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc=duration=1:size=96x64:rate=10",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+		"-c:v", "mpeg4", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create sample video: %v\n%s", err, out)
+	}
+
+	b, err := newFFmpegBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	if err := b.Open(path, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	b.SetPlaying(true)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = b.Frame()
+		if b.Position() > 0 {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatalf("ffmpeg fallback clock did not advance silently on darwin: pos=%v", b.Position())
 }

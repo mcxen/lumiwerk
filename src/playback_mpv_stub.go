@@ -1,13 +1,12 @@
-//go:build !android && !ios && !mpvbackend
+//go:build android || ios || nompv
 
 package main
 
 import "errors"
 
-// newMPVBackend is the stub for builds without the mpvbackend tag. The
-// go-mpv package loads libmpv in its package init and panics when the
-// library is missing, so it is compiled in only when building a release
-// that bundles libmpv; everything else falls back to FFmpeg playback.
+// newMPVBackend is the stub for targets without desktop libmpv support
+// (mobile targets or builds opting out via -tags nompv). Desktop builds
+// compile libmpv in by default and load it lazily on first playback.
 func newMPVBackend() (playbackBackend, error) {
 	return nil, errors.New("libmpv support not compiled in")
 }

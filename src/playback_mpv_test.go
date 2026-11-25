@@ -1,4 +1,4 @@
-//go:build mpvbackend
+//go:build !android && !ios && !nompv
 
 package main
 
@@ -240,5 +240,43 @@ func TestMPVSelectedVideoPixels(t *testing.T) {
 	}
 	if got := mpvSelectedVideoPixels(nil); got != 0 {
 		t.Fatalf("empty list = %d", got)
+	}
+}
+
+func TestMPVParkAndCloseTeardownCleanly(t *testing.T) {
+	video := mpvTestClip(t, 30)
+	backend, err := newMPVBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb := backend.(*mpvBackend)
+	if err := backend.Open(video, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if backend.Frame() != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mb.Park()
+	if err := backend.Open(video, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if backend.Frame() != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-mb.renderDone:
+	default:
+		t.Fatal("render loop did not exit before Close returned")
 	}
 }

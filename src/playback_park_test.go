@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"sync/atomic"
 	"testing"
 )
 
@@ -9,6 +10,7 @@ type stubBackend struct {
 	name            string
 	parked, playing bool
 	path            string
+	closes          atomic.Int32
 }
 
 func (b *stubBackend) Name() string { return b.name }
@@ -18,7 +20,7 @@ func (b *stubBackend) Open(path string, at float64, playing bool) error {
 	b.parked = false
 	return nil
 }
-func (b *stubBackend) Close() error             { b.path = ""; return nil }
+func (b *stubBackend) Close() error             { b.closes.Add(1); b.path = ""; return nil }
 func (b *stubBackend) Frame() image.Image       { return nil }
 func (b *stubBackend) Position() float64        { return 0 }
 func (b *stubBackend) Duration() float64        { return 0 }

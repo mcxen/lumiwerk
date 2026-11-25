@@ -759,7 +759,52 @@ func (a *appState) shutdownVideo() {
 	}
 }
 
+var videoParkIdleTimeout = 30 * time.Second
+
+func (a *appState) cancelVideoParkTimer() {
+	if a == nil {
+		return
+	}
+	a.videoParkMu.Lock()
+	a.videoParkSeq++
+	if a.videoParkTimer != nil {
+		a.videoParkTimer.Stop()
+		a.videoParkTimer = nil
+	}
+	a.videoParkMu.Unlock()
+}
+
+func (a *appState) scheduleVideoParkRelease() {
+	if a == nil || videoParkIdleTimeout <= 0 {
+		return
+	}
+	a.videoParkMu.Lock()
+	a.videoParkSeq++
+	seq := a.videoParkSeq
+	if a.videoParkTimer != nil {
+		a.videoParkTimer.Stop()
+	}
+	a.videoParkTimer = time.AfterFunc(videoParkIdleTimeout, func() {
+		a.update(func() { a.releaseParkedVideoIfIdle(seq) })
+	})
+	a.videoParkMu.Unlock()
+}
+
+func (a *appState) releaseParkedVideoIfIdle(seq int) {
+	a.videoParkMu.Lock()
+	if seq != a.videoParkSeq {
+		a.videoParkMu.Unlock()
+		return
+	}
+	a.videoParkTimer = nil
+	a.videoParkMu.Unlock()
+	if a.Video != nil && a.Video.path == "" {
+		a.closeVideo()
+	}
+}
+
 func (a *appState) closeVideo() {
+	a.cancelVideoParkTimer()
 	a.flushPlayProgress()
 	a.shutdownVideo()
 	a.Video = nil
@@ -884,6 +929,7 @@ func (a *appState) openPlayback(path string, at float64, playing bool) {
 	if path == "" {
 		return
 	}
+	a.cancelVideoParkTimer()
 	// Save the previous clip before retargeting the backend.
 	if a.Video != nil && a.Video.path != "" && pathKey(a.Video.path) != pathKey(path) {
 		a.flushPlayProgress()
@@ -965,6 +1011,7 @@ func (a *appState) warmPlaybackBackend() {
 	a.warmVideoStarted = true
 	done := make(chan struct{})
 	a.warmVideoDone = done
+	idle := videoParkIdleTimeout
 	a.warmVideoMu.Unlock()
 
 	safeGo("video.warm", func() {
@@ -982,7 +1029,36 @@ func (a *appState) warmPlaybackBackend() {
 			return
 		}
 		a.warmVideoBackend = backend
+		if idle > 0 {
+			if a.warmVideoTimer != nil {
+				a.warmVideoTimer.Stop()
+			}
+			a.warmVideoTimer = time.AfterFunc(idle, func() {
+				a.releaseWarmedVideoIfUnused()
+			})
+		}
 	})
+}
+
+func (a *appState) releaseWarmedVideoIfUnused() {
+	if a == nil {
+		return
+	}
+	a.warmVideoMu.Lock()
+	if a.warmVideoTimer != nil {
+		a.warmVideoTimer.Stop()
+		a.warmVideoTimer = nil
+	}
+	b := a.warmVideoBackend
+	a.warmVideoBackend = nil
+	if b != nil {
+		a.warmVideoStarted = false
+		a.warmVideoDone = nil
+	}
+	a.warmVideoMu.Unlock()
+	if b != nil {
+		_ = b.Close()
+	}
 }
 
 // takeWarmedBackend returns a pre-warmed backend (waiting briefly if one is
@@ -998,6 +1074,10 @@ func (a *appState) takeWarmedBackend() playbackBackend {
 	}
 	if b := a.warmVideoBackend; b != nil {
 		a.warmVideoBackend = nil
+		if a.warmVideoTimer != nil {
+			a.warmVideoTimer.Stop()
+			a.warmVideoTimer = nil
+		}
 		a.warmVideoMu.Unlock()
 		return b
 	}
@@ -1018,6 +1098,10 @@ func (a *appState) takeWarmedBackend() playbackBackend {
 	}
 	b := a.warmVideoBackend
 	a.warmVideoBackend = nil
+	if a.warmVideoTimer != nil {
+		a.warmVideoTimer.Stop()
+		a.warmVideoTimer = nil
+	}
 	return b
 }
 
@@ -1028,6 +1112,10 @@ func (a *appState) closeWarmedVideo() {
 	}
 	a.warmVideoMu.Lock()
 	a.warmVideoClosed = true
+	if a.warmVideoTimer != nil {
+		a.warmVideoTimer.Stop()
+		a.warmVideoTimer = nil
+	}
 	b := a.warmVideoBackend
 	a.warmVideoBackend = nil
 	a.warmVideoMu.Unlock()
@@ -1050,6 +1138,7 @@ func (a *appState) parkVideo() {
 	a.Video.Still = nil
 	a.Video.err = nil
 	a.playerEndSeen = false
+	a.scheduleVideoParkRelease()
 }
 
 func (a *appState) presentVideo(c *ui.Context, snapshot playbackSnapshot) *ui.Bitmap {

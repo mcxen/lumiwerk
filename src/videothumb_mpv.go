@@ -1,4 +1,4 @@
-//go:build !android && !ios && mpvbackend
+//go:build !android && !ios && !nompv
 
 package main
 

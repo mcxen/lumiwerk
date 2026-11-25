@@ -1,4 +1,4 @@
-//go:build !android && !ios && mpvbackend
+//go:build !android && !ios && !nompv
 
 package main
 
@@ -85,23 +85,59 @@ type mpvState struct {
 
 func init() {
 	// The bundled dylibs ship among the app's resources (Contents/Resources
-	// in a macOS bundle, the executable's directory elsewhere). The loader
-	// tries those before the bare system names; a dev run without the
-	// bundle falls back to a system libmpv if one is installed.
-	mpv.SetSearchPaths(func() []string {
-		var dirs []string
-		if dir, err := mygo.App.Path(mygo.PathResources); err == nil && dir != "" {
-			dirs = append(dirs, dir)
+	// in a macOS bundle, the executable's directory elsewhere), plus the repo's
+	// resources/<platform> folder during local `go run`/`go test`. The loader
+	// tries those before bare system names and Homebrew's libmpv.
+	mpv.SetSearchPaths(mpvResourceDirs)
+}
+
+func mpvResourceDirs() []string {
+	var dirs []string
+	seen := map[string]bool{}
+	add := func(dir string) {
+		if dir == "" {
+			return
 		}
-		if exe, err := os.Executable(); err == nil {
-			dirs = append(dirs, filepath.Dir(exe))
+		dir = filepath.Clean(dir)
+		if seen[dir] {
+			return
 		}
-		// Only universal macOS builds ship resources/darwin-universal; a
-		// local single-arch build has no bundled libmpv and used to fall
-		// back to FFmpeg playback. Homebrew's libmpv (brew install mpv)
-		// keeps those builds on libmpv.
-		return append(dirs, mpvSystemDirs...)
-	})
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	addExisting := func(dir string) {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			add(dir)
+		}
+	}
+	if dir, err := mygo.App.Path(mygo.PathResources); err == nil {
+		add(dir)
+	}
+	sub := runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "darwin" {
+		sub = "darwin-universal"
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		add(exeDir)
+		cur := exeDir
+		for range 5 {
+			addExisting(filepath.Join(cur, "resources", sub))
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				break
+			}
+			cur = parent
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		addExisting(filepath.Join(wd, "resources", sub))
+		addExisting(filepath.Join(wd, "..", "resources", sub))
+	}
+	for _, dir := range mpvSystemDirs {
+		add(dir)
+	}
+	return dirs
 }
 
 // mpvSystemDirs are tried after the app's own copy: Homebrew on Apple
@@ -139,6 +175,7 @@ var mpvTunedOptions = [][]string{
 	{"ytdl", "no"},
 	{"sub-auto", "no"},
 	{"audio-file-auto", "no"},
+	{"audio-stream-silence", "no"},
 }
 
 func newMPVBackend() (playbackBackend, error) {
@@ -550,6 +587,11 @@ func (b *mpvBackend) Close() error {
 	b.stop.Do(func() {
 		close(b.closed)
 		b.withCore(func(core *mpv.Mpv) { core.Wakeup() })
+		select {
+		case <-b.renderDone:
+		case <-time.After(2 * time.Second):
+			logWarnf("video.mpv.close: timed out waiting for render loop shutdown")
+		}
 	})
 	return nil
 }

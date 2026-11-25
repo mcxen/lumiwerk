@@ -1,5 +1,3 @@
-//go:build !cgo || nocgo
-
 package mpv
 
 import "testing"

@@ -7,6 +7,7 @@ import (
 	"image"
 	"io"
 	"math"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -651,6 +652,15 @@ type ffmpegBackend struct {
 	stalled      bool
 }
 
+// allowFallbackAudio guards ffmpegBackend's mygo/audio output. On macOS,
+// mygo@v0.8.3/audio/output_darwin.go invokes a purego callback directly on
+// CoreAudio's HAL thread with unsynchronized AudioQueueDispose teardown,
+// causing audio context leaks, freezes, and post-idle SIGSEGV crashes.
+// Desktop macOS builds use libmpv's C CoreAudio output instead; if libmpv
+// is ever absent, keep fallback playback silent rather than touching AudioQueue.
+var allowFallbackAudio = runtime.GOOS != "darwin"
+var fallbackAudioWarnOnce sync.Once
+
 var openPlaybackSound = func(path string, at, speed float64) (*soundtrack, error) {
 	return newSoundtrackRate(path, at, speed)
 }
@@ -783,7 +793,7 @@ func (b *ffmpegBackend) watchSound(sound *soundtrack, generation int) {
 		err := playbackSoundPrime(sound)
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		if b.generation != generation || b.sound != sound {
+		if b.closed || b.generation != generation || b.sound != sound {
 			_ = sound.Close()
 			return
 		}
@@ -818,6 +828,14 @@ func (b *ffmpegBackend) restartAudioLocked() {
 		return
 	}
 	at := b.clock.origin
+	if !allowFallbackAudio {
+		fallbackAudioWarnOnce.Do(func() {
+			logWarnf("video.audio: disabled mygo/audio AudioQueue fallback on macOS to avoid CoreAudio HAL crashes; ensure libmpv is available")
+		})
+		b.audioRunning = true
+		b.clock.seek(at, true, playbackNow())
+		return
+	}
 	sound, err := openPlaybackSound(b.path, at, b.speed)
 	if err != nil {
 		logWarnf("video.audio: %v", err)

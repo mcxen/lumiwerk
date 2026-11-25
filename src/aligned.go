@@ -22,7 +22,7 @@ import (
 
 const (
 	appName                     = "Lumiwerk"
-	appVersion                  = "0.3.27"
+	appVersion                  = "0.3.28"
 	sidebarDefaultWidth float32 = 279
 )
 
@@ -213,6 +213,10 @@ type appState struct {
 	warmVideoStarted bool
 	warmVideoClosed  bool
 	warmVideoDone    chan struct{}
+	warmVideoTimer   *time.Timer
+	videoParkMu      sync.Mutex
+	videoParkTimer   *time.Timer
+	videoParkSeq     int
 	gifPlayer        *ui.VideoPlayer
 	gifPath          string
 	videoEdgeDue     time.Time

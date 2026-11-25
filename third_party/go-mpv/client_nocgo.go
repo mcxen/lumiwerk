@@ -1,5 +1,3 @@
-//go:build !cgo || nocgo
-
 // Package mpv provides purego bindings for libmpv.
 //
 // Forked for Lumiwerk: upstream loads libmpv in package init and panics
@@ -11,6 +9,7 @@
 package mpv
 
 import (
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -22,23 +21,31 @@ var (
 )
 
 var (
-	loadOnce   sync.Once
-	loadErr    error
-	searchPath func() []string // set by the embedding app; may be nil
+	loadOnce     sync.Once
+	loadErr      error
+	searchPathMu sync.RWMutex
+	searchPath   func() []string // set by the embedding app; may be nil
 )
 
 // SetSearchPaths installs a function returning directories to try first
 // when loading libmpv (before the bare system names). Call it before the
 // first New or SetLocale; it must be concurrency-safe. Lumiwerk points it
 // at the app's bundled resources.
-func SetSearchPaths(fn func() []string) { searchPath = fn }
+func SetSearchPaths(fn func() []string) {
+	searchPathMu.Lock()
+	searchPath = fn
+	searchPathMu.Unlock()
+}
 
 // searchPaths answers the installed directories, or nil.
 func searchPaths() []string {
-	if searchPath == nil {
+	searchPathMu.RLock()
+	fn := searchPath
+	searchPathMu.RUnlock()
+	if fn == nil {
 		return nil
 	}
-	return searchPath()
+	return fn()
 }
 
 // Loaded reports whether libmpv could be loaded, forcing the lazy load.
@@ -230,7 +237,9 @@ func (m *Mpv) SetOption(name string, format Format, data interface{}) error {
 	cdata, cleanup := convertData(format, data)
 	defer cleanup()
 
-	return newError(setOption(m.handle, name, int(format), cdata))
+	err := newError(setOption(m.handle, name, int(format), cdata))
+	runtime.KeepAlive(cdata)
+	return err
 }
 
 // SetOptionString sets the option to the given string.
@@ -246,7 +255,9 @@ func (m *Mpv) Command(cmd []string) error {
 	}
 	cmds = append(cmds, nil)
 
-	return newError(command(m.handle, unsafe.SliceData(cmds)))
+	err := newError(command(m.handle, unsafe.SliceData(cmds)))
+	runtime.KeepAlive(cmds)
+	return err
 }
 
 // CommandString runs the given command string, this string is parsed internally by mpv.
@@ -264,6 +275,7 @@ func (m *Mpv) CommandRet(cmd []string) (interface{}, error) {
 
 	var result cNode
 	err := newError(commandRet(m.handle, unsafe.SliceData(cmds), unsafe.Pointer(&result)))
+	runtime.KeepAlive(cmds)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +292,9 @@ func (m *Mpv) CommandAsync(replyUserdata uint64, cmd []string) error {
 	}
 	cmds = append(cmds, nil)
 
-	return newError(commandAsync(m.handle, replyUserdata, unsafe.SliceData(cmds)))
+	err := newError(commandAsync(m.handle, replyUserdata, unsafe.SliceData(cmds)))
+	runtime.KeepAlive(cmds)
+	return err
 }
 
 // CommandNode runs a command given as a []any or map[string]any and returns its result.
@@ -316,7 +330,9 @@ func (m *Mpv) SetProperty(name string, format Format, data interface{}) error {
 	cdata, cleanup := convertData(format, data)
 	defer cleanup()
 
-	return newError(setProperty(m.handle, name, int(format), cdata))
+	err := newError(setProperty(m.handle, name, int(format), cdata))
+	runtime.KeepAlive(cdata)
+	return err
 }
 
 // SetPropertyString sets the property to the given string.
@@ -334,7 +350,9 @@ func (m *Mpv) SetPropertyAsync(name string, replyUserdata uint64, format Format,
 	cdata, cleanup := convertData(format, data)
 	defer cleanup()
 
-	return newError(setPropertyAsync(m.handle, replyUserdata, name, int(format), cdata))
+	err := newError(setPropertyAsync(m.handle, replyUserdata, name, int(format), cdata))
+	runtime.KeepAlive(cdata)
+	return err
 }
 
 // GetProperty returns the value of the property according to the given format.
